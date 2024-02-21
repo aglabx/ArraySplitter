@@ -41,7 +41,7 @@ def get_fs_tree(array, top1_nucleotide, cutoff):
             cutoff = 300
         else:
             cutoff = 10
-    fs_tree, abrupted_nodes = build_fs_tree_from_sequence(
+    fs_tree = build_fs_tree_from_sequence(
         array, top1_nucleotide, names_, positions_, cutoff
     )
     return fs_tree
@@ -49,7 +49,7 @@ def get_fs_tree(array, top1_nucleotide, cutoff):
 
 def compute_hints(array, fs_tree, depth):
     ### Step 3. Find a list of hints (hint is the sequenece for array cutoff)
-    cid1, seq1, names1, positions1, parents1, children1, cov1, loop1, extend1 = fs_tree[
+    cid1, seq1, names1, positions1, parents1, children1 = fs_tree[
         0
     ]
 
@@ -61,7 +61,7 @@ def compute_hints(array, fs_tree, depth):
 
     while queue:
         start = queue.pop(0)
-        cid, seq, names, positions, parents, children, cov, loop, extend = fs_tree[
+        cid, seq, names, positions, parents, children = fs_tree[
             start
         ]
         for child in children:
@@ -71,7 +71,6 @@ def compute_hints(array, fs_tree, depth):
             queue.append(child)
 
     hints = []
-    # print(cid2length)
     for length in range(depth):
         cids = length2cids.get(length, [])
         if not cids:
