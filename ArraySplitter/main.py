@@ -107,7 +107,7 @@ def compute_hints(array, fs_tree, depth):
 
 
 def compute_cuts(array, hints):
-    ### Step 4. Finde optimal cutoff
+    ### Step 4. Find optimal cutoff
     best_cut_seq = None
     best_cut_score = 0.0
     best_period = None
@@ -273,31 +273,35 @@ def print_pause_clean(decomposition, repeats2count, best_period):
 
 
 def decompose_array(array, depth=500, cutoff=20, verbose=True):
-    ### Step 1. Find the most frequent nucleotide (TODO: check all nucleotides and find with the best final score
+    ### Step 1. Find the most frequent nucleotide (TODO: check all nucleotides and find the one with the best final score)
     top1_nucleotide = get_top1_nucleotide(array)
     # print("top1_nucleotide:", top1_nucleotide)
     # top1_nucleotide = "A"
-    ### Step 2. Build fs_tree (TODO:  optimize it for long sequences)
+    ### Step 2. Build fs_tree (TODO: optimize it for long sequences)
     fs_tree = get_fs_tree(array, top1_nucleotide, cutoff=cutoff)
-    ### Step 3. Find a list of hints (hint is the sequenece for array cutoff)
+    ### Step 3. Find a list of hints (hint is the sequence for array cutting)
+    ### Here I defined it as a sequence with maximal coverage in the original array for a given length
     hints = compute_hints(array, fs_tree, depth)
-    ### Step 4. Finde optimal cutoff
+    ### Step 4. Find the optimal cut sequence and the best period
+    ### Defined as the maximal fraction of the cut sequence to the total cut sequence
     best_cut_seq, best_cut_score, best_period = compute_cuts(array, hints)
 
-    ### Step 5. Cut array
-    ### first interation find monomer frequencides
+    ### Step 5. Cut the array
+    ### The first iteration finds monomer frequencies
     decomposition, repeats2count = decompose_array_iter1(
         array, best_cut_seq, best_period, verbose=False
     )
-    ### second iteration
+    
     assert "".join(decomposition) == array
-
+    ### The second iteration tries to cut longer monomers to the expected length
     changed = True
     while changed:
         decomposition, repeats2count, changed = decompose_array_iter2(
             decomposition, best_period, repeats2count, verbose=False
         )
         assert "".join(decomposition) == array
+
+    ### TODO: The third iteration tries to glue short dangling monomers to the nearest monomer
 
     return decomposition, repeats2count, best_cut_seq, best_cut_score, best_period
 
