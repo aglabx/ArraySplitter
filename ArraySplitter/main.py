@@ -5,9 +5,6 @@
 # @author: Aleksey Komissarov
 # @contact: ad3002@gmail.com
 
-import sys
-sys.path.append("..")
-
 import argparse
 import os
 from collections import Counter
