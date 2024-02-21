@@ -6,8 +6,10 @@
 # @contact: ad3002@gmail.com
 
 import argparse
+
 import os
 from collections import Counter
+from tqdm import tqdm
 
 import editdistance as ed
 from intervaltree import IntervalTree
@@ -300,18 +302,27 @@ def decompose_array(array, depth=500, cutoff=20, verbose=True):
     return decomposition, repeats2count, best_cut_seq, best_cut_score, best_period
 
 
+def get_array_generator(input_file, format):
+    '''Get array generator by format.'''
+    if format == "fasta":
+        return sc_iter_fasta_file(input_file)
+    if format == "trf":
+        return sc_iter_trf_file(input_file)
+    if format == "satellome":
+        return sc_iter_satellome_file(input_file)
+    
+    print(f"Unknown format: {format}")
+    exit(1)
+    
+
 def main(input_file, output_prefix, format, threads):
     """Main function."""
 
-    if format == "fasta":
-        sequences = sc_iter_fasta_file(input_file)
-    elif format == "trf":
-        sequences = sc_iter_trf_file(input_file)
-    elif format == "satellome":
-        sequences = sc_iter_satellome_file(input_file)
-    else:
-        print(f"Unknown format: {format}")
-        exit(1)
+    sequences = get_array_generator(input_file, format)
+    total = 0
+    for _ in sequences:
+        total += 1
+    sequences = get_array_generator(input_file, format)
 
     print(f"Start processing")
     print(f"Output prefix: {output_prefix}")
@@ -323,8 +334,8 @@ def main(input_file, output_prefix, format, threads):
     output_file = f"{output_prefix}.decomposed.fasta"
 
     with open(output_file, "w") as fw:
-        for ii, (header, array) in enumerate(sequences):
-            print(len(array), end=" ")
+        for header, array in tqdm(sequences, total=total):
+            # print(len(array), end=" ")
             (
                 decomposition,
                 repeats2count,
@@ -333,7 +344,7 @@ def main(input_file, output_prefix, format, threads):
                 best_period,
             ) = decompose_array(array, depth=depth, cutoff=cutoff, verbose=verbose)
 
-            print("best period:", best_period, "len:", len(decomposition))
+            # print("best period:", best_period, "len:", len(decomposition))
             # print_pause_clean(decomposition, repeats2count, best_period)
 
             fw.write(f">{header} {best_period}\n")
