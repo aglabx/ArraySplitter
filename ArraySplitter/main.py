@@ -6,9 +6,6 @@
 # @contact: ad3002@gmail.com
 
 import sys
-
-from regex import F
-
 sys.path.append("..")
 
 import argparse
