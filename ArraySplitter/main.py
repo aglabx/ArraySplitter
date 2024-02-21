@@ -321,21 +321,24 @@ def main(input_file, output_prefix, format, threads):
     cutoff = 20
     verbose = False
 
-    tr2decompose = []
-    for array in sequences:
-        print(len(array))
-        (
-            decomposition,
-            repeats2count,
-            best_cut_seq,
-            best_cut_score,
-            best_period,
-        ) = decompose_array(array, depth=depth, cutoff=cutoff, verbose=verbose)
+    output_file = f"{output_prefix}.decomposed.fasta"
 
-        print("Best period:", best_period)
-        print_pause_clean(decomposition, repeats2count, best_period)
+    with open(output_file, "w") as fw:
+        for ii, array in enumerate(sequences):
+            print(len(array), end=" ")
+            (
+                decomposition,
+                repeats2count,
+                best_cut_seq,
+                best_cut_score,
+                best_period,
+            ) = decompose_array(array, depth=depth, cutoff=cutoff, verbose=verbose)
 
-        tr2decompose.append((array, decomposition, repeats2count, best_cut_seq, best_period))
+            print("best period:", best_period, "len:", len(decomposition))
+            # print_pause_clean(decomposition, repeats2count, best_period)
+
+            fw.write(f">{ii} {best_period}\n")
+            fw.write(" ".join(decomposition) + "\n")
 
 
 if __name__ == "__main__":
