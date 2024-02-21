@@ -36,40 +36,42 @@ def get_fs_tree(array, top1_nucleotide, cutoff):
     names_ = [i for i in range(len(array)) if array[i] == top1_nucleotide]
     positions_ = names_[::]
     # print(f"Starting positions: {len(positions_)}")
-    if not cutoff:
-        if len(array) > 100_000:
-            cutoff = 300
-        else:
-            cutoff = 10
     return iter_fs_tree_from_sequence(
         array, top1_nucleotide, names_, positions_, cutoff
     )
 
 
-def compute_hints(array, fs_tree, depth):
+def iterate_hints(array, fs_tree, depth):
     ### Step 3. Find a list of hints (hint is the sequenece for array cutoff)
 
-    length2fs = {}
-
-    for cid, seq, names, positions in fs_tree:
+    current_length = 0
+    buffer = []
+    for L, names, positions in fs_tree:
+        if L != current_length:
+            if buffer:
+                max_n = 0
+                found_seq = None
+                for start, end, N in buffer:
+                    if N > max_n:
+                        max_n = N
+                        found_seq = array[start : end + 1]
+                yield current_length, found_seq, max_n
+            buffer = []
+            current_length = L
+            if current_length > depth:
+                break
         start = names[0]
         end = positions[0]
-        L = end - start
-        length2fs.setdefault(L, []).append((start, end, len(names)))
-
-    hints = []
-    for length in range(depth):
-        fss = length2fs.get(length, [])
-        if not fss:
-            continue
-    
-        c = Counter()
-        for start, end, N in fss:
-            seq = array[start : end + 1]
-            c[seq] = N
-
-        hints.append(c.most_common(1)[0])
-    return hints
+        N = len(names)
+        buffer.append((start, end, N))
+    if buffer:
+        max_n = 0
+        found_seq = None
+        for start, end, N in buffer:
+            if N > max_n:
+                max_n = N
+                found_seq = array[start : end + 1]
+        yield current_length, found_seq, max_n
 
 
 def compute_cuts(array, hints):
@@ -77,7 +79,7 @@ def compute_cuts(array, hints):
     best_cut_seq = None
     best_cut_score = 0.0
     best_period = None
-    for sp, _ in hints:
+    for L, sp, N in hints:
         if len(sp) < 2:
             continue
         t = 0
@@ -247,7 +249,7 @@ def decompose_array(array, depth=500, cutoff=20, verbose=True):
     fs_tree = get_fs_tree(array, top1_nucleotide, cutoff=cutoff)
     ### Step 3. Find a list of hints (hint is the sequence for array cutting)
     ### Here I defined it as a sequence with maximal coverage in the original array for a given length
-    hints = compute_hints(array, fs_tree, depth)
+    hints = iterate_hints(array, fs_tree, depth)
     ### Step 4. Find the optimal cut sequence and the best period
     ### Defined as the maximal fraction of the cut sequence to the total cut sequence
     best_cut_seq, best_cut_score, best_period = compute_cuts(array, hints)
@@ -298,7 +300,7 @@ def main(input_file, output_prefix, format, threads):
     print(f"Output prefix: {output_prefix}")
 
     depth = 500
-    cutoff = 20
+    cutoff = None
     verbose = False
 
     output_file = f"{output_prefix}.decomposed.fasta"
@@ -306,6 +308,15 @@ def main(input_file, output_prefix, format, threads):
     with open(output_file, "w") as fw:
         for header, array in tqdm(sequences, total=total):
             # print(len(array), end=" ")
+            if not cutoff:
+                if len(array) > 1_000_000:
+                    cutoff = 1000
+                elif len(array) > 100_000:
+                    cutoff = 250
+                elif len(array) > 10_000:
+                    cutoff = 10
+                else:
+                    cutoff = 3
             (
                 decomposition,
                 repeats2count,

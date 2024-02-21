@@ -7,6 +7,25 @@
 
 from collections import deque
 
+import heapq
+
+class WeightedValueHeap:
+    def __init__(self):
+        self.heap = []
+    
+    def insert(self, weight, value):
+        heapq.heappush(self.heap, (weight, value))
+    
+    def pop(self):
+        if self.heap:
+            return heapq.heappop(self.heap)
+        return None
+    
+    def peek(self):
+        if self.heap:
+            return self.heap[0]
+        return None
+
 def update(
     fs_tree,
     queue,
@@ -121,25 +140,21 @@ def build_fs_tree_from_sequence(array, starting_seq_, names_, positions_, cutoff
 
 
 def iter_fs_tree_from_sequence(array, starting_seq_, names_, positions_, cutoff):
-    
-    queue = deque()
-    cid = 0
-    seq = starting_seq_
+    heap = []
     names = names_[::]
     positions = positions_[::]
-    fs = (cid, [seq], names, positions)
-    queue.appendleft(fs)
-    cid += 1
+    fs = (1, names, positions)
+    heapq.heappush(heap, (1, fs))
     cutoff = cutoff
-    while queue:
-        fs = queue.popleft()
+    while heap:
+        L, fs = heapq.heappop(heap)
 
         fs_a, fs_c, fs_g, fs_t = [], [], [], []
         fs_ap, fs_cp, fs_gp, fs_tp = [], [], [], []
 
-        for ii, pos in enumerate(fs[3]):
-            seq = fs[1]
-            name = fs[2][ii]
+        for ii, pos in enumerate(fs[2]):
+            
+            name = fs[1][ii]
 
             if pos + 1 == len(array):
                 continue
@@ -160,45 +175,36 @@ def iter_fs_tree_from_sequence(array, starting_seq_, names_, positions_, cutoff)
             
         if len(fs_a) > cutoff:
             fs = (
-                cid,
-                ["A"],
+                L+1,
                 fs_a,
                 fs_ap,
             )
-            queue.appendleft(fs)
-            cid += 1
+            heapq.heappush(heap, (L+1, fs))
             yield fs
 
         if len(fs_c) > cutoff:
             fs = (
-                cid,
-                ["C"],
+                L+1,
                 fs_c,
                 fs_cp,
             )
-            queue.appendleft(fs)
-            cid += 1
+            heapq.heappush(heap, (L+1, fs))
             yield fs
 
         if len(fs_g) > cutoff:
             fs = (
-                cid,
-                ["G"],
+                L+1,
                 fs_g,
                 fs_gp,
             )
-            queue.appendleft(fs)
-            cid += 1
+            heapq.heappush(heap, (L+1, fs))
             yield fs
 
         if len(fs_t) > cutoff:
             fs = (
-                cid,
-                ["T"],
+                L+1,
                 fs_t,
                 fs_tp,
             )
-            queue.appendleft(fs)
-            cid += 1
+            heapq.heappush(heap, (L+1, fs))
             yield fs
-        
