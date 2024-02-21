@@ -53,7 +53,7 @@ def get_fs_tree(array, top1_nucleotide, cutoff):
 
 
 def compute_hints(array, fs_tree, depth):
-    ### Step 3. Find a list of HINTS (hint is the sequenece for array cutoff)
+    ### Step 3. Find a list of hints (hint is the sequenece for array cutoff)
     cid1, seq1, names1, positions1, parents1, children1, cov1, loop1, extend1 = fs_tree[
         0
     ]
@@ -70,7 +70,7 @@ def compute_hints(array, fs_tree, depth):
             cid2length[child] = (cid2length[cid][0] + 1, len(fs_tree[child][2]))
             queue.append(child)
 
-    HINTS = []
+    hints = []
     # print(cid2length)
     for length in range(depth):
         found = False
@@ -102,16 +102,16 @@ def compute_hints(array, fs_tree, depth):
             pcoverage += len(seq) * cov
         if found:
             # print(f"-{length}--{100.*pcoverage/len(array)}--{100.*coverage/len(array)}--{100.*rcoverage//len(array)}--")
-            HINTS.append(c.most_common(500)[0])
-    return HINTS
+            hints.append(c.most_common(500)[0])
+    return hints
 
 
-def compute_cuts(array, HINTS):
+def compute_cuts(array, hints):
     ### Step 4. Finde optimal cutoff
     best_cut_seq = None
     best_cut_score = 0.0
     best_period = None
-    for sp, _ in HINTS:
+    for sp, _ in hints:
         if len(sp) < 2:
             continue
         t = 0
@@ -279,10 +279,10 @@ def decompose_array(array, depth=500, cutoff=20, verbose=True):
     # top1_nucleotide = "A"
     ### Step 2. Build fs_tree (TODO:  optimize it for long sequences)
     fs_tree = get_fs_tree(array, top1_nucleotide, cutoff=cutoff)
-    ### Step 3. Find a list of HINTS (hint is the sequenece for array cutoff)
-    HINTS = compute_hints(array, fs_tree, depth)
+    ### Step 3. Find a list of hints (hint is the sequenece for array cutoff)
+    hints = compute_hints(array, fs_tree, depth)
     ### Step 4. Finde optimal cutoff
-    best_cut_seq, best_cut_score, best_period = compute_cuts(array, HINTS)
+    best_cut_seq, best_cut_score, best_period = compute_cuts(array, hints)
 
     ### Step 5. Cut array
     ### first interation find monomer frequencides
