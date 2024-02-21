@@ -4,6 +4,10 @@ Decomposes satellite DNA arrays into monomers within telomere-to-telomere (T2T) 
 
 **Status:** In development. Optimized for 100Kb scale arrays; longer arrays will work but may take longer to process. Signigicanlty longer time.
 
+**Update:** From 1.1.6, ArraySplitter now successfully decomposes arrays on megabase scale. Largest arrays takes around 5 minutes to process. Fortunatelly, there are only 41 arrays large 1 Mb in CHM13v20 assembly. And I'm going to add parallel processing to speed up singificantly the process. Currently, it is single-threaded.
+
+**Update:** Monomers are required some polising of borders, I am working on it.
+
 ## Installation
 
 **Prerequisites**
