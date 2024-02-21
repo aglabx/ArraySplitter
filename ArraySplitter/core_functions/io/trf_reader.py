@@ -71,3 +71,9 @@ def sc_iter_arrays_trf_file(file_name):
     reader = TRFFileIO()
     for trf_obj in reader.iter_parse(file_name):
         yield trf_obj.trf_array
+
+def sc_iter_trf_file(file_name):
+    """Iter over trf file."""
+    reader = TRFFileIO()
+    for trf_obj in reader.iter_parse(file_name):
+        yield trf_obj.trf_id, trf_obj.trf_array

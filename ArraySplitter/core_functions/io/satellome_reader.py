@@ -13,3 +13,8 @@ def sc_iter_arrays_satellome_file(trf_file):
     """Iter over satellome file."""
     for trf_obj in sc_iter_tab_file(trf_file, TRModel):
         yield trf_obj.trf_array
+
+def sc_iter_satellome_file(trf_file):
+    """Iter over satellome file."""
+    for trf_obj in sc_iter_tab_file(trf_file, TRModel):
+        yield trf_obj.trf_id, trf_obj.trf_array

@@ -34,7 +34,7 @@ def sc_iter_fasta_file(file_name, inmem=False, lower=False):
                     if lower:
                         sequence = sequence.lower()
                     yield header, sequence
-                header = line.strip()
+                header = line.strip()[1:]
                 seq = []
                 continue
             seq.append(line.strip())

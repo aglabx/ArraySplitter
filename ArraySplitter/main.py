@@ -19,10 +19,10 @@ import editdistance as ed
 from intervaltree import IntervalTree
 
 from ArraySplitter.core_functions.io.fasta_reader import \
-    sc_iter_arrays_fasta_file
+    sc_iter_fasta_file
 from ArraySplitter.core_functions.io.satellome_reader import \
-    sc_iter_arrays_satellome_file
-from ArraySplitter.core_functions.io.trf_reader import sc_iter_arrays_trf_file
+    sc_iter_satellome_file
+from ArraySplitter.core_functions.io.trf_reader import sc_iter_trf_file
 from ArraySplitter.core_functions.tools.fs_tree import \
     build_fs_tree_from_sequence
 
@@ -306,11 +306,11 @@ def main(input_file, output_prefix, format, threads):
     """Main function."""
 
     if format == "fasta":
-        sequences = sc_iter_arrays_fasta_file(input_file)
+        sequences = sc_iter_fasta_file(input_file)
     elif format == "trf":
-        sequences = sc_iter_arrays_trf_file(input_file)
+        sequences = sc_iter_trf_file(input_file)
     elif format == "satellome":
-        sequences = sc_iter_arrays_satellome_file(input_file)
+        sequences = sc_iter_satellome_file(input_file)
     else:
         print(f"Unknown format: {format}")
         exit(1)
@@ -325,7 +325,7 @@ def main(input_file, output_prefix, format, threads):
     output_file = f"{output_prefix}.decomposed.fasta"
 
     with open(output_file, "w") as fw:
-        for ii, array in enumerate(sequences):
+        for ii, (header, array) in enumerate(sequences):
             print(len(array), end=" ")
             (
                 decomposition,
@@ -338,7 +338,7 @@ def main(input_file, output_prefix, format, threads):
             print("best period:", best_period, "len:", len(decomposition))
             # print_pause_clean(decomposition, repeats2count, best_period)
 
-            fw.write(f">{ii} {best_period}\n")
+            fw.write(f">{header} {best_period}\n")
             fw.write(" ".join(decomposition) + "\n")
 
 
