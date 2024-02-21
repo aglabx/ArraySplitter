@@ -12,9 +12,7 @@ ArraySplitter is implemented in Python and requires Python 3.6 or later.
 To install ArraySplitter, clone the repository from GitHub and install the required dependencies using pip:
 
 ```bash
-pip install -r requirements.txt
-
-python setup.py install
+pip install arraysplitter
 ```
 
 ## Usage
@@ -22,7 +20,7 @@ python setup.py install
 ArraySplitter is a command-line tool. To see the available options, run:
 
 ```bash
-time python ./ArraySplitter/main.py --help
+arraysplitter --help
 ```
 
 The main input to ArraySplitter is a FASTA file containing the telomere-to-telomere assembly. The output is a FASTA file containing the monomers of the satellite DNA arrays seperated by spaces.
@@ -32,6 +30,6 @@ The main input to ArraySplitter is a FASTA file containing the telomere-to-telom
 To run ArraySplitter on the provided test data, run:
 
 ```bash
-time python ./ArraySplitter/main.py --input ./test_data/chr1.fa --output ./test_data/chr1_monomers
+time arraysplitter --input chr1.fa --output chr1
 ```
 
