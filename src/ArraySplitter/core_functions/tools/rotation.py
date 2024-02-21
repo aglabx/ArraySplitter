@@ -46,10 +46,16 @@ def rotate_arrays(arrays_):
     for array in arrays_:
         feature1 = array.count("C") < array.count("G")
         feature2 = array.count("A") < array.count("T")
-        if feature1 and feature2:
-            arrays.append(array.split())
+        if feature1 and feature2 or (not feature1 and not feature2):
+            if feature1 and feature2:
+                arrays.append(array.split())
+            else:
+                arrays.append(get_revcomp(array).split())
         else:
-            arrays.append(get_revcomp(array).split())
+            if feature1 and not feature2:
+                arrays.append(get_revcomp(array).split())
+            else:
+                arrays.append(array.split())
 
     max_f1, (r, p, f1, best_kmer) = best_kmer_for_start(arrays)
 
