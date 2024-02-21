@@ -9,7 +9,7 @@ import re
 
 from PyExp import AbstractModel
 
-from ArraySplitter.core_functions.tools.parsers import (parse_chromosome_name,
+from ..tools.parsers import (parse_chromosome_name,
                                                         parse_fasta_head,
                                                         trf_parse_head,
                                                         trf_parse_line)

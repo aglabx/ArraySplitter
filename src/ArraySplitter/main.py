@@ -14,12 +14,12 @@ from tqdm import tqdm
 import editdistance as ed
 from intervaltree import IntervalTree
 
-from ArraySplitter.core_functions.io.fasta_reader import \
+from .core_functions.io.fasta_reader import \
     sc_iter_fasta_file
-from ArraySplitter.core_functions.io.satellome_reader import \
+from .core_functions.io.satellome_reader import \
     sc_iter_satellome_file
-from ArraySplitter.core_functions.io.trf_reader import sc_iter_trf_file
-from ArraySplitter.core_functions.tools.fs_tree import \
+from .core_functions.io.trf_reader import sc_iter_trf_file
+from .core_functions.tools.fs_tree import \
     build_fs_tree_from_sequence
 
 
@@ -351,7 +351,7 @@ def main(input_file, output_prefix, format, threads):
             fw.write(" ".join(decomposition) + "\n")
 
 
-if __name__ == "__main__":
+def run_it():
     parser = argparse.ArgumentParser(
         description="De novo decomposition of satellite DNA arrays into monomers"
     )
@@ -378,3 +378,6 @@ if __name__ == "__main__":
         exit(1)
 
     main(input_file, output_prefix, format, threads)
+
+if __name__ == "__main__":
+    run_it()

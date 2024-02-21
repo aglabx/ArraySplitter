@@ -12,8 +12,8 @@ Classes:
 
 """
 
-from ArraySplitter.core_functions.io.block_file import AbstractBlockFileIO
-from ArraySplitter.core_functions.models.trf_model import TRModel
+from .block_file import AbstractBlockFileIO
+from ..models.trf_model import TRModel
 
 
 class TRFFileIO(AbstractBlockFileIO):
