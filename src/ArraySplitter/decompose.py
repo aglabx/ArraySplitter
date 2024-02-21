@@ -78,8 +78,6 @@ def compute_cuts(array, hints):
     possible_solutions = Counter()
     solution2meta = {}
     for L, cut_sequence, N in hints:
-        if len(cut_sequence) < 2:
-            continue
         period2freq = Counter()
         for seq in array.split(cut_sequence):
             period2freq[len(seq + cut_sequence)] += 1
@@ -98,6 +96,8 @@ def compute_cuts(array, hints):
             best_cut_seq = cut_sequence
             best_period = period
         # print(L, period, period_freq, score, possible_solutions, solution2meta)
+    if not possible_solutions:
+        return array, 0, len(array)
     best_period = possible_solutions.most_common(1)[0][0]
     best_cut_seq, best_cut_score, best_period = solution2meta[best_period]
     return best_cut_seq, best_cut_score, best_period
