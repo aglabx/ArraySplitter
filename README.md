@@ -30,8 +30,8 @@ time arraysplitter -i chr1.arrays.fa -o chr1.arrays
 
 **Explanation**
 
-* **`--input chr1.arrays.fa`:**  FASTA file of satDNA arrays.
-* **`--output chr1.arrays`:** Output FASTA containing decomposed monomers (separated by spaces).
+* **`-i chr1.arrays.fa`:**  FASTA file of satDNA arrays.
+* **`-o chr1.arrays`:** Prefix for the output FASTA containing decomposed monomers (separated by spaces).
 
 **All Options** 
 
@@ -46,6 +46,11 @@ We found that different arrays of the same repeat family can be decomposed sligt
 ```bash
 arraysplitter_rotate -i arrays.fa -o arrays.norm.fa
 ```
+
+**Explanation**
+
+* **`-i arrays.fa`:**  FASTA file of monomers.
+* **`-o arrays.norm.fa`:** Output FASTA file with rotated monomers.
 
 ## Contact
 
