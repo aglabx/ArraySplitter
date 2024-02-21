@@ -45,8 +45,8 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'ArraySplitter=ArraySplitter.main:run_it',
-            'arraysplitter=ArraySplitter.main:run_it',
+            'arraysplitter = ArraySplitter.decompose:run_it',
+            'arraysplitter_rotate = ArraySplitter.rotate:run_it',
         ],
     },
 )
