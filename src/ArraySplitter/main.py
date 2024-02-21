@@ -259,7 +259,7 @@ def decompose_array(array, depth=500, cutoff=20, verbose=False):
 
     ### Step 5. Cut the array
     ### The first iteration finds monomer frequencies
-    print("Firset iteration")
+    # print("Firset iteration")
     decomposition, repeats2count = decompose_array_iter1(
         array, best_cut_seq, best_period, verbose=verbose
     )
@@ -268,7 +268,7 @@ def decompose_array(array, depth=500, cutoff=20, verbose=False):
     ### The second iteration tries to cut longer monomers to the expected length
     changed = True
     while changed:
-        print("Firset iteration", len(decomposition))
+        # print("Firset iteration", len(decomposition))
         decomposition, repeats2count, changed = decompose_array_iter2(
             decomposition, best_period, repeats2count, verbose=verbose
         )
