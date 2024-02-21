@@ -19,7 +19,7 @@ from .core_functions.io.satellome_reader import \
     sc_iter_satellome_file
 from .core_functions.io.trf_reader import sc_iter_trf_file
 from .core_functions.tools.fs_tree import \
-    build_fs_tree_from_sequence
+    iter_fs_tree_from_sequence
 
 
 def get_top1_nucleotide(array):
@@ -41,47 +41,32 @@ def get_fs_tree(array, top1_nucleotide, cutoff):
             cutoff = 300
         else:
             cutoff = 10
-    fs_tree = build_fs_tree_from_sequence(
+    return iter_fs_tree_from_sequence(
         array, top1_nucleotide, names_, positions_, cutoff
     )
-    return fs_tree
 
 
 def compute_hints(array, fs_tree, depth):
     ### Step 3. Find a list of hints (hint is the sequenece for array cutoff)
-    cid1, seq1, names1, positions1, parents1, children1 = fs_tree[
-        0
-    ]
 
-    cid2length = {}
-    cid2length[0] = 1
-    queue = [0]
-    length2cids = {}
-    length2cids[1] = [0]
+    length2fs = {}
 
-    while queue:
-        start = queue.pop(0)
-        cid, seq, names, positions, parents, children = fs_tree[
-            start
-        ]
-        for child in children:
-            L = cid2length[cid] + 1
-            length2cids.setdefault(L, []).append(child)
-            cid2length[child] = L
-            queue.append(child)
+    for cid, seq, names, positions in fs_tree:
+        start = names[0]
+        end = positions[0]
+        L = end - start
+        length2fs.setdefault(L, []).append((start, end, len(names)))
 
     hints = []
     for length in range(depth):
-        cids = length2cids.get(length, [])
-        if not cids:
+        fss = length2fs.get(length, [])
+        if not fss:
             continue
     
         c = Counter()
-        for cid in cids:
-            start = fs_tree[cid][2][0]
-            end = fs_tree[cid][3][0]
+        for start, end, N in fss:
             seq = array[start : end + 1]
-            c[seq] = len(fs_tree[cid][2])
+            c[seq] = N
 
         hints.append(c.most_common(1)[0])
     return hints
