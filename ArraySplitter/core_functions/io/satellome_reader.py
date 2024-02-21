@@ -5,8 +5,8 @@
 # @author: Aleksey Komissarov
 # @contact: ad3002@gmail.com
 
-from ArraySplitter.core_functions.models.trf_model import TRModel
 from ArraySplitter.core_functions.io.tab_file import sc_iter_tab_file
+from ArraySplitter.core_functions.models.trf_model import TRModel
 
 
 def sc_iter_arrays_satellome_file(trf_file):

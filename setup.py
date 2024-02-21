@@ -1,5 +1,6 @@
-from setuptools import setup, find_packages
 import re
+
+from setuptools import find_packages, setup
 
 version = None
 for line in open("./ArraySplitter/__init__.py"):
@@ -10,22 +11,22 @@ for line in open("./ArraySplitter/__init__.py"):
 assert version
 
 setup(
-    name='ArraySplitter',
+    name="ArraySplitter",
     version=version,
     packages=["ArraySplitter"],
     package_data={"": ["README.md"]},
-    python_requires='>=3.6',
+    python_requires=">=3.6",
     include_package_data=True,
     scripts=[],
     license="BSD",
-    url='https://github.com/aglabx/ArraySplitter',
-    author='Aleksey Komissarov',
-    author_email='ad3002@gmail.com',
-    description='De Novo Decomposition of Satellite DNA Arrays into Monomers within Telomere-to-Telomere Assemblies',
+    url="https://github.com/aglabx/ArraySplitter",
+    author="Aleksey Komissarov",
+    author_email="ad3002@gmail.com",
+    description="De Novo Decomposition of Satellite DNA Arrays into Monomers within Telomere-to-Telomere Assemblies",
     install_requires=[
-        'PyExp',
-        'intervaltree',
-        'editdistance',
+        "PyExp",
+        "intervaltree",
+        "editdistance",
     ],
     classifiers=[
         "Development Status :: 4 - Beta",

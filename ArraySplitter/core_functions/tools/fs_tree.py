@@ -41,7 +41,6 @@ def update(
 
 
 def build_fs_tree_from_sequence(array, starting_seq_, names_, positions_, cutoff):
-
     fs_tree = {}
     abrupted_nodes = {}
     queue = []
@@ -61,7 +60,6 @@ def build_fs_tree_from_sequence(array, starting_seq_, names_, positions_, cutoff
     cutoff = cutoff
 
     while queue:
-
         qcid = queue.pop()
 
         fs = fs_tree[qcid]

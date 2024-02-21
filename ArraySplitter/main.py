@@ -13,15 +13,18 @@ sys.path.append("..")
 
 import argparse
 import os
-from ArraySplitter.core_functions.io.fasta_reader import sc_iter_arrays_fasta_file
-from ArraySplitter.core_functions.io.trf_reader import sc_iter_arrays_trf_file
-from ArraySplitter.core_functions.io.satellome_reader import (
-    sc_iter_arrays_satellome_file,
-)
-from ArraySplitter.core_functions.tools.fs_tree import build_fs_tree_from_sequence
 from collections import Counter
-from intervaltree import IntervalTree
+
 import editdistance as ed
+from intervaltree import IntervalTree
+
+from ArraySplitter.core_functions.io.fasta_reader import \
+    sc_iter_arrays_fasta_file
+from ArraySplitter.core_functions.io.satellome_reader import \
+    sc_iter_arrays_satellome_file
+from ArraySplitter.core_functions.io.trf_reader import sc_iter_arrays_trf_file
+from ArraySplitter.core_functions.tools.fs_tree import \
+    build_fs_tree_from_sequence
 
 
 def get_top1_nucleotide(array):
@@ -241,7 +244,6 @@ def decompose_array_iter2(decomposition, best_period, repeats2count_ref, verbose
 
 
 def print_monomers(decomposition, repeats2count, best_period):
-
     start2tf = Counter()
     for monomer in decomposition:
         start2tf[monomer[:5]] += 1
@@ -271,7 +273,6 @@ def print_pause_clean(decomposition, repeats2count, best_period):
 
 
 def decompose_array(array, depth=500, cutoff=20, verbose=True):
-
     ### Step 1. Find the most frequent nucleotide (TODO: check all nucleotides and find with the best final score
     top1_nucleotide = get_top1_nucleotide(array)
     # print("top1_nucleotide:", top1_nucleotide)
