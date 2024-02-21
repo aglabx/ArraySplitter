@@ -1,3 +1,4 @@
 PyExp
 editdistance
 intervaltree
+tqdm
