@@ -25,7 +25,7 @@ pip install arraysplitter
 **Basic Example**
 
 ```bash
-time arraysplitter --input chr1.arrays.fa --output chr1.arrays
+time arraysplitter -i chr1.arrays.fa -o chr1.arrays
 ```
 
 **Explanation**
@@ -37,6 +37,14 @@ time arraysplitter --input chr1.arrays.fa --output chr1.arrays
 
 ```bash
 arraysplitter --help 
+```
+
+## Rotating monomers to start with the same sequence
+
+We found that different arrays of the same repeat family can be decomposed sligtly differently. To make them comparable, ArraySplitter can rotate monomers to start with the same sequence. 
+
+```bash
+arraysplitter_rotate -i arrays.fa -o arrays.norm.fa
 ```
 
 ## Contact
