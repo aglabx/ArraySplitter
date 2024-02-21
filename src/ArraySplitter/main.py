@@ -12,7 +12,6 @@ from collections import Counter
 from tqdm import tqdm
 
 import editdistance as ed
-from intervaltree import IntervalTree
 
 from .core_functions.io.fasta_reader import \
     sc_iter_fasta_file
@@ -55,50 +54,37 @@ def compute_hints(array, fs_tree, depth):
     ]
 
     cid2length = {}
-    cid2length[0] = (1, len(names1))
+    cid2length[0] = 1
     queue = [0]
+    length2cids = {}
+    length2cids[1] = [0]
+
     while queue:
         start = queue.pop(0)
         cid, seq, names, positions, parents, children, cov, loop, extend = fs_tree[
             start
         ]
         for child in children:
-            cid2length[child] = (cid2length[cid][0] + 1, len(fs_tree[child][2]))
+            L = cid2length[cid] + 1
+            length2cids.setdefault(L, []).append(child)
+            cid2length[child] = L
             queue.append(child)
 
     hints = []
     # print(cid2length)
     for length in range(depth):
-        found = False
+        cids = length2cids.get(length, [])
+        if not cids:
+            continue
+    
         c = Counter()
-        tree = IntervalTree()
-        for cid, (L, N) in cid2length.items():
-            if L == length:
-                found = True
-                for start in fs_tree[cid][2]:
-                    tree.addi(start, start + L)
-                start = fs_tree[cid][2][0]
-                end = fs_tree[cid][3][0]
-                seq = array[start : end + 1]
-                c[seq] = len(fs_tree[cid][2])
+        for cid in cids:
+            start = fs_tree[cid][2][0]
+            end = fs_tree[cid][3][0]
+            seq = array[start : end + 1]
+            c[seq] = len(fs_tree[cid][2])
 
-        tree.merge_overlaps()
-        coverage = 0
-        pred_sizes = Counter()
-        pred_seqs = Counter()
-        for start, end, _ in tree:
-            coverage += abs(end - start)
-            pred_sizes[abs(end - start)] += 1
-            pred_seqs[array[start:end]] += 1
-        rcoverage = 0
-        for seq, cov in c.items():
-            rcoverage += len(seq) * cov
-        pcoverage = 0
-        for seq, cov in pred_seqs.most_common(10):
-            pcoverage += len(seq) * cov
-        if found:
-            # print(f"-{length}--{100.*pcoverage/len(array)}--{100.*coverage/len(array)}--{100.*rcoverage//len(array)}--")
-            hints.append(c.most_common(500)[0])
+        hints.append(c.most_common(1)[0])
     return hints
 
 
