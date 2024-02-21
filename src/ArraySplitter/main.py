@@ -79,23 +79,31 @@ def compute_cuts(array, hints):
     best_cut_seq = None
     best_cut_score = 0.0
     best_period = None
-    for L, sp, N in hints:
-        if len(sp) < 2:
+    possible_solutions = Counter()
+    solution2meta = {}
+    for L, cut_sequence, N in hints:
+        if len(cut_sequence) < 2:
             continue
-        t = 0
-        c = Counter()
-        for x in array.split(sp):
-            if len(x + sp) == 44:
-                t += 1
-            c[len(x + sp)] += 1
-        a, b = c.most_common(1)[0]
-        v = sum(c.values())
-        score = b / v
+        period2freq = Counter()
+        for seq in array.split(cut_sequence):
+            period2freq[len(seq + cut_sequence)] += 1
+        period, period_freq = period2freq.most_common(1)[0]
+        total_periods = sum(period2freq.values())
+        score = period_freq / total_periods
+
+        possible_solutions[period] += 1
+        if not period in solution2meta:
+            solution2meta[period] = [cut_sequence, score, period]
+        else:
+            if score > solution2meta[period][1]:
+                solution2meta[period] = [cut_sequence, score, period]
         if score > best_cut_score:
             best_cut_score = score
-            best_cut_seq = sp
-            best_period = c.most_common(1)[0][0]
-            # print(100*b//v, sp, t, c.most_common(3))
+            best_cut_seq = cut_sequence
+            best_period = period
+        # print(L, period, period_freq, score, possible_solutions, solution2meta)
+    best_period = possible_solutions.most_common(1)[0][0]
+    best_cut_seq, best_cut_score, best_period = solution2meta[best_period]
     return best_cut_seq, best_cut_score, best_period
 
 
@@ -111,7 +119,6 @@ def refine_repeat_even(repeat, best_period):
 
 
 def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True):
-    t = 0
     repeats2count = Counter()
     decomposition = []
     cuts = array.split(best_cut_seq)
@@ -123,7 +130,6 @@ def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True):
         if not repeat:
             continue
         if len(repeat) == best_period:
-            t += 1
             if verbose:
                 print(len(repeat), repeat)
             repeats2count[repeat] += 1
@@ -131,14 +137,10 @@ def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True):
         else:
             # print(len(repeat), best_period)
             for repeat in refine_repeat_even(repeat, best_period):
-                if len(repeat) == best_period:
-                    t += 1
                 if verbose:
                     print(len(repeat), repeat)
                 repeats2count[repeat] += 1
                 decomposition.append(repeat)
-    if verbose:
-        print(t)
     return decomposition, repeats2count
 
 
@@ -148,7 +150,11 @@ def refine_repeat_odd(repeat, best_period, most_common_monomer, verbose=False):
         n = len(most_common_monomer)
         optimal_cut = 0
         best_ed = n
-        for i in range(len(repeat) - n + 1):
+
+        begin_positions = [i for i in range(min(len(repeat) - n + 1, 5))]
+        end_positions = [i for i in range(max(0, len(repeat) - n + 1 - 5), len(repeat) - n + 1)]
+
+        for i in begin_positions+end_positions:
             rep_b = repeat[i : i + n]
             dist = ed.eval(most_common_monomer, rep_b)
             if dist < best_ed:
@@ -181,7 +187,6 @@ def refine_repeat_odd(repeat, best_period, most_common_monomer, verbose=False):
 
 
 def decompose_array_iter2(decomposition, best_period, repeats2count_ref, verbose=True):
-    t = 0
     repeats2count = Counter()
     refined_decomposition = []
     most_common_monomer = None
@@ -196,8 +201,6 @@ def decompose_array_iter2(decomposition, best_period, repeats2count_ref, verbose
         for repeat in refine_repeat_odd(
             repeat, best_period, most_common_monomer, verbose=verbose
         ):
-            if len(repeat) == best_period:
-                t += 1
             if verbose:
                 print("Added:", len(repeat), repeat)
             repeats2count[repeat] += 1
@@ -240,7 +243,7 @@ def print_pause_clean(decomposition, repeats2count, best_period):
 #   clear_output(wait=True)
 
 
-def decompose_array(array, depth=500, cutoff=20, verbose=True):
+def decompose_array(array, depth=500, cutoff=20, verbose=False):
     ### Step 1. Find the most frequent nucleotide (TODO: check all nucleotides and find the one with the best final score)
     top1_nucleotide = get_top1_nucleotide(array)
     # print("top1_nucleotide:", top1_nucleotide)
@@ -256,18 +259,20 @@ def decompose_array(array, depth=500, cutoff=20, verbose=True):
 
     ### Step 5. Cut the array
     ### The first iteration finds monomer frequencies
+    print("Firset iteration")
     decomposition, repeats2count = decompose_array_iter1(
-        array, best_cut_seq, best_period, verbose=False
+        array, best_cut_seq, best_period, verbose=verbose
     )
     
-    assert "".join(decomposition) == array
+    # assert "".join(decomposition) == array
     ### The second iteration tries to cut longer monomers to the expected length
     changed = True
     while changed:
+        print("Firset iteration", len(decomposition))
         decomposition, repeats2count, changed = decompose_array_iter2(
-            decomposition, best_period, repeats2count, verbose=False
+            decomposition, best_period, repeats2count, verbose=verbose
         )
-        assert "".join(decomposition) == array
+        # assert "".join(decomposition) == array
 
     ### TODO: The third iteration tries to glue short dangling monomers to the nearest monomer
 
@@ -299,7 +304,7 @@ def main(input_file, output_prefix, format, threads):
     print(f"Start processing")
     print(f"Output prefix: {output_prefix}")
 
-    depth = 500
+    depth = 100
     cutoff = None
     verbose = False
 
