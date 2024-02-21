@@ -1,15 +1,16 @@
-# ArraySplitter
-ArraySplitter: De Novo Decomposition of Satellite DNA Arrays into Monomers within Telomere-to-Telomere Assemblies
+# ArraySplitter: De Novo Decomposition of Satellite DNA Arrays
 
-## Introduction
+Decomposes satellite DNA arrays into monomers within telomere-to-telomere (T2T) assemblies. Ideal for analyzing centromeric and pericentromeric regions on monomeric level.
 
-ArraySplitter is a tool for the de novo decomposition of satellite DNA arrays into monomers within telomere-to-telomere assemblies. It is designed to work with a very long satDNA arrays from T2T assemblies, such as those found in centromeric and pericentromeric regions. ArraySplitter is implemented in Python and is available as a standalone tool.
+**Status:** In development. Optimized for 100Kb scale arrays; longer arrays will work but may take longer to process. Signigicanlty longerer time.
 
 ## Installation
 
-ArraySplitter is implemented in Python and requires Python 3.6 or later. 
+**Prerequisites**
 
-To install ArraySplitter, clone the repository from GitHub and install the required dependencies using pip:
+* Python 3.6 or later
+
+**Installation with pip:**
 
 ```bash
 pip install arraysplitter
@@ -17,19 +18,23 @@ pip install arraysplitter
 
 ## Usage
 
-ArraySplitter is a command-line tool. To see the available options, run:
+**Basic Example**
 
 ```bash
-arraysplitter --help
+time arraysplitter --input chr1.arrays.fa --output chr1.arrays
 ```
 
-The main input to ArraySplitter is a FASTA file containing the telomere-to-telomere assembly. The output is a FASTA file containing the monomers of the satellite DNA arrays seperated by spaces.
+**Explanation**
 
-## Example
+* **`--input chr1.arrays.fa`:**  FASTA file of satDNA arrays.
+* **`--output chr1.arrays`:** Output FASTA containing decomposed monomers (separated by spaces).
 
-To run ArraySplitter on the provided test data, run:
+**All Options** 
 
 ```bash
-time arraysplitter --input chr1.fa --output chr1
+arraysplitter --help 
 ```
 
+## Contact
+
+For questions or support: ad3002@gmail.com
