@@ -8,6 +8,8 @@ Decomposes satellite DNA arrays into monomers within telomere-to-telomere (T2T) 
 
 **Update:** Monomers are required some polising of borders, I am working on it.
 
+**Update:** To test ArraySplitter, I used CHM13v20 assembly, it takes around 3 hours, to decompose all arrays longer than 1 Kb (13K arrays).
+
 ## Installation
 
 **Prerequisites**
