@@ -24,6 +24,7 @@ def main(fasta_file, output_file):
             fw.write(header)
             fw.write("\n")
             fw.write(" ".join(new_arrays[ii]))
+            fw.write("\n")
 
 def run_it():
     parser = argparse.ArgumentParser(description='Rotate arrays to start from the same position.')
