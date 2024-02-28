@@ -204,8 +204,6 @@ def decompose_array_iter2(decomposition, best_period, repeats2count_ref, verbose
                 print("Added:", len(repeat), repeat)
             repeats2count[repeat] += 1
             refined_decomposition.append(repeat)
-    if verbose:
-        print(t)
     return (
         refined_decomposition,
         repeats2count,
@@ -301,14 +299,22 @@ def main(input_file, output_prefix, format, threads):
     sequences = get_array_generator(input_file, format)
 
     print(f"Start processing")
-    print(f"Output prefix: {output_prefix}")
+    
 
     depth = 100
     cutoff = None
     verbose = False
 
-    output_file = f"{output_prefix}.decomposed.fasta"
+    if output_prefix.endswith(".fasta"):
+        print("Remove .fasta from output prefix")
+        output_prefix = output_prefix[:-6]
+    elif output_prefix.endswith(".fa"):
+        print("Remove .fa from output prefix")
+        output_prefix = output_prefix[:-3]
 
+    output_file = f"{output_prefix}.decomposed.fasta"
+    print(f"Output file: {output_file}")
+    
     with open(output_file, "w") as fw:
         for header, array in tqdm(sequences, total=total):
             # print(len(array), end=" ")
