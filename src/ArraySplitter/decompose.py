@@ -5,6 +5,7 @@ import argparse
 
 import os
 from collections import Counter
+import re
 from tqdm import tqdm
 
 import editdistance as ed
@@ -119,8 +120,10 @@ def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True):
     decomposition = []
     cuts = array.split(best_cut_seq)
     for ii, x in enumerate(cuts):
-        if ii + 1 != len(cuts):
-            repeat = x + best_cut_seq
+        if ii > 0:
+            repeat = best_cut_seq + x
+        elif not x:
+            repeat = best_cut_seq
         else:
             repeat = x
         if not repeat:
