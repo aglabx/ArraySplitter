@@ -5,6 +5,6 @@
 # @author: Aleksey Komissarov
 # @contact: ad3002@gmail.com
 
-__version__ = "1.1.9"
+__version__ = "1.1.10"
 
 # __all__ = []

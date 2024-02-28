@@ -49,6 +49,12 @@ We found that different arrays of the same repeat family can be decomposed sligt
 arraysplitter_rotate -i arrays.fa -o arrays.norm.fa
 ```
 
+And you can give the sequence to start with:
+
+```bash
+arraysplitter_rotate -i arrays.fa -o arrays.norm.fa -s TTTC
+```
+
 **Explanation**
 
 * **`-i arrays.fa`:**  FASTA file of monomers.

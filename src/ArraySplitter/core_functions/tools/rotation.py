@@ -41,24 +41,35 @@ def best_kmer_for_start(arrays, k=5):
             max_f1 = f1
     return max_f1, best_kmer
 
-def rotate_arrays(arrays_):
-    arrays = []
-    for array in arrays_:
-        feature1 = array.count("C") < array.count("G")
-        feature2 = array.count("A") < array.count("T")
-        if feature1 and feature2 or (not feature1 and not feature2):
-            if feature1 and feature2:
+def rotate_arrays(arrays_, starting_kmer=None):
+
+    if not starting_kmer:
+        arrays = []
+        for array in arrays_:
+            feature1 = array.count("C") < array.count("G")
+            feature2 = array.count("A") < array.count("T")
+            if feature1 and feature2 or (not feature1 and not feature2):
+                if feature1 and feature2:
+                    arrays.append(array.split())
+                else:
+                    arrays.append(get_revcomp(array).split())
+            else:
+                if feature1 and not feature2:
+                    arrays.append(get_revcomp(array).split())
+                else:
+                    arrays.append(array.split())
+        max_f1, (r, p, f1, best_kmer) = best_kmer_for_start(arrays)
+    else:
+        best_kmer = starting_kmer
+        best_rev_kmer = get_revcomp(best_kmer)
+        arrays = []
+        for array in arrays_:
+            forward_feature = array.count(best_rev_kmer) < array.count(best_kmer)
+            if forward_feature:
                 arrays.append(array.split())
             else:
                 arrays.append(get_revcomp(array).split())
-        else:
-            if feature1 and not feature2:
-                arrays.append(get_revcomp(array).split())
-            else:
-                arrays.append(array.split())
-
-    max_f1, (r, p, f1, best_kmer) = best_kmer_for_start(arrays)
-
+        
     new_arrays = []
     for array in arrays:
         new_array = []
