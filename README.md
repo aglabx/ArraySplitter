@@ -57,6 +57,11 @@ And you can give the sequence to start with:
 arraysplitter_rotate -i arrays.fa -o arrays.norm.fa -s TTTC
 ```
 
+**Explanation**
+
+* **`-i arrays.fa`:**  FASTA file of monomers.
+* **`-o arrays.norm.fa`:** Output FASTA file with rotated monomers.
+
 ## Extracting and counting monomers
 
 And finally, you can extract and count monomers from the arrays:
@@ -77,10 +82,6 @@ It will create a file with monomer length, monomer frequency, and monomer sequen
 514     5       TCCTA
 ```
 
-**Explanation**
-
-* **`-i arrays.fa`:**  FASTA file of monomers.
-* **`-o arrays.norm.fa`:** Output FASTA file with rotated monomers.
 
 ## Contact
 
