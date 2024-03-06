@@ -29,7 +29,7 @@ def run_it():
     parser.add_argument('-o', '--output', type=str, help='Output file', required=True)
     parser.add_argument('-s', '--start', type=str, help='Starting kmer for rotation [None]', default=None)
     args = parser.parse_args()
-    main(args.fasta, args.output, args.start)
+    main(args.fasta, args.output, starting_kmer=args.start)
 
 if __name__ == '__main__':
     run_it()
