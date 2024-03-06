@@ -47,6 +47,7 @@ setup(
         'console_scripts': [
             'arraysplitter = ArraySplitter.decompose:run_it',
             'arraysplitter_rotate = ArraySplitter.rotate:run_it',
+            'arraysplitter_extract = ArraySplitter.extract:run_it',
         ],
     },
 )

@@ -30,6 +30,8 @@ pip install arraysplitter
 time arraysplitter -i chr1.arrays.fa -o chr1.arrays
 ```
 
+It will create a FASTA file with monomers separated by spaces.
+
 **Explanation**
 
 * **`-i chr1.arrays.fa`:**  FASTA file of satDNA arrays.
@@ -53,6 +55,26 @@ And you can give the sequence to start with:
 
 ```bash
 arraysplitter_rotate -i arrays.fa -o arrays.norm.fa -s TTTC
+```
+
+## Extracting and counting monomers
+
+And finally, you can extract and count monomers from the arrays:
+
+```bash
+arraysplitter_extract -i arrays.norm.fa -o arrays.norm
+```
+
+It will create a file with monomer length, monomer frequency, and monomer sequence (ordered by frequency). For example, for the arrays.norm.fa file above, the output will be like this:
+
+```bash
+514     10      ATCCCATTCC
+514     10      GATTGGAGTG
+514     6       TCCTTT
+514     5       TGCTG
+514     10      ATTGAATGGA
+514     10      ATGCAATGGA
+514     5       TCCTA
 ```
 
 **Explanation**
