@@ -112,37 +112,109 @@ def iterate_hints(array, fs_tree, depth):
             yield current_length, found_seq, max_n
 
 
-def compute_cuts(array, hints):
-    ### Step 4. Find optimal cutoff
-    best_cut_seq = None
-    best_cut_score = 0.0
-    best_period = None
-    possible_solutions = Counter()
-    solution2meta = {}
-    for L, cut_sequence, N in hints:
-        period2freq = Counter()
-        for seq in array.split(cut_sequence):
-            period2freq[len(seq + cut_sequence)] += 1
-        period, period_freq = period2freq.most_common(1)[0]
-        total_periods = sum(period2freq.values())
-        score = period_freq / total_periods
+def gcd(a, b):
+    """Greatest common divisor."""
+    while b:
+        a, b = b, a % b
+    return a
 
-        possible_solutions[period] += 1
-        if not period in solution2meta:
-            solution2meta[period] = [cut_sequence, score, period]
-        else:
-            if score > solution2meta[period][1]:
-                solution2meta[period] = [cut_sequence, score, period]
-        if score > best_cut_score:
-            best_cut_score = score
-            best_cut_seq = cut_sequence
-            best_period = period
-        # print(L, period, period_freq, score, possible_solutions, solution2meta)
-    if not possible_solutions:
+
+def find_gcd_of_list(numbers):
+    """Find GCD of a list of numbers."""
+    if not numbers:
+        return 0
+    result = numbers[0]
+    for num in numbers[1:]:
+        result = gcd(result, num)
+        if result == 1:
+            return 1
+    return result
+
+
+def compute_cuts(array, hints, score_threshold=0.05, fragmentation_threshold=0.5):
+    ### Step 4. Find optimal cutoff with improved criteria
+    
+    candidates = []
+    
+    # Calculate metrics for each hint
+    for L, cut_sequence, N in hints:
+        parts = array.split(cut_sequence)
+        periods = []
+        
+        for i, part in enumerate(parts):
+            # Handle edge cases for first/last parts
+            if i < len(parts) - 1 or part:  # All except possibly empty last
+                period = len(part) + len(cut_sequence)
+                periods.append(period)
+        
+        if not periods:
+            continue
+        
+        # Basic metrics
+        period_counts = Counter(periods)
+        mode_period, mode_count = period_counts.most_common(1)[0]
+        total_segments = len(periods)
+        
+        # Base score (uniformity)
+        base_score = mode_count / total_segments
+        
+        # Fragmentation penalty
+        short_threshold = mode_period * fragmentation_threshold
+        short_fragments = sum(1 for p in periods if p < short_threshold)
+        fragmentation = short_fragments / total_segments
+        
+        # Check for periodicity/divisibility
+        unique_periods = list(period_counts.keys())
+        period_gcd = find_gcd_of_list(unique_periods) if len(unique_periods) > 1 else mode_period
+        
+        candidates.append({
+            'cut': cut_sequence,
+            'mode_period': mode_period,
+            'base_score': base_score,
+            'fragmentation': fragmentation,
+            'period_gcd': period_gcd,
+            'period_distribution': period_counts,
+            'num_segments': total_segments
+        })
+    
+    if not candidates:
         return array, 0, len(array)
-    best_period = possible_solutions.most_common(1)[0][0]
-    best_cut_seq, best_cut_score, best_period = solution2meta[best_period]
-    return best_cut_seq, best_cut_score, best_period
+    
+    # Group candidates by score
+    candidates.sort(key=lambda x: x['base_score'], reverse=True)
+    best_base_score = candidates[0]['base_score']
+    
+    # Get all candidates within threshold
+    similar_candidates = [
+        c for c in candidates 
+        if c['base_score'] >= best_base_score - score_threshold
+    ]
+    
+    # Check for fundamental period (GCD > 1)
+    fundamental_candidates = []
+    for c in similar_candidates:
+        if c['period_gcd'] > 1 and c['period_gcd'] < c['mode_period']:
+            # Check if most periods are multiples of GCD
+            multiples = sum(1 for p in c['period_distribution'] 
+                          if p % c['period_gcd'] == 0)
+            if multiples >= c['num_segments'] * 0.8:  # 80% are multiples
+                c['fundamental_period'] = c['period_gcd']
+                fundamental_candidates.append(c)
+    
+    # If we found fundamental periods, use those
+    if fundamental_candidates:
+        best = min(fundamental_candidates, key=lambda x: x['fundamental_period'])
+        return best['cut'], best['base_score'], best['fundamental_period']
+    
+    # Otherwise, penalize fragmentation and choose minimal period
+    for c in similar_candidates:
+        c['adjusted_score'] = c['base_score'] * (1 - c['fragmentation'] * 0.5)
+    
+    # Sort by adjusted score, then by period (smaller is better)
+    similar_candidates.sort(key=lambda x: (-x['adjusted_score'], x['mode_period']))
+    
+    best = similar_candidates[0]
+    return best['cut'], best['base_score'], best['mode_period']
 
 
 ### Step 5a. Try to cut long monomers to expected
