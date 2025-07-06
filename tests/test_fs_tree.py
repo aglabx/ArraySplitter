@@ -8,11 +8,12 @@ import pytest
 from ArraySplitter.core_functions.tools.fs_tree import (
     WeightedValueHeap,
     update,
+    iter_fs_tree_from_sequence,
+    build_fs_tree_from_sequence,
+)
+from ArraySplitter.decompose import (
     get_fs_tree,
     iterate_hints,
-    get_nodes,
-    get_starting_index,
-    iter_fs_tree_from_sequence,
 )
 
 

@@ -7,7 +7,6 @@ Tests for the main decomposition algorithm.
 import pytest
 from ArraySplitter.decompose import (
     get_top1_nucleotide,
-    get_cuted_parts,
     compute_cuts,
     decompose_array,
     decompose_array_iter1,
@@ -40,32 +39,32 @@ class TestNucleotideSelection:
 class TestCutSequences:
     """Test cut sequence identification."""
     
-    def test_get_cuted_parts_simple(self):
+    def test_split_array_simple(self):
         """Test splitting array by cut sequence."""
         array = "ATCGATCGATCG"
         cut = "CG"
         
-        parts = get_cuted_parts(array, cut)
+        parts = array.split(cut)
         assert parts == ['AT', 'AT', 'AT', '']
     
-    def test_get_cuted_parts_no_cut(self):
+    def test_split_array_no_cut(self):
         """Test when cut sequence not present."""
         array = "ATATATATAT"
         cut = "CG"
         
-        parts = get_cuted_parts(array, cut)
+        parts = array.split(cut)
         assert parts == ['ATATATATAT']
     
-    def test_get_cuted_parts_edge_cases(self):
+    def test_split_array_edge_cases(self):
         """Test edge cases for cutting."""
         # Cut at beginning
-        assert get_cuted_parts("CGATAT", "CG") == ['', 'ATAT']
+        assert "CGATAT".split("CG") == ['', 'ATAT']
         
         # Cut at end
-        assert get_cuted_parts("ATATCG", "CG") == ['ATAT', '']
+        assert "ATATCG".split("CG") == ['ATAT', '']
         
         # Multiple consecutive cuts
-        assert get_cuted_parts("CGCGAT", "CG") == ['', '', 'AT']
+        assert "CGCGAT".split("CG") == ['', '', 'AT']
 
 
 class TestComputeCuts:
