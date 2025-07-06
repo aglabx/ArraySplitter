@@ -1,0 +1,10 @@
+# Development and testing dependencies
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-xdist>=3.0.0  # for parallel test execution
+pytest-benchmark>=4.0.0  # for performance testing
+hypothesis>=6.0.0  # for property-based testing
+black>=23.0.0  # code formatting
+flake8>=6.0.0  # linting
+mypy>=1.0.0  # type checking
+tox>=4.0.0  # test automation
