@@ -140,20 +140,40 @@ def compute_cuts(array, hints, score_threshold=0.05, fragmentation_threshold=0.5
     for L, cut_sequence, N in hints:
         parts = array.split(cut_sequence)
         periods = []
+        non_empty_periods = []  # Track periods from non-empty parts
         
         for i, part in enumerate(parts):
             # Handle edge cases for first/last parts
             if i < len(parts) - 1 or part:  # All except possibly empty last
                 period = len(part) + len(cut_sequence)
                 periods.append(period)
+                # Track non-empty parts separately
+                if len(part) > 0:
+                    non_empty_periods.append(period)
         
         if not periods:
             continue
         
-        # Basic metrics
-        period_counts = Counter(periods)
-        mode_period, mode_count = period_counts.most_common(1)[0]
-        total_segments = len(periods)
+        # Determine if this is a perfect/near-perfect repeat
+        empty_ratio = (len(periods) - len(non_empty_periods)) / len(periods) if periods else 0
+        
+        if empty_ratio >= 0.8:  # 80% or more empty parts = perfect/near-perfect repeat
+            # This is a perfect or near-perfect repeat
+            # Use the cut sequence length as the period
+            period_counts = Counter([len(cut_sequence)])
+            mode_period = len(cut_sequence)
+            mode_count = len(periods)
+            total_segments = len(periods)
+        elif non_empty_periods:
+            # Use only non-empty parts for period calculation
+            period_counts = Counter(non_empty_periods)
+            mode_period, mode_count = period_counts.most_common(1)[0]
+            total_segments = len(non_empty_periods)
+        else:
+            # Fallback: use all periods
+            period_counts = Counter(periods)
+            mode_period, mode_count = period_counts.most_common(1)[0]
+            total_segments = len(periods)
         
         # Base score (uniformity)
         base_score = mode_count / total_segments
@@ -219,6 +239,12 @@ def compute_cuts(array, hints, score_threshold=0.05, fragmentation_threshold=0.5
 
 ### Step 5a. Try to cut long monomers to expected
 def refine_repeat_even(repeat, best_period):
+    # Protection against destructive splitting when period=1
+    if best_period <= 1 and len(repeat) > 1:
+        # Don't split multi-character monomers into single nucleotides
+        yield repeat
+        return
+    
     if len(repeat) % best_period == 0:
         start = 0
         for _ in range(len(repeat) // best_period):
