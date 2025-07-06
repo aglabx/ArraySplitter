@@ -240,7 +240,18 @@ def print_pause_clean(decomposition, repeats2count, best_period):
 #   clear_output(wait=True)
 
 
-def decompose_array(array, depth=500, cutoff=20, verbose=False):
+def decompose_array(array, depth=500, cutoff=None, verbose=False):
+    ### Step 0. Set cutoff based on array size if not provided
+    if cutoff is None:
+        if len(array) > 1_000_000:
+            cutoff = 1000
+        elif len(array) > 100_000:
+            cutoff = 250
+        elif len(array) > 10_000:
+            cutoff = 10
+        else:
+            cutoff = 3
+    
     ### Step 1. Find the most frequent nucleotide (TODO: check all nucleotides and find the one with the best final score)
     top1_nucleotide = get_top1_nucleotide(array)
     # print("top1_nucleotide:", top1_nucleotide)
@@ -302,7 +313,6 @@ def main(input_file, output_prefix, format, threads):
     
 
     depth = 100
-    cutoff = None
     verbose = False
 
     if output_prefix.endswith(".fasta"):
@@ -318,22 +328,14 @@ def main(input_file, output_prefix, format, threads):
     with open(output_file, "w") as fw:
         for header, array in tqdm(sequences, total=total):
             # print(len(array), end=" ")
-            if not cutoff:
-                if len(array) > 1_000_000:
-                    cutoff = 1000
-                elif len(array) > 100_000:
-                    cutoff = 250
-                elif len(array) > 10_000:
-                    cutoff = 10
-                else:
-                    cutoff = 3
+            # cutoff will be set automatically based on array size
             (
                 decomposition,
                 repeats2count,
                 best_cut_seq,
                 best_cut_score,
                 best_period,
-            ) = decompose_array(array, depth=depth, cutoff=cutoff, verbose=verbose)
+            ) = decompose_array(array, depth=depth, cutoff=None, verbose=verbose)
 
             # print("best period:", best_period, "len:", len(decomposition))
             # print_pause_clean(decomposition, repeats2count, best_period)
