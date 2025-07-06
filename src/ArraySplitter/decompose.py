@@ -38,11 +38,25 @@ def get_fs_tree(array, top1_nucleotide, cutoff):
     )
 
 
+def is_self_repeating(pattern):
+    """Check if a pattern is composed of repeated smaller units."""
+    n = len(pattern)
+    for sub_len in range(1, n // 2 + 1):
+        if n % sub_len == 0:
+            sub_pattern = pattern[:sub_len]
+            if pattern == sub_pattern * (n // sub_len):
+                return sub_pattern
+    return None
+
+
 def iterate_hints(array, fs_tree, depth):
     ### Step 3. Find a list of hints (hint is the sequenece for array cutoff)
+    ### Modified to stop chains when self-repeating patterns are detected
 
     current_length = 0
     buffer = []
+    found_patterns = {}  # Track patterns by their minimal unit
+    
     for L, names, positions in fs_tree:
         if L != current_length:
             if buffer:
@@ -52,15 +66,35 @@ def iterate_hints(array, fs_tree, depth):
                     if N > max_n:
                         max_n = N
                         found_seq = array[start : end + 1]
-                yield current_length, found_seq, max_n
+                
+                # Check if this is a self-repeating pattern
+                minimal_unit = is_self_repeating(found_seq)
+                
+                if minimal_unit:
+                    # This is self-repeating, yield the minimal unit instead
+                    # But only if we haven't yielded it before
+                    if minimal_unit not in found_patterns:
+                        # Find the frequency of the minimal unit
+                        min_len = len(minimal_unit)
+                        min_count = array.count(minimal_unit)
+                        yield min_len, minimal_unit, min_count
+                        found_patterns[minimal_unit] = True
+                    # Don't yield the longer self-repeating pattern
+                else:
+                    # Not self-repeating, yield as normal
+                    yield current_length, found_seq, max_n
+                    found_patterns[found_seq] = True
+            
             buffer = []
             current_length = L
             if current_length > depth:
                 break
+                
         start = names[0]
         end = positions[0]
         N = len(names)
         buffer.append((start, end, N))
+    
     if buffer:
         max_n = 0
         found_seq = None
@@ -68,7 +102,14 @@ def iterate_hints(array, fs_tree, depth):
             if N > max_n:
                 max_n = N
                 found_seq = array[start : end + 1]
-        yield current_length, found_seq, max_n
+        
+        minimal_unit = is_self_repeating(found_seq)
+        if minimal_unit and minimal_unit not in found_patterns:
+            min_len = len(minimal_unit)
+            min_count = array.count(minimal_unit)
+            yield min_len, minimal_unit, min_count
+        elif not minimal_unit:
+            yield current_length, found_seq, max_n
 
 
 def compute_cuts(array, hints):
@@ -288,15 +329,36 @@ def decompose_array(array, depth=500, cutoff=None, verbose=False):
         else:
             cutoff = 3
     
-    ### Step 1. Find the most frequent nucleotide (TODO: check all nucleotides and find the one with the best final score)
-    top1_nucleotide = get_top1_nucleotide(array)
-    # print("top1_nucleotide:", top1_nucleotide)
-    # top1_nucleotide = "A"
-    ### Step 2. Build fs_tree (TODO: optimize it for long sequences)
-    fs_tree = get_fs_tree(array, top1_nucleotide, cutoff=cutoff)
-    ### Step 3. Find a list of hints (hint is the sequence for array cutting)
-    ### Here I defined it as a sequence with maximal coverage in the original array for a given length
-    hints = iterate_hints(array, fs_tree, depth)
+    ### Step 1-3. Get hints from all nucleotides instead of just the most frequent
+    all_hints = []
+    hint_sources = {}  # Track which nucleotide generated each hint
+    
+    for nucleotide in "ACTG":
+        # Get positions of this nucleotide
+        positions = [i for i in range(len(array)) if array[i] == nucleotide]
+        
+        if len(positions) <= cutoff:
+            continue
+            
+        # Build fs_tree for this nucleotide
+        fs_tree = get_fs_tree(array, nucleotide, cutoff=cutoff)
+        
+        # Get hints from this fs_tree
+        for hint in iterate_hints(array, fs_tree, depth):
+            all_hints.append(hint)
+            hint_key = (hint[0], hint[1])  # (length, sequence)
+            if hint_key not in hint_sources or hint[2] > hint_sources[hint_key][0]:
+                hint_sources[hint_key] = (hint[2], nucleotide)
+    
+    # Remove duplicates, keeping the one with highest frequency
+    unique_hints = {}
+    for length, sequence, freq in all_hints:
+        key = (length, sequence)
+        if key not in unique_hints or freq > unique_hints[key][2]:
+            unique_hints[key] = (length, sequence, freq)
+    
+    hints = list(unique_hints.values())
+    
     ### Step 4. Find the optimal cut sequence and the best period
     ### Defined as the maximal fraction of the cut sequence to the total cut sequence
     best_cut_seq, best_cut_score, best_period = compute_cuts(array, hints)
