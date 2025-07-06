@@ -116,31 +116,57 @@ def refine_repeat_even(repeat, best_period):
 
 
 def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True):
+    """
+    Decompose array using the cut sequence, ensuring perfect reconstruction.
+    """
     repeats2count = Counter()
     decomposition = []
-    cuts = array.split(best_cut_seq)
-    for ii, x in enumerate(cuts):
-        if ii > 0:
-            repeat = best_cut_seq + x
-        elif not x:
-            repeat = best_cut_seq
-        else:
-            repeat = x
-        if not repeat:
-            continue
-        if len(repeat) == best_period:
+    
+    if not best_cut_seq or best_cut_seq not in array:
+        # No cut sequence or not found, return whole array
+        decomposition.append(array)
+        repeats2count[array] = 1
+        return decomposition, repeats2count
+    
+    # Split by cut sequence
+    parts = array.split(best_cut_seq)
+    
+    # Reconstruct monomers preserving all nucleotides
+    # Use the alternative approach that handles all cases correctly
+    for i, part in enumerate(parts[:-1]):  # All but last
+        if part:
+            decomposition.append(part)
+        decomposition.append(best_cut_seq)
+    
+    # Handle last part
+    if parts[-1]:
+        decomposition.append(parts[-1])
+    
+    # Verify reconstruction
+    reconstructed = "".join(decomposition)
+    if reconstructed != array:
+        # This should not happen with the correct algorithm
+        print(f"WARNING: Reconstruction mismatch! {len(array)} != {len(reconstructed)}")
+    
+    # Now apply period-based refinement
+    final_decomposition = []
+    final_counts = Counter()
+    
+    for monomer in decomposition:
+        if len(monomer) == best_period:
+            final_decomposition.append(monomer)
+            final_counts[monomer] += 1
             if verbose:
-                print(len(repeat), repeat)
-            repeats2count[repeat] += 1
-            decomposition.append(repeat)
+                print(len(monomer), monomer)
         else:
-            # print(len(repeat), best_period)
-            for repeat in refine_repeat_even(repeat, best_period):
+            # Try to split longer monomers
+            for sub_monomer in refine_repeat_even(monomer, best_period):
+                final_decomposition.append(sub_monomer)
+                final_counts[sub_monomer] += 1
                 if verbose:
-                    print(len(repeat), repeat)
-                repeats2count[repeat] += 1
-                decomposition.append(repeat)
-    return decomposition, repeats2count
+                    print(len(sub_monomer), sub_monomer)
+    
+    return final_decomposition, final_counts
 
 
 ### Step 5b. Try to cut long monomers to expected
@@ -194,10 +220,16 @@ def decompose_array_iter2(decomposition, best_period, repeats2count_ref, verbose
             most_common_monomer = monomer
             break
     if not most_common_monomer:
-        print("No most common monomer found, using the first one")
-        # most_common_monomer = decomposition[0]
-        print(decomposition)
-    assert most_common_monomer
+        # No monomer with exact period length found
+        # Try to find the most common monomer of any length
+        if repeats2count_ref:
+            most_common_monomer = repeats2count_ref.most_common(1)[0][0]
+        else:
+            # Use first monomer if nothing else available
+            most_common_monomer = decomposition[0] if decomposition else ""
+        
+        if verbose:
+            print(f"No monomer of length {best_period} found, using '{most_common_monomer}' (len={len(most_common_monomer)})")
     for repeat in decomposition:
         if verbose:
             print("Repeat under consideration", len(repeat), repeat)
