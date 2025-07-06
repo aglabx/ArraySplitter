@@ -193,6 +193,10 @@ def decompose_array_iter2(decomposition, best_period, repeats2count_ref, verbose
         if len(monomer) == best_period:
             most_common_monomer = monomer
             break
+    if not most_common_monomer:
+        print("No most common monomer found, using the first one")
+        # most_common_monomer = decomposition[0]
+        print(decomposition)
     assert most_common_monomer
     for repeat in decomposition:
         if verbose:
