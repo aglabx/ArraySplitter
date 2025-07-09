@@ -254,7 +254,7 @@ def refine_repeat_even(repeat, best_period):
         yield repeat
 
 
-def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True):
+def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True, array_id=None):
     """
     Decompose array using the cut sequence, ensuring perfect reconstruction.
     Cut sequence is the START of each monomer (except the first fragment).
@@ -292,6 +292,12 @@ def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True):
     reconstructed = "".join(decomposition)
     if reconstructed != array:
         print(f"WARNING: Reconstruction mismatch! {len(array)} != {len(reconstructed)}")
+        if array_id:
+            print(f"  Sequence ID: {array_id}")
+        # Print array identifier for debugging
+        array_preview = array[:50] + "..." if len(array) > 50 else array
+        print(f"  Array preview: {array_preview}")
+        print(f"  Cut sequence: '{best_cut_seq}'")
     
     return decomposition, repeats2count
 
@@ -403,7 +409,7 @@ def print_pause_clean(decomposition, repeats2count, best_period):
 #   clear_output(wait=True)
 
 
-def decompose_array(array, depth=500, cutoff=None, verbose=False):
+def decompose_array(array, depth=500, cutoff=None, verbose=False, array_id=None):
     ### Step 0. Set cutoff based on array size if not provided
     if cutoff is None:
         if len(array) > 1_000_000:
@@ -453,18 +459,22 @@ def decompose_array(array, depth=500, cutoff=None, verbose=False):
     ### The first iteration finds monomer frequencies
     # print("Firset iteration")
     decomposition, repeats2count = decompose_array_iter1(
-        array, best_cut_seq, best_period, verbose=verbose
+        array, best_cut_seq, best_period, verbose=verbose, array_id=array_id
     )
     
     # assert "".join(decomposition) == array
-    ### The second iteration tries to cut longer monomers to the expected length
-    changed = True
-    while changed:
-        # print("Firset iteration", len(decomposition))
-        decomposition, repeats2count, changed = decompose_array_iter2(
-            decomposition, best_period, repeats2count, verbose=verbose
-        )
-        # assert "".join(decomposition) == array
+    
+    # DISABLED: The second iteration breaks the cut structure
+    # It tries to refine monomers but creates pieces that don't start with cut
+    # TODO: Fix decompose_array_iter2 to preserve cut structure
+    
+    # changed = True
+    # while changed:
+    #     # print("Firset iteration", len(decomposition))
+    #     decomposition, repeats2count, changed = decompose_array_iter2(
+    #         decomposition, best_period, repeats2count, verbose=verbose
+    #     )
+    #     # assert "".join(decomposition) == array
 
     ### TODO: The third iteration tries to glue short dangling monomers to the nearest monomer
 
@@ -507,9 +517,15 @@ def main(input_file, output_prefix, format, threads):
         output_prefix = output_prefix[:-3]
 
     output_file = f"{output_prefix}.decomposed.fasta"
+    detail_file = f"{output_prefix}.monomers.tsv"
     print(f"Output file: {output_file}")
+    print(f"Detail file: {detail_file}")
     
-    with open(output_file, "w") as fw:
+    # Open both output files
+    with open(output_file, "w") as fw, open(detail_file, "w") as fw_detail:
+        # Write header for detail file
+        fw_detail.write("sequence_id\tindex\ttype\tlength\tis_flank\tsequence\n")
+        
         for header, array in tqdm(sequences, total=total):
             # print(len(array), end=" ")
             # cutoff will be set automatically based on array size
@@ -519,7 +535,7 @@ def main(input_file, output_prefix, format, threads):
                 best_cut_seq,
                 best_cut_score,
                 best_period,
-            ) = decompose_array(array, depth=depth, cutoff=None, verbose=verbose)
+            ) = decompose_array(array, depth=depth, cutoff=None, verbose=verbose, array_id=header)
 
             # print("best period:", best_period, "len:", len(decomposition))
             # print_pause_clean(decomposition, repeats2count, best_period)
@@ -560,35 +576,7 @@ def main(input_file, output_prefix, format, threads):
             fw.write(f">{header_info}\n")
             fw.write(" ".join(decomposition) + "\n")
             
-            # Also write detailed monomer file
-            if output_file.endswith('.fasta'):
-                detail_file = output_file.replace('.fasta', '.monomers.tsv')
-            else:
-                detail_file = output_file + '.monomers.tsv'
-                
-    # Write detailed monomer information
-    with open(detail_file, 'w') as fw_detail:
-        fw_detail.write("sequence_id\tindex\ttype\tlength\tis_flank\tsequence\n")
-        
-        # Re-read to process each sequence
-        for header, array in reader(input_file):
-            decomposition, repeats2count, best_cut_seq, _, _ = decompose_array(
-                array, depth=depth, cutoff=None, verbose=False
-            )
-            
-            # Calculate flank threshold
-            all_monomer_lengths = []
-            for m in decomposition:
-                if m.startswith(best_cut_seq):
-                    all_monomer_lengths.append(len(m))
-            
-            if len(all_monomer_lengths) > 1:
-                avg_monomer_len = sum(all_monomer_lengths) / len(all_monomer_lengths)
-                flank_threshold = avg_monomer_len * 0.7
-            else:
-                flank_threshold = float('inf')
-            
-            # Write each piece
+            # Write detailed monomer information
             for i, monomer in enumerate(decomposition):
                 if not monomer.startswith(best_cut_seq):
                     piece_type = "LEFT_FLANK"
