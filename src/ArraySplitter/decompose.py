@@ -526,13 +526,25 @@ def main(input_file, output_prefix, format, threads):
 
             # Calculate statistics for internal monomers (excluding flanks)
             internal_monomers = []
+            all_monomer_lengths = []
+            
+            # First pass: collect all potential monomer lengths
             for i, monomer in enumerate(decomposition):
-                # Check if this is a proper monomer (starts with cut) or a flank
-                # Exclude: first piece if doesn't start with cut (left flank)
-                # Exclude: last piece if it's too short (right flank)
                 if monomer.startswith(best_cut_seq):
-                    # Check if it's the last piece and too short to be a full monomer
-                    if i == len(decomposition) - 1 and len(monomer) < best_period * 0.5:
+                    all_monomer_lengths.append(len(monomer))
+            
+            # Calculate average to better identify flanks
+            if len(all_monomer_lengths) > 1:
+                avg_monomer_len = sum(all_monomer_lengths) / len(all_monomer_lengths)
+                flank_threshold = avg_monomer_len * 0.7  # 70% of average
+            else:
+                flank_threshold = best_period * 0.5
+            
+            # Second pass: identify true internal monomers
+            for i, monomer in enumerate(decomposition):
+                if monomer.startswith(best_cut_seq):
+                    # Check if it's the last piece and too short (right flank)
+                    if i == len(decomposition) - 1 and len(monomer) < flank_threshold:
                         continue  # Skip right flank
                     internal_monomers.append(monomer)
             
@@ -541,12 +553,54 @@ def main(input_file, output_prefix, format, threads):
                 min_len = min(internal_lengths)
                 max_len = max(internal_lengths)
                 avg_len = sum(internal_lengths) / len(internal_lengths)
-                header_info = f"{header} period={best_period} n_monomers={len(internal_monomers)} range={min_len}-{max_len} avg={avg_len:.1f}"
+                header_info = f"{header} cut={best_cut_seq} n_monomers={len(internal_monomers)} range={min_len}-{max_len} avg={avg_len:.1f}"
             else:
-                header_info = f"{header} period={best_period} n_monomers=0"
+                header_info = f"{header} cut={best_cut_seq} n_monomers=0"
             
             fw.write(f">{header_info}\n")
             fw.write(" ".join(decomposition) + "\n")
+            
+            # Also write detailed monomer file
+            if output_file.endswith('.fasta'):
+                detail_file = output_file.replace('.fasta', '.monomers.tsv')
+            else:
+                detail_file = output_file + '.monomers.tsv'
+                
+    # Write detailed monomer information
+    with open(detail_file, 'w') as fw_detail:
+        fw_detail.write("sequence_id\tindex\ttype\tlength\tis_flank\tsequence\n")
+        
+        # Re-read to process each sequence
+        for header, array in reader(input_file):
+            decomposition, repeats2count, best_cut_seq, _, _ = decompose_array(
+                array, depth=depth, cutoff=None, verbose=False
+            )
+            
+            # Calculate flank threshold
+            all_monomer_lengths = []
+            for m in decomposition:
+                if m.startswith(best_cut_seq):
+                    all_monomer_lengths.append(len(m))
+            
+            if len(all_monomer_lengths) > 1:
+                avg_monomer_len = sum(all_monomer_lengths) / len(all_monomer_lengths)
+                flank_threshold = avg_monomer_len * 0.7
+            else:
+                flank_threshold = float('inf')
+            
+            # Write each piece
+            for i, monomer in enumerate(decomposition):
+                if not monomer.startswith(best_cut_seq):
+                    piece_type = "LEFT_FLANK"
+                    is_flank = "TRUE"
+                elif i == len(decomposition) - 1 and len(monomer) < flank_threshold:
+                    piece_type = "RIGHT_FLANK"
+                    is_flank = "TRUE"
+                else:
+                    piece_type = "MONOMER"
+                    is_flank = "FALSE"
+                
+                fw_detail.write(f"{header}\t{i}\t{piece_type}\t{len(monomer)}\t{is_flank}\t{monomer}\n")
 
 
 def run_it():
