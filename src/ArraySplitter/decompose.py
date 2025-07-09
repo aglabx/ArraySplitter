@@ -282,12 +282,11 @@ def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True):
     
     # Process all other parts: cut + part = monomer
     for i in range(1, len(parts)):
-        if i < len(parts) - 1 or parts[i]:  # Skip empty last part
-            monomer = best_cut_seq + parts[i]
-            decomposition.append(monomer)
-            repeats2count[monomer] += 1
-            if verbose:
-                print(f"Monomer {i}: {len(monomer)}bp (cut {len(best_cut_seq)}bp + part {len(parts[i])}bp)")
+        monomer = best_cut_seq + parts[i]
+        decomposition.append(monomer)
+        repeats2count[monomer] += 1
+        if verbose:
+            print(f"Monomer {i}: {len(monomer)}bp (cut {len(best_cut_seq)}bp + part {len(parts[i])}bp)")
     
     # Verify reconstruction
     reconstructed = "".join(decomposition)
