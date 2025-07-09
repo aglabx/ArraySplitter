@@ -257,6 +257,7 @@ def refine_repeat_even(repeat, best_period):
 def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True):
     """
     Decompose array using the cut sequence, ensuring perfect reconstruction.
+    Cut sequence is the START of each monomer (except the first fragment).
     """
     repeats2count = Counter()
     decomposition = []
@@ -270,42 +271,30 @@ def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True):
     # Split by cut sequence
     parts = array.split(best_cut_seq)
     
-    # Reconstruct monomers preserving all nucleotides
-    # Use the alternative approach that handles all cases correctly
-    for i, part in enumerate(parts[:-1]):  # All but last
-        if part:
-            decomposition.append(part)
-        decomposition.append(best_cut_seq)
+    # Build monomers: cut + following part
+    # First part is a special case (flank)
+    if parts[0]:
+        # First fragment (before first cut) - this is a flank
+        decomposition.append(parts[0])
+        repeats2count[parts[0]] += 1
+        if verbose:
+            print(f"Flank: {len(parts[0])}bp")
     
-    # Handle last part
-    if parts[-1]:
-        decomposition.append(parts[-1])
+    # Process all other parts: cut + part = monomer
+    for i in range(1, len(parts)):
+        if i < len(parts) - 1 or parts[i]:  # Skip empty last part
+            monomer = best_cut_seq + parts[i]
+            decomposition.append(monomer)
+            repeats2count[monomer] += 1
+            if verbose:
+                print(f"Monomer {i}: {len(monomer)}bp (cut {len(best_cut_seq)}bp + part {len(parts[i])}bp)")
     
     # Verify reconstruction
     reconstructed = "".join(decomposition)
     if reconstructed != array:
-        # This should not happen with the correct algorithm
         print(f"WARNING: Reconstruction mismatch! {len(array)} != {len(reconstructed)}")
     
-    # Now apply period-based refinement
-    final_decomposition = []
-    final_counts = Counter()
-    
-    for monomer in decomposition:
-        if len(monomer) == best_period:
-            final_decomposition.append(monomer)
-            final_counts[monomer] += 1
-            if verbose:
-                print(len(monomer), monomer)
-        else:
-            # Try to split longer monomers
-            for sub_monomer in refine_repeat_even(monomer, best_period):
-                final_decomposition.append(sub_monomer)
-                final_counts[sub_monomer] += 1
-                if verbose:
-                    print(len(sub_monomer), sub_monomer)
-    
-    return final_decomposition, final_counts
+    return decomposition, repeats2count
 
 
 ### Step 5b. Try to cut long monomers to expected
@@ -536,7 +525,28 @@ def main(input_file, output_prefix, format, threads):
             # print("best period:", best_period, "len:", len(decomposition))
             # print_pause_clean(decomposition, repeats2count, best_period)
 
-            fw.write(f">{header} {best_period}\n")
+            # Calculate statistics for internal monomers (excluding flanks)
+            internal_monomers = []
+            for i, monomer in enumerate(decomposition):
+                # Check if this is a proper monomer (starts with cut) or a flank
+                # Exclude: first piece if doesn't start with cut (left flank)
+                # Exclude: last piece if it's too short (right flank)
+                if monomer.startswith(best_cut_seq):
+                    # Check if it's the last piece and too short to be a full monomer
+                    if i == len(decomposition) - 1 and len(monomer) < best_period * 0.5:
+                        continue  # Skip right flank
+                    internal_monomers.append(monomer)
+            
+            if internal_monomers:
+                internal_lengths = [len(m) for m in internal_monomers]
+                min_len = min(internal_lengths)
+                max_len = max(internal_lengths)
+                avg_len = sum(internal_lengths) / len(internal_lengths)
+                header_info = f"{header} period={best_period} n_monomers={len(internal_monomers)} range={min_len}-{max_len} avg={avg_len:.1f}"
+            else:
+                header_info = f"{header} period={best_period} n_monomers=0"
+            
+            fw.write(f">{header_info}\n")
             fw.write(" ".join(decomposition) + "\n")
 
 
