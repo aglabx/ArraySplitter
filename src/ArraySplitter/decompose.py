@@ -17,6 +17,48 @@ from .core_functions.io.satellome_reader import \
 from .core_functions.io.trf_reader import sc_iter_trf_file
 from .core_functions.tools.fs_tree import \
     iter_fs_tree_from_sequence
+from .core_functions.tools.sequences import get_revcomp
+
+
+def get_canonical_orientation(sequence):
+    """
+    Determine canonical orientation where A>T and C>G.
+    Returns True if sequence is already canonical, False if needs reversal.
+    """
+    a_count = sequence.count('A')
+    t_count = sequence.count('T')
+    c_count = sequence.count('C')
+    g_count = sequence.count('G')
+    
+    # Primary criterion: A > T
+    if a_count != t_count:
+        return a_count > t_count
+    
+    # Secondary criterion: C > G (when A == T)
+    return c_count > g_count
+
+
+def rotate_monomers_to_cut(decomposition, cut_sequence):
+    """
+    Rotate monomers so they start with the cut sequence.
+    Returns rotated monomers.
+    """
+    rotated = []
+    
+    for monomer in decomposition:
+        if monomer.startswith(cut_sequence):
+            # Already starts with cut
+            rotated.append(monomer)
+        elif cut_sequence in monomer:
+            # Find cut and rotate
+            pos = monomer.find(cut_sequence)
+            rotated_monomer = monomer[pos:] + monomer[:pos]
+            rotated.append(rotated_monomer)
+        else:
+            # No cut (flank), keep as is
+            rotated.append(monomer)
+    
+    return rotated
 
 
 def get_top1_nucleotide(array):
@@ -524,9 +566,18 @@ def main(input_file, output_prefix, format, threads):
     # Open both output files
     with open(output_file, "w") as fw, open(detail_file, "w") as fw_detail:
         # Write header for detail file
-        fw_detail.write("sequence_id\tindex\ttype\tlength\tis_flank\tsequence\n")
+        fw_detail.write("sequence_id\torientation\tindex\ttype\tlength\tis_flank\tsequence\n")
         
         for header, array in tqdm(sequences, total=total):
+            # Check canonical orientation
+            is_canonical = get_canonical_orientation(array)
+            was_reversed = False
+            
+            if not is_canonical:
+                # Need reverse complement
+                array = get_revcomp(array)
+                was_reversed = True
+            
             # print(len(array), end=" ")
             # cutoff will be set automatically based on array size
             (
@@ -536,6 +587,9 @@ def main(input_file, output_prefix, format, threads):
                 best_cut_score,
                 best_period,
             ) = decompose_array(array, depth=depth, cutoff=None, verbose=verbose, array_id=header)
+            
+            # Rotate monomers to start with cut
+            decomposition = rotate_monomers_to_cut(decomposition, best_cut_seq)
 
             # print("best period:", best_period, "len:", len(decomposition))
             # print_pause_clean(decomposition, repeats2count, best_period)
@@ -569,9 +623,11 @@ def main(input_file, output_prefix, format, threads):
                 min_len = min(internal_lengths)
                 max_len = max(internal_lengths)
                 avg_len = sum(internal_lengths) / len(internal_lengths)
-                header_info = f"{header} cut={best_cut_seq} n_monomers={len(internal_monomers)} range={min_len}-{max_len} avg={avg_len:.1f}"
+                orientation = "rev" if was_reversed else "fwd"
+                header_info = f"{header} cut={best_cut_seq} orientation={orientation} n_monomers={len(internal_monomers)} range={min_len}-{max_len} avg={avg_len:.1f}"
             else:
-                header_info = f"{header} cut={best_cut_seq} n_monomers=0"
+                orientation = "rev" if was_reversed else "fwd"
+                header_info = f"{header} cut={best_cut_seq} orientation={orientation} n_monomers=0"
             
             fw.write(f">{header_info}\n")
             fw.write(" ".join(decomposition) + "\n")
@@ -588,7 +644,8 @@ def main(input_file, output_prefix, format, threads):
                     piece_type = "MONOMER"
                     is_flank = "FALSE"
                 
-                fw_detail.write(f"{header}\t{i}\t{piece_type}\t{len(monomer)}\t{is_flank}\t{monomer}\n")
+                orientation = "rev" if was_reversed else "fwd"
+                fw_detail.write(f"{header}\t{orientation}\t{i}\t{piece_type}\t{len(monomer)}\t{is_flank}\t{monomer}\n")
 
 
 def run_it():
