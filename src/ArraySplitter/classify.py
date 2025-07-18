@@ -344,7 +344,7 @@ def classify_arrays(input_file, output_prefix, similarity_threshold=0.8, verbose
     
     # Print summary
     print("\nClassification summary:")
-    print(f"  Total arrays: {len(monomers_by_array)}")
+    print(f"  Total arrays: {len(array_features)}")
     print(f"  Successfully classified: {len(family_assignments)}")
     print(f"  Number of families: {len(family_counts)}")
     
