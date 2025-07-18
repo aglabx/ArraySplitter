@@ -2,13 +2,16 @@
 
 Decomposes satellite DNA arrays into monomers within telomere-to-telomere (T2T) assemblies. Ideal for analyzing centromeric and pericentromeric regions on monomeric level.
 
-**Status:** In development. Optimized for 100Kb scale arrays; longer arrays will work but may take longer to process. Signigicanlty longer time.
+**Status:** Production ready. Successfully handles arrays from kilobase to megabase scale.
 
-**Update:** From 1.1.6, ArraySplitter now successfully decomposes arrays on megabase scale. Largest arrays takes around 5 minutes to process. Fortunatelly, there are only 41 arrays large 1 Mb in CHM13v20 assembly. And I'm going to add parallel processing to speed up singificantly the process. Currently, it is single-threaded.
+**Key Features:**
+- De novo monomer identification without prior knowledge
+- Automatic orientation to canonical form (A>T, C>G)
+- Integrated monomer rotation for standardized comparison
+- Classification of arrays into repeat families
+- Structural importance scoring to identify centromeric and other functional regions
 
-**Update:** Monomers are required some polising of borders, I am working on it.
-
-**Update:** To test ArraySplitter, I used CHM13v20 assembly, it takes around 3 hours, to decompose all arrays longer than 1 Kb (13K arrays).
+**Performance:** CHM13v2.0 assembly (13K arrays > 1Kb) processes in ~3 hours (single-threaded)
 
 ## Installation
 
@@ -24,103 +27,117 @@ pip install arraysplitter
 
 ## Tool Overview
 
-ArraySplitter provides three complementary tools for satellite DNA analysis:
+ArraySplitter provides a unified command-line interface with multiple subcommands:
 
-### 1. `arraysplitter` - Main Decomposition Tool
-The core tool that performs de novo decomposition of satellite DNA arrays into individual monomers.
+### Main Command: `arraysplitter`
+
+```bash
+arraysplitter <command> [options]
+```
+
+Available commands:
+- `split` - Decompose arrays into monomers
+- `classify` - Group arrays into families based on patterns
+- `rotate` - Normalize monomer orientation
+- `extract` - Extract and count unique monomers
+
+### 1. `arraysplitter split` - Array Decomposition
+
+Performs de novo decomposition of satellite DNA arrays into individual monomers.
 
 **Usage:**
 ```bash
-arraysplitter -i chr1.arrays.fa -o chr1.arrays
+# Basic decomposition
+arraysplitter split -i arrays.fa -o output_prefix
+
+# With predefined cut sequences
+arraysplitter split -i arrays.fa -o output_prefix -c ATG,CGCG
 ```
 
-**Purpose:**
-- Takes tandem repeat arrays as input
-- Identifies optimal cut sequences using frequency suffix tree algorithm
-- Splits arrays into constituent monomers
-- Outputs monomers separated by spaces within each array
+**Output files:**
+- `.decomposed.fasta` - Monomers with orientation and rotation applied
+- `.monomers.tsv` - Detailed table with monomer information
+- `.lengths` - Fragment lengths for each array
 
-**Example:**
-```
-Input:  >array1
-        CAGCAGCAGCAGCAG
-Output: >array1
-        CAG CAG CAG CAG CAG
-```
+**Features:**
+- Automatic canonical orientation (A>T, C>G)
+- Integrated rotation (monomers start with cut sequence)
+- Flank detection and labeling
+- Perfect reconstruction guarantee
 
-### 2. `arraysplitter_rotate` - Monomer Normalization Tool
-Rotates monomers to start with the same sequence pattern for standardized comparison.
+### 2. `arraysplitter classify` - Family Classification
+
+Groups arrays into families based on cut sequences and decomposition patterns. Identifies structurally important regions.
 
 **Usage:**
 ```bash
-arraysplitter_rotate -i arrays.fa -o arrays.norm.fa
-# Or with specific starting sequence:
-arraysplitter_rotate -i arrays.fa -o arrays.norm.fa -s ATTCC
+# Classify using lengths file from split step
+arraysplitter classify -i output_prefix.lengths -o classification
+
+# With custom similarity threshold
+arraysplitter classify -i output_prefix.lengths -o classification -s 0.9
 ```
 
-**Purpose:**
-- Normalizes monomer orientation across different arrays
-- Essential for comparing monomers from different decompositions
-- Finds optimal rotation to match specified pattern
-- If no pattern given, automatically selects most common start
+**Output files:**
+- `.families.tsv` - Array assignments with stability metrics
+- `.family_stats.tsv` - Basic statistics per family
+- `.family_summary.tsv` - Detailed family analysis with structural importance scores
+- `.features.json` - Complete feature data
 
-**Example:**
-```
-Input:  >monomer1
-        CAGCAGCAG
-        >monomer2
-        GCAGCAGCA
-        >monomer3
-        AGCAGCAGC
-Output: >monomer1
-        CAGCAGCAG
-        >monomer2
-        CAGCAGCAG
-        >monomer3
-        CAGCAGCAG
-```
+**Key metrics:**
+- **Step stability**: Consistency of monomer length differences
+- **Local variability**: Sliding window analysis (10kb windows)
+- **Structural importance score**: Combined metric (0-1) identifying potential functional regions
 
-### 3. `arraysplitter_extract` - Monomer Analysis Tool
-Extracts unique monomers and calculates their frequencies across all arrays.
+### 3. `arraysplitter rotate` - Monomer Normalization
+
+Rotates monomers to start with the same sequence pattern.
 
 **Usage:**
 ```bash
-arraysplitter_extract -i arrays.norm.fa -o arrays.stats
+# Auto-detect best rotation
+arraysplitter rotate -i monomers.fa -o rotated.fa
+
+# With specific starting sequence
+arraysplitter rotate -i monomers.fa -o rotated.fa -s ATTCC
 ```
 
-**Purpose:**
-- Identifies all unique monomer sequences
-- Counts frequency of each monomer
-- Groups by monomer length
-- Outputs statistics sorted by frequency
+### 4. `arraysplitter extract` - Monomer Analysis
+
+Extracts unique monomers and calculates frequencies.
+
+**Usage:**
+```bash
+arraysplitter extract -i monomers.fa -o stats_prefix
+```
 
 **Output format:**
 ```
 <length> <frequency> <sequence>
 ```
 
-**Example:**
-```
-171     1250    ATTCCATTCCATTCC...
-171     890     ATTCCATTCTATTCC...
-171     245     ATTCCGTTCCATTCC...
-169     122     ATTCCATTCCATT...
-```
-
 ## Complete Workflow Example
 
 ```bash
 # Step 1: Decompose arrays into monomers
-arraysplitter -i centromere_arrays.fa -o centromere_monomers
+arraysplitter split -i centromere_arrays.fa -o centromere
 
-# Step 2: Normalize monomer orientation
-arraysplitter_rotate -i centromere_monomers.fa -o centromere_monomers.normalized.fa
+# Step 2: Classify arrays into families and identify structural regions
+arraysplitter classify -i centromere.lengths -o centromere_families
 
-# Step 3: Extract and count unique monomers
-arraysplitter_extract -i centromere_monomers.normalized.fa -o centromere_monomers.stats
+# Step 3: Extract and count unique monomers (optional)
+arraysplitter extract -i centromere.decomposed.fasta -o centromere_monomers
+
+# Step 4: Additional rotation if needed (optional)
+arraysplitter rotate -i centromere.decomposed.fasta -o centromere.rotated.fa -s ATTCC
 ```
 
-This three-step process provides a complete analysis pipeline from raw tandem arrays to monomer frequency statistics.
+### Output Analysis
+
+After classification, examine the `.family_summary.tsv` file to identify:
+- Families with high structural importance scores (>0.8) - potential centromeric regions
+- Families with low step variability - structurally conserved regions
+- Most stable arrays within each family - best representatives for further study
 
 ## Algorithm Description
 
@@ -128,17 +145,23 @@ ArraySplitter employs a novel de novo algorithm for decomposing satellite DNA ar
 
 ### Overview
 
-The algorithm uses a frequency suffix tree (fs_tree) approach to identify optimal cut sequences that split tandem repeat arrays into individual monomer units. It operates in multiple stages: building a frequency-based suffix tree, identifying candidate cut sequences, selecting the optimal cut, and iteratively refining the decomposition.
+The algorithm uses a frequency suffix tree (fs_tree) approach to identify optimal cut sequences that split tandem repeat arrays into individual monomer units. It handles variable-length monomers (polymorphic repeats) common in biological sequences and automatically orients sequences to canonical form for comparability.
 
 ### Detailed Algorithm Steps
 
-#### 1. Most Frequent Nucleotide Selection
-The algorithm begins by identifying the most frequent nucleotide (A, C, T, or G) in the input array. This nucleotide serves as an anchor point for building the frequency suffix tree, reducing the search space while maintaining effectiveness.
+#### 1. Canonical Orientation
+Arrays are first oriented to canonical form using the rules:
+- Primary: A > T (arrays with more A's than T's are kept as-is)
+- Secondary: C > G (if A=T, arrays with more C's than G's are kept as-is)
+- Arrays not in canonical form are reverse complemented
 
-#### 2. Frequency Suffix Tree Construction
+#### 2. All Nucleotide Analysis
+The algorithm analyzes all nucleotides (A, C, T, G) to avoid bias from single nucleotide selection. Each nucleotide serves as an anchor point for building frequency suffix trees.
+
+#### 3. Frequency Suffix Tree Construction
 The core data structure is a frequency suffix tree that efficiently identifies repetitive patterns:
 
-- **Starting positions**: All positions containing the most frequent nucleotide become root nodes
+- **Starting positions**: All positions containing each nucleotide become root nodes
 - **Iterative extension**: The tree grows by extending sequences one nucleotide at a time (A/C/G/T)
 - **Frequency filtering**: Only branches exceeding a dynamic cutoff threshold are retained:
   - Arrays > 1MB: cutoff = 1000
@@ -147,42 +170,37 @@ The core data structure is a frequency suffix tree that efficiently identifies r
   - Arrays ≤ 10KB: cutoff = 3
 - **Heap-based optimization**: Uses a priority queue to efficiently process high-frequency patterns first
 
-#### 3. Candidate Cut Sequence Generation
+#### 4. Candidate Cut Sequence Generation
 From the frequency suffix tree, the algorithm extracts potential cut sequences:
 - For each sequence length (up to a configurable depth, default 100)
 - Identifies the sequence with maximum coverage (highest frequency)
 - Generates a ranked list of candidate cut sequences
 
-#### 4. Optimal Cut Selection
+#### 5. Optimal Cut Selection
 The algorithm evaluates each candidate cut sequence by:
 - Splitting the array at all occurrences of the cut sequence
-- Calculating the period length distribution (period = segment length + cut length)
-- Computing a uniformity score: fraction of segments matching the most common period
-- Selecting the cut sequence that produces the most uniform period distribution
+- Calculating period distribution between cuts
+- Handling perfect/near-perfect repeats (≥80% empty parts between cuts)
+- Computing scores with tie-breaking rules:
+  1. Prefer cuts producing fewer segments
+  2. Prefer smaller fundamental periods (using GCD)
+- The cut sequence becomes the START of each monomer (biologically relevant)
 
-#### 5. Two-Stage Decomposition Process
-
-**Stage 1 - Initial Decomposition**:
-- Splits the array using the selected cut sequence
-- Handles edge cases for first and last segments
-- For segments matching the expected period: adds directly as monomers
-- For longer segments: attempts even splitting based on expected period length
-
-**Stage 2 - Iterative Refinement**:
-- Identifies irregular segments (> 1.3× expected period length)
-- Uses the most common monomer as a reference template
-- For each irregular segment:
-  - Tests cut positions at beginning (positions 0-4) and end (last 5 positions)
-  - Evaluates cuts using edit distance to the reference monomer
-  - Accepts cuts where edit distance < 50% of monomer length
-- Iterates until no further improvements are found
+#### 6. Monomer Construction
+- First fragment (before any cut) is treated as left flank
+- Each monomer is built as: cut_sequence + following_part
+- Last fragment <70% of average length is treated as right flank
+- All monomers are automatically rotated to start with the cut sequence
+- Ensures all output monomers are directly comparable
 
 ### Key Features
 
 1. **De novo approach**: No prior knowledge of monomer sequences required
-2. **Adaptive thresholds**: Cutoff values scale with array size for optimal performance
-3. **Iterative refinement**: Multiple passes improve boundary precision
-4. **Edit distance validation**: Ensures biological relevance of identified monomers
+2. **Variable-length monomers**: Handles polymorphic repeats naturally
+3. **Canonical orientation**: All arrays oriented consistently (A>T, C>G)
+4. **Integrated rotation**: Monomers automatically aligned to cut sequence
+5. **Family classification**: Groups arrays by cut patterns and variability
+6. **Structural scoring**: Identifies centromeric and functional regions
 
 ### Performance Characteristics
 
@@ -191,13 +209,30 @@ The algorithm evaluates each candidate cut sequence by:
 - **Benchmarking**: CHM13v20 assembly (13K arrays > 1Kb) processes in ~3 hours
 - **Current limitation**: Single-threaded (parallelization planned)
 
+### Classification Algorithm
+
+ArraySplitter includes a classification system that groups arrays into families based on:
+
+1. **Cut sequence identity**: Arrays with different cuts belong to different families
+2. **Pattern similarity**: Within same cut, arrays are clustered by:
+   - Mean monomer length
+   - Length variability
+   - Step stability (consistency between consecutive monomers)
+3. **Structural importance scoring**:
+   - High step stability (consistent monomer spacing)
+   - Low local variability (stable regions in 10kb windows)
+   - Consistency across arrays in family
+   - Score 0-1 (higher = more structurally important)
+
 ### Applications
 
 The algorithm is particularly well-suited for:
 - Analyzing centromeric and pericentromeric regions in T2T assemblies
+- Identifying structurally important genomic regions
 - Studying satellite DNA evolution and variation
-- Identifying novel tandem repeat families
-- Quantifying monomer composition in complex arrays
+- Discovering novel tandem repeat families
+- Quantifying monomer composition and variability
+- Finding stable regions for functional studies
 
 ## Contact
 
