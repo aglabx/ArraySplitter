@@ -22,8 +22,8 @@ Examples:
   # Split with predefined cuts
   arraysplitter split -i arrays.fa -o output_prefix -c ATG,CGCG
   
-  # Classify arrays into families (uses .monomers.tsv from split step)
-  arraysplitter classify -i output_prefix.monomers.tsv -o classification
+  # Classify arrays into families (uses .lengths file from split step)
+  arraysplitter classify -i output_prefix.lengths -o classification
   
   # Rotate monomers
   arraysplitter rotate -i decomposed.fa -o rotated.fa
@@ -82,7 +82,7 @@ For help on specific commands:
         'classify',
         help='Classify arrays into families based on decomposition patterns'
     )
-    parser_classify.add_argument("-i", "--input", help="Input .monomers.tsv file from decomposition", required=True)
+    parser_classify.add_argument("-i", "--input", help="Input .lengths file from decomposition", required=True)
     parser_classify.add_argument("-o", "--output", help="Output prefix", required=True)
     parser_classify.add_argument(
         "-s", "--similarity",
@@ -161,8 +161,8 @@ For help on specific commands:
             print(f"Error: Input file {args.input} not found")
             sys.exit(1)
         
-        if not args.input.endswith('.monomers.tsv'):
-            print(f"Warning: Input file should be a .monomers.tsv file from ArraySplitter decomposition")
+        if not args.input.endswith('.lengths'):
+            print(f"Warning: Input file should be a .lengths file from ArraySplitter decomposition")
         
         classify_arrays(
             args.input,

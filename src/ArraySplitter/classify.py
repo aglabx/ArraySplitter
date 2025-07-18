@@ -12,51 +12,76 @@ import os
 from collections import Counter, defaultdict
 from statistics import mean, median, stdev
 import json
-import csv
 
 from tqdm import tqdm
 import editdistance as ed
 
 
-def extract_pattern_features_from_monomers(monomers_data):
+def extract_pattern_features_from_lengths_file(header, lengths_line):
     """
-    Extract features from already decomposed monomers data.
+    Extract features from lengths file format.
     
     Args:
-        monomers_data: List of monomer records for a single array
+        header: Header line with metadata (e.g., ">seq_id cut=ATG orientation=fwd n_monomers=50 range=165-175 avg=171.2")
+        lengths_line: Space-separated fragment lengths
         
     Returns:
         dict: Features including length distribution, variability metrics
     """
-    # Get monomer lengths (excluding flanks)
-    monomer_lengths = []
-    cut_seq = None
+    # Parse header
+    parts = header.split()
+    seq_id = parts[0][1:]  # Remove '>'
     
-    for monomer in monomers_data:
-        if monomer['type'] == 'monomer' and monomer['is_flank'] == 'False':
-            monomer_lengths.append(monomer['length'])
-            # Extract cut sequence from the first internal monomer
-            if cut_seq is None and monomer['sequence']:
-                # Find the common prefix among all monomers to determine cut sequence
-                cut_seq = monomer['sequence'][:10]  # Start with first 10 chars
+    # Extract metadata from header
+    metadata = {}
+    for part in parts[1:]:
+        if '=' in part:
+            key, value = part.split('=', 1)
+            metadata[key] = value
     
-    if not monomer_lengths or not cut_seq:
+    cut_seq = metadata.get('cut', '')
+    n_monomers = int(metadata.get('n_monomers', 0))
+    
+    if not cut_seq or n_monomers == 0:
         return None
     
-    # Refine cut sequence by finding common prefix
-    sequences = [m['sequence'] for m in monomers_data 
-                 if m['type'] == 'monomer' and m['is_flank'] == 'False' and m['sequence']]
-    if sequences:
-        # Find longest common prefix
-        cut_seq = sequences[0]
-        for seq in sequences[1:]:
-            # Find common prefix
-            i = 0
-            while i < len(cut_seq) and i < len(seq) and cut_seq[i] == seq[i]:
-                i += 1
-            cut_seq = cut_seq[:i]
-            if not cut_seq:
-                break
+    # Parse lengths
+    all_lengths = [int(x) for x in lengths_line.strip().split()]
+    
+    # Extract monomer lengths based on n_monomers count
+    # The header tells us how many internal monomers there are
+    # Typical structure: [left_flank] [monomer1] [monomer2] ... [monomerN] [right_flank]
+    
+    if n_monomers == len(all_lengths):
+        # All are monomers, no flanks
+        monomer_lengths = all_lengths
+    elif n_monomers < len(all_lengths):
+        # Determine which are monomers vs flanks
+        # Use the average length from header to identify likely flanks
+        avg_length = float(metadata.get('avg', 0))
+        
+        # Simple heuristic: monomers are closer to average length
+        # First fragment is likely left flank if much different from average
+        # Last fragment is likely right flank if much shorter than average
+        
+        if len(all_lengths) == n_monomers + 1:
+            # One flank (either left or right)
+            if abs(all_lengths[0] - avg_length) > abs(all_lengths[-1] - avg_length):
+                # First is flank
+                monomer_lengths = all_lengths[1:]
+            else:
+                # Last is flank
+                monomer_lengths = all_lengths[:-1]
+        elif len(all_lengths) == n_monomers + 2:
+            # Both flanks present
+            monomer_lengths = all_lengths[1:-1]
+        else:
+            # Fallback: take middle n_monomers elements
+            start = (len(all_lengths) - n_monomers) // 2
+            monomer_lengths = all_lengths[start:start + n_monomers]
+    else:
+        # Shouldn't happen, but handle gracefully
+        monomer_lengths = all_lengths
     
     # Calculate statistics
     features = {
@@ -184,10 +209,10 @@ def cluster_arrays(array_features, similarity_threshold=0.8):
 
 def classify_arrays(input_file, output_prefix, similarity_threshold=0.8, verbose=False):
     """
-    Main classification function.
+    Main classification function using lengths file.
     
     Args:
-        input_file: Path to .monomers.tsv file from decomposition
+        input_file: Path to .lengths file from decomposition
         output_prefix: Prefix for output files
         similarity_threshold: Threshold for clustering (0-1)
         verbose: Verbose output
@@ -197,58 +222,65 @@ def classify_arrays(input_file, output_prefix, similarity_threshold=0.8, verbose
     print(f"Input file: {input_file}")
     print(f"Similarity threshold: {similarity_threshold}")
     
-    # Read monomers data
-    monomers_by_array = defaultdict(list)
-    array_lengths = {}
+    # Check if input is a lengths file
+    if not input_file.endswith('.lengths'):
+        print("Warning: Input file should be a .lengths file from decomposition step")
     
-    print("\nReading monomers data...")
-    with open(input_file, 'r') as f:
-        reader = csv.DictReader(f, delimiter='\t')
-        for row in reader:
-            array_id = row['sequence_id']
-            monomers_by_array[array_id].append({
-                'orientation': row['orientation'],
-                'index': int(row['index']),
-                'type': row['type'],
-                'length': int(row['length']),
-                'is_flank': row['is_flank'],
-                'sequence': row['sequence']
-            })
-            # Calculate total array length
-            if array_id not in array_lengths:
-                array_lengths[array_id] = 0
-            array_lengths[array_id] += int(row['length'])
-    
-    print(f"Found {len(monomers_by_array)} arrays")
-    
-    # Extract features from decomposed data
+    # Read lengths file
     array_features = {}
     array_info = {}
     
-    print("\nAnalyzing arrays...")
-    for array_id, monomers in tqdm(monomers_by_array.items()):
-        try:
-            # Sort monomers by index to ensure correct order
-            monomers.sort(key=lambda x: x['index'])
-            
-            # Extract features
-            features = extract_pattern_features_from_monomers(monomers)
-            
-            if features:
-                array_features[array_id] = features
-                array_info[array_id] = {
-                    'length': array_lengths[array_id],
-                    'cut_sequence': features['cut_sequence'],
-                    'orientation': monomers[0]['orientation'] if monomers else 'unknown'
-                }
-            else:
-                if verbose:
-                    print(f"Warning: Could not extract features for {array_id}")
-        except Exception as e:
-            if verbose:
-                print(f"Error processing {array_id}: {e}")
-            continue
+    print("\nReading lengths file...")
+    with open(input_file, 'r') as f:
+        lines = f.readlines()
     
+    # Process pairs of lines (header + lengths)
+    i = 0
+    while i < len(lines):
+        if lines[i].startswith('>'):
+            header = lines[i].strip()
+            if i + 1 < len(lines):
+                lengths_line = lines[i + 1].strip()
+                
+                # Extract sequence ID
+                seq_id = header.split()[0][1:]  # Remove '>'
+                
+                # Extract features
+                features = extract_pattern_features_from_lengths_file(header, lengths_line)
+                
+                if features:
+                    array_features[seq_id] = features
+                    
+                    # Parse additional info from header
+                    parts = header.split()
+                    metadata = {}
+                    for part in parts[1:]:
+                        if '=' in part:
+                            key, value = part.split('=', 1)
+                            metadata[key] = value
+                    
+                    # Calculate total length from all fragments
+                    all_lengths = [int(x) for x in lengths_line.strip().split()]
+                    total_length = sum(all_lengths)
+                    
+                    array_info[seq_id] = {
+                        'length': total_length,
+                        'cut_sequence': metadata.get('cut', ''),
+                        'orientation': metadata.get('orientation', ''),
+                        'n_monomers': int(metadata.get('n_monomers', 0)),
+                        'avg_length': float(metadata.get('avg', 0))
+                    }
+                else:
+                    if verbose:
+                        print(f"Warning: Could not extract features for {seq_id}")
+                
+                i += 2
+            else:
+                i += 1
+        else:
+            i += 1
+    
+    print(f"Found {len(array_features)} arrays")
     print(f"\nSuccessfully analyzed {len(array_features)} arrays")
     
     # Cluster arrays
