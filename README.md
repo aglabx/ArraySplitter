@@ -122,45 +122,6 @@ arraysplitter_extract -i centromere_monomers.normalized.fa -o centromere_monomer
 
 This three-step process provides a complete analysis pipeline from raw tandem arrays to monomer frequency statistics.
 
-## Rotating monomers to start with the same sequence
-
-We found that different arrays of the same repeat family can be decomposed sligtly differently. To make them comparable, ArraySplitter can rotate monomers to start with the same sequence. 
-
-```bash
-arraysplitter_rotate -i arrays.fa -o arrays.norm.fa
-```
-
-And you can give the sequence to start with:
-
-```bash
-arraysplitter_rotate -i arrays.fa -o arrays.norm.fa -s TTTC
-```
-
-**Explanation**
-
-* **`-i arrays.fa`:**  FASTA file of monomers.
-* **`-o arrays.norm.fa`:** Output FASTA file with rotated monomers.
-
-## Extracting and counting monomers
-
-And finally, you can extract and count monomers from the arrays:
-
-```bash
-arraysplitter_extract -i arrays.norm.fa -o arrays.norm
-```
-
-It will create a file with monomer length, monomer frequency, and monomer sequence (ordered by frequency). For example, for the arrays.norm.fa file above, the output will be like this:
-
-```bash
-514     10      ATCCCATTCC
-514     10      GATTGGAGTG
-514     6       TCCTTT
-514     5       TGCTG
-514     10      ATTGAATGGA
-514     10      ATGCAATGGA
-514     5       TCCTA
-```
-
 ## Algorithm Description
 
 ArraySplitter employs a novel de novo algorithm for decomposing satellite DNA arrays into constituent monomers without prior knowledge of the monomer sequences. The algorithm is specifically designed to handle the challenges of centromeric and pericentromeric regions in telomere-to-telomere assemblies.
