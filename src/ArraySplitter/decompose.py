@@ -236,7 +236,9 @@ def compute_cuts(array, hints, score_threshold=0.05, fragmentation_threshold=0.5
             'fragmentation': fragmentation,
             'period_gcd': period_gcd,
             'period_distribution': period_counts,
-            'num_segments': total_segments
+            'num_segments': total_segments,
+            'num_parts': len(parts),  # Total number of parts from split
+            'empty_ratio': empty_ratio
         })
     
     if not candidates:
@@ -272,8 +274,8 @@ def compute_cuts(array, hints, score_threshold=0.05, fragmentation_threshold=0.5
     for c in similar_candidates:
         c['adjusted_score'] = c['base_score'] * (1 - c['fragmentation'] * 0.5)
     
-    # Sort by adjusted score, then by period (smaller is better)
-    similar_candidates.sort(key=lambda x: (-x['adjusted_score'], x['mode_period']))
+    # Sort by adjusted score, then by number of segments (fewer is better), then by period (smaller is better)
+    similar_candidates.sort(key=lambda x: (-x['adjusted_score'], x['num_segments'], x['mode_period']))
     
     best = similar_candidates[0]
     return best['cut'], best['base_score'], best['mode_period']
@@ -560,11 +562,13 @@ def main(input_file, output_prefix, format, threads):
 
     output_file = f"{output_prefix}.decomposed.fasta"
     detail_file = f"{output_prefix}.monomers.tsv"
+    lengths_file = f"{output_prefix}.lengths"
     print(f"Output file: {output_file}")
     print(f"Detail file: {detail_file}")
+    print(f"Lengths file: {lengths_file}")
     
-    # Open both output files
-    with open(output_file, "w") as fw, open(detail_file, "w") as fw_detail:
+    # Open all output files
+    with open(output_file, "w") as fw, open(detail_file, "w") as fw_detail, open(lengths_file, "w") as fw_lengths:
         # Write header for detail file
         fw_detail.write("sequence_id\torientation\tindex\ttype\tlength\tis_flank\tsequence\n")
         
@@ -631,6 +635,11 @@ def main(input_file, output_prefix, format, threads):
             
             fw.write(f">{header_info}\n")
             fw.write(" ".join(decomposition) + "\n")
+            
+            # Write lengths file
+            fw_lengths.write(f">{header_info}\n")
+            lengths = [str(len(m)) for m in decomposition]
+            fw_lengths.write(" ".join(lengths) + "\n")
             
             # Write detailed monomer information
             for i, monomer in enumerate(decomposition):
