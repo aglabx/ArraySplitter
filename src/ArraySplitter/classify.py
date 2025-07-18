@@ -100,6 +100,43 @@ def extract_pattern_features_from_lengths_file(header, lengths_line):
     features['length_distribution'] = dict(length_counts)
     features['unique_lengths'] = len(length_counts)
     
+    # Calculate step differences between consecutive monomers
+    if len(monomer_lengths) > 1:
+        step_diffs = []
+        for i in range(1, len(monomer_lengths)):
+            step_diff = abs(monomer_lengths[i] - monomer_lengths[i-1])
+            step_diffs.append(step_diff)
+        
+        features['step_mean'] = mean(step_diffs) if step_diffs else 0
+        features['step_std'] = stdev(step_diffs) if len(step_diffs) > 1 else 0
+        features['step_max'] = max(step_diffs) if step_diffs else 0
+        features['step_stability'] = 1.0 - (features['step_std'] / features['mean_length']) if features['mean_length'] > 0 else 0
+    else:
+        features['step_mean'] = 0
+        features['step_std'] = 0
+        features['step_max'] = 0
+        features['step_stability'] = 1.0
+    
+    # Calculate local variability using sliding window (10kb ~ 50-60 monomers for typical 171bp)
+    window_size = max(10, int(10000 / features['mean_length']))  # Adaptive window based on monomer size
+    if len(monomer_lengths) >= window_size:
+        window_variabilities = []
+        for i in range(len(monomer_lengths) - window_size + 1):
+            window = monomer_lengths[i:i + window_size]
+            window_std = stdev(window) if len(window) > 1 else 0
+            window_variabilities.append(window_std)
+        
+        features['local_var_mean'] = mean(window_variabilities)
+        features['local_var_min'] = min(window_variabilities)
+        features['local_var_max'] = max(window_variabilities)
+        features['most_stable_region_var'] = features['local_var_min']
+    else:
+        # Too few monomers for windowed analysis
+        features['local_var_mean'] = features['length_variability']
+        features['local_var_min'] = features['length_variability']
+        features['local_var_max'] = features['length_variability']
+        features['most_stable_region_var'] = features['length_variability']
+    
     return features
 
 
@@ -294,16 +331,19 @@ def classify_arrays(input_file, output_prefix, similarity_threshold=0.8, verbose
     # Write results
     output_file = f"{output_prefix}.families.tsv"
     stats_file = f"{output_prefix}.family_stats.tsv"
+    summary_file = f"{output_prefix}.family_summary.tsv"
     json_file = f"{output_prefix}.features.json"
     
     print(f"\nWriting results to:")
     print(f"  {output_file}")
     print(f"  {stats_file}")
+    print(f"  {summary_file}")
     print(f"  {json_file}")
     
-    # Write family assignments
+    # Write family assignments with step variability
     with open(output_file, 'w') as f:
-        f.write("array_id\tfamily\tcut_sequence\tlength\tmean_monomer_length\tnum_monomers\n")
+        f.write("array_id\tfamily\tcut_sequence\tlength\tmean_monomer_length\tnum_monomers\t")
+        f.write("step_stability\tstep_std\tlocal_var_min\tmost_stable_region_var\n")
         
         for array_id in sorted(family_assignments.keys()):
             family = family_assignments[array_id]
@@ -313,7 +353,11 @@ def classify_arrays(input_file, output_prefix, similarity_threshold=0.8, verbose
             f.write(f"{array_id}\t{family}\t{info.get('cut_sequence', 'NA')}\t")
             f.write(f"{info.get('length', 0)}\t")
             f.write(f"{features.get('mean_length', 0):.1f}\t")
-            f.write(f"{features.get('num_monomers', 0)}\n")
+            f.write(f"{features.get('num_monomers', 0)}\t")
+            f.write(f"{features.get('step_stability', 0):.3f}\t")
+            f.write(f"{features.get('step_std', 0):.1f}\t")
+            f.write(f"{features.get('local_var_min', 0):.1f}\t")
+            f.write(f"{features.get('most_stable_region_var', 0):.1f}\n")
     
     # Write family statistics
     with open(stats_file, 'w') as f:
@@ -332,6 +376,59 @@ def classify_arrays(input_file, output_prefix, similarity_threshold=0.8, verbose
             f.write(f"{mean(lengths):.1f}\t")
             f.write(f"{stdev(lengths) if len(lengths) > 1 else 0:.1f}\t")
             f.write(f"{mean(monomer_counts):.1f}\n")
+    
+    # Write family summary with detailed variability analysis
+    with open(summary_file, 'w') as f:
+        f.write("family\tcut_sequence\tnum_arrays\ttotal_monomers\tmean_monomer_length\tstd_monomer_length\t")
+        f.write("mean_step_stability\tmin_step_stability\tmax_step_stability\t")
+        f.write("mean_local_var_min\tmost_stable_array\tmost_stable_array_var\t")
+        f.write("structural_importance_score\n")
+        
+        for family in sorted(family_counts.keys()):
+            # Get all arrays in this family
+            family_arrays = [aid for aid, fam in family_assignments.items() if fam == family]
+            
+            # Aggregate statistics
+            cut_seq = array_features[family_arrays[0]]['cut_sequence']
+            all_monomer_lengths = []
+            step_stabilities = []
+            local_var_mins = []
+            
+            for aid in family_arrays:
+                features = array_features[aid]
+                all_monomer_lengths.append(features['mean_length'])
+                step_stabilities.append(features['step_stability'])
+                local_var_mins.append(features['local_var_min'])
+            
+            # Find most stable array in family
+            most_stable_idx = local_var_mins.index(min(local_var_mins))
+            most_stable_array = family_arrays[most_stable_idx]
+            most_stable_var = local_var_mins[most_stable_idx]
+            
+            # Calculate structural importance score (0-1, higher = more structurally important)
+            # Based on: high step stability, low local variability, consistency across arrays
+            avg_step_stability = mean(step_stabilities)
+            avg_local_var_min = mean(local_var_mins)
+            consistency = 1.0 - (stdev(step_stabilities) if len(step_stabilities) > 1 else 0)
+            
+            # Normalize variability (inverse, so low var = high score)
+            var_score = 1.0 / (1.0 + avg_local_var_min / 10.0)  # Scale by 10 for typical values
+            
+            structural_score = (avg_step_stability * 0.4 + var_score * 0.4 + consistency * 0.2)
+            
+            # Total monomers in family
+            total_monomers = sum(array_features[aid]['num_monomers'] for aid in family_arrays)
+            
+            f.write(f"{family}\t{cut_seq}\t{len(family_arrays)}\t{total_monomers}\t")
+            f.write(f"{mean(all_monomer_lengths):.1f}\t")
+            f.write(f"{stdev(all_monomer_lengths) if len(all_monomer_lengths) > 1 else 0:.1f}\t")
+            f.write(f"{avg_step_stability:.3f}\t")
+            f.write(f"{min(step_stabilities):.3f}\t")
+            f.write(f"{max(step_stabilities):.3f}\t")
+            f.write(f"{avg_local_var_min:.1f}\t")
+            f.write(f"{most_stable_array}\t")
+            f.write(f"{most_stable_var:.1f}\t")
+            f.write(f"{structural_score:.3f}\n")
     
     # Write detailed features as JSON
     with open(json_file, 'w') as f:
@@ -354,6 +451,32 @@ def classify_arrays(input_file, output_prefix, similarity_threshold=0.8, verbose
         family_arrays = [aid for aid, fam in family_assignments.items() if fam == family]
         cut_seq = array_features[family_arrays[0]]['cut_sequence']
         print(f"  {family}: {count} arrays (cut: {cut_seq})")
+    
+    # Show structurally important families
+    print("\nStructurally important families (high stability, low variability):")
+    
+    # Calculate structural scores for display
+    family_scores = []
+    for family in family_counts.keys():
+        family_arrays = [aid for aid, fam in family_assignments.items() if fam == family]
+        
+        step_stabilities = [array_features[aid]['step_stability'] for aid in family_arrays]
+        local_var_mins = [array_features[aid]['local_var_min'] for aid in family_arrays]
+        
+        avg_step_stability = mean(step_stabilities)
+        avg_local_var_min = mean(local_var_mins)
+        consistency = 1.0 - (stdev(step_stabilities) if len(step_stabilities) > 1 else 0)
+        var_score = 1.0 / (1.0 + avg_local_var_min / 10.0)
+        structural_score = (avg_step_stability * 0.4 + var_score * 0.4 + consistency * 0.2)
+        
+        family_scores.append((family, structural_score, array_features[family_arrays[0]]['cut_sequence'], len(family_arrays)))
+    
+    # Sort by structural score
+    family_scores.sort(key=lambda x: x[1], reverse=True)
+    
+    # Show top structurally important families
+    for i, (family, score, cut_seq, count) in enumerate(family_scores[:5]):
+        print(f"  {i+1}. {family}: score={score:.3f}, {count} arrays (cut: {cut_seq})")
 
 
 def run_it():
