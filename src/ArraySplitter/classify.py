@@ -12,33 +12,55 @@ import os
 from collections import Counter, defaultdict
 from statistics import mean, median, stdev
 import json
+import csv
 
-from .core_functions.io.fasta_reader import sc_iter_fasta_file
-from .decompose import decompose_array, get_canonical_orientation, get_revcomp
 from tqdm import tqdm
 import editdistance as ed
 
 
-def extract_pattern_features(decomposition, cut_seq):
+def extract_pattern_features_from_monomers(monomers_data):
     """
-    Extract features from decomposition pattern for classification.
+    Extract features from already decomposed monomers data.
     
+    Args:
+        monomers_data: List of monomer records for a single array
+        
     Returns:
         dict: Features including length distribution, variability metrics
     """
-    # Get monomer lengths (excluding potential flanks)
+    # Get monomer lengths (excluding flanks)
     monomer_lengths = []
-    for i, monomer in enumerate(decomposition):
-        if monomer.startswith(cut_seq):
-            # Check if it's internal monomer (not too short compared to others)
-            monomer_lengths.append(len(monomer))
+    cut_seq = None
     
-    if not monomer_lengths:
+    for monomer in monomers_data:
+        if monomer['type'] == 'monomer' and monomer['is_flank'] == 'False':
+            monomer_lengths.append(monomer['length'])
+            # Extract cut sequence from the first internal monomer
+            if cut_seq is None and monomer['sequence']:
+                # Find the common prefix among all monomers to determine cut sequence
+                cut_seq = monomer['sequence'][:10]  # Start with first 10 chars
+    
+    if not monomer_lengths or not cut_seq:
         return None
+    
+    # Refine cut sequence by finding common prefix
+    sequences = [m['sequence'] for m in monomers_data 
+                 if m['type'] == 'monomer' and m['is_flank'] == 'False' and m['sequence']]
+    if sequences:
+        # Find longest common prefix
+        cut_seq = sequences[0]
+        for seq in sequences[1:]:
+            # Find common prefix
+            i = 0
+            while i < len(cut_seq) and i < len(seq) and cut_seq[i] == seq[i]:
+                i += 1
+            cut_seq = cut_seq[:i]
+            if not cut_seq:
+                break
     
     # Calculate statistics
     features = {
-        'cut_sequence': cut_seq,
+        'cut_sequence': cut_seq if cut_seq else 'UNKNOWN',
         'num_monomers': len(monomer_lengths),
         'mean_length': mean(monomer_lengths),
         'median_length': median(monomer_lengths),
@@ -160,55 +182,71 @@ def cluster_arrays(array_features, similarity_threshold=0.8):
     return family_assignments
 
 
-def classify_arrays(input_file, output_prefix, depth=100, similarity_threshold=0.8, verbose=False):
+def classify_arrays(input_file, output_prefix, similarity_threshold=0.8, verbose=False):
     """
     Main classification function.
+    
+    Args:
+        input_file: Path to .monomers.tsv file from decomposition
+        output_prefix: Prefix for output files
+        similarity_threshold: Threshold for clustering (0-1)
+        verbose: Verbose output
     """
     print("ArraySplitter Classify")
     print("="*60)
     print(f"Input file: {input_file}")
     print(f"Similarity threshold: {similarity_threshold}")
     
-    # First pass: count sequences
-    total = 0
-    for _ in sc_iter_fasta_file(input_file):
-        total += 1
+    # Read monomers data
+    monomers_by_array = defaultdict(list)
+    array_lengths = {}
     
-    print(f"Total sequences: {total}")
+    print("\nReading monomers data...")
+    with open(input_file, 'r') as f:
+        reader = csv.DictReader(f, delimiter='\t')
+        for row in reader:
+            array_id = row['sequence_id']
+            monomers_by_array[array_id].append({
+                'orientation': row['orientation'],
+                'index': int(row['index']),
+                'type': row['type'],
+                'length': int(row['length']),
+                'is_flank': row['is_flank'],
+                'sequence': row['sequence']
+            })
+            # Calculate total array length
+            if array_id not in array_lengths:
+                array_lengths[array_id] = 0
+            array_lengths[array_id] += int(row['length'])
     
-    # Second pass: decompose and extract features
+    print(f"Found {len(monomers_by_array)} arrays")
+    
+    # Extract features from decomposed data
     array_features = {}
     array_info = {}
     
     print("\nAnalyzing arrays...")
-    for header, sequence in tqdm(sc_iter_fasta_file(input_file), total=total):
-        # Canonical orientation
-        if not get_canonical_orientation(sequence):
-            sequence = get_revcomp(sequence)
-        
-        # Decompose
+    for array_id, monomers in tqdm(monomers_by_array.items()):
         try:
-            decomposition, _, cut_seq, score, period = decompose_array(
-                sequence, depth=depth, verbose=False, array_id=header
-            )
+            # Sort monomers by index to ensure correct order
+            monomers.sort(key=lambda x: x['index'])
             
             # Extract features
-            features = extract_pattern_features(decomposition, cut_seq)
+            features = extract_pattern_features_from_monomers(monomers)
             
             if features:
-                array_features[header] = features
-                array_info[header] = {
-                    'length': len(sequence),
-                    'cut_sequence': cut_seq,
-                    'score': score,
-                    'period': period
+                array_features[array_id] = features
+                array_info[array_id] = {
+                    'length': array_lengths[array_id],
+                    'cut_sequence': features['cut_sequence'],
+                    'orientation': monomers[0]['orientation'] if monomers else 'unknown'
                 }
             else:
                 if verbose:
-                    print(f"Warning: Could not extract features for {header}")
+                    print(f"Warning: Could not extract features for {array_id}")
         except Exception as e:
             if verbose:
-                print(f"Error processing {header}: {e}")
+                print(f"Error processing {array_id}: {e}")
             continue
     
     print(f"\nSuccessfully analyzed {len(array_features)} arrays")
@@ -274,7 +312,7 @@ def classify_arrays(input_file, output_prefix, depth=100, similarity_threshold=0
     
     # Print summary
     print("\nClassification summary:")
-    print(f"  Total arrays: {total}")
+    print(f"  Total arrays: {len(monomers_by_array)}")
     print(f"  Successfully classified: {len(family_assignments)}")
     print(f"  Number of families: {len(family_counts)}")
     
@@ -291,19 +329,13 @@ def run_it():
     parser = argparse.ArgumentParser(
         description="Classify satellite DNA arrays into families based on decomposition patterns"
     )
-    parser.add_argument("-i", "--input", help="Input FASTA file", required=True)
+    parser.add_argument("-i", "--input", help="Input .monomers.tsv file from decomposition", required=True)
     parser.add_argument("-o", "--output", help="Output prefix", required=True)
     parser.add_argument(
         "-s", "--similarity", 
         help="Similarity threshold for clustering (0-1, default: 0.8)", 
         type=float, 
         default=0.8
-    )
-    parser.add_argument(
-        "-d", "--depth", 
-        help="Depth for decomposition (default: 100)", 
-        type=int, 
-        default=100
     )
     parser.add_argument(
         "-v", "--verbose", 
@@ -317,10 +349,12 @@ def run_it():
         print(f"Error: Input file {args.input} not found")
         exit(1)
     
+    if not args.input.endswith('.monomers.tsv'):
+        print(f"Warning: Input file should be a .monomers.tsv file from ArraySplitter decomposition")
+    
     classify_arrays(
         args.input, 
         args.output, 
-        depth=args.depth,
         similarity_threshold=args.similarity,
         verbose=args.verbose
     )

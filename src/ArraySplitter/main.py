@@ -22,8 +22,8 @@ Examples:
   # Split with predefined cuts
   arraysplitter split -i arrays.fa -o output_prefix -c ATG,CGCG
   
-  # Classify arrays into families
-  arraysplitter classify -i arrays.fa -o classification
+  # Classify arrays into families (uses .monomers.tsv from split step)
+  arraysplitter classify -i output_prefix.monomers.tsv -o classification
   
   # Rotate monomers
   arraysplitter rotate -i decomposed.fa -o rotated.fa
@@ -82,19 +82,13 @@ For help on specific commands:
         'classify',
         help='Classify arrays into families based on decomposition patterns'
     )
-    parser_classify.add_argument("-i", "--input", help="Input FASTA file", required=True)
+    parser_classify.add_argument("-i", "--input", help="Input .monomers.tsv file from decomposition", required=True)
     parser_classify.add_argument("-o", "--output", help="Output prefix", required=True)
     parser_classify.add_argument(
         "-s", "--similarity",
         help="Similarity threshold for clustering (0-1, default: 0.8)",
         type=float,
         default=0.8
-    )
-    parser_classify.add_argument(
-        "-d", "--depth",
-        help="Depth for decomposition (default: 100)",
-        type=int,
-        default=100
     )
     parser_classify.add_argument(
         "-v", "--verbose",
@@ -167,10 +161,12 @@ For help on specific commands:
             print(f"Error: Input file {args.input} not found")
             sys.exit(1)
         
+        if not args.input.endswith('.monomers.tsv'):
+            print(f"Warning: Input file should be a .monomers.tsv file from ArraySplitter decomposition")
+        
         classify_arrays(
             args.input,
             args.output,
-            depth=args.depth,
             similarity_threshold=args.similarity,
             verbose=args.verbose
         )
