@@ -483,7 +483,6 @@ def decompose_array_with_cuts(array, cut_sequences, verbose=False, array_id=None
             continue
             
         # Calculate score
-        from collections import Counter
         period_counts = Counter(periods)
         mode_period, mode_count = period_counts.most_common(1)[0]
         total_segments = len(periods)
