@@ -453,6 +453,66 @@ def print_pause_clean(decomposition, repeats2count, best_period):
 #   clear_output(wait=True)
 
 
+def decompose_array_with_cuts(array, cut_sequences, verbose=False, array_id=None):
+    """
+    Decompose array using predefined cut sequences.
+    Tries each cut and selects the best one based on scoring.
+    """
+    if not cut_sequences:
+        raise ValueError("No cut sequences provided")
+    
+    # Try each cut sequence
+    best_result = None
+    best_score = -1
+    
+    for cut_seq in cut_sequences:
+        if cut_seq not in array:
+            continue
+            
+        # Split by this cut
+        parts = array.split(cut_seq)
+        
+        # Calculate score (same logic as compute_cuts)
+        periods = []
+        for i, part in enumerate(parts):
+            if i < len(parts) - 1 or part:
+                period = len(part) + len(cut_seq)
+                periods.append(period)
+        
+        if not periods:
+            continue
+            
+        # Calculate score
+        from collections import Counter
+        period_counts = Counter(periods)
+        mode_period, mode_count = period_counts.most_common(1)[0]
+        total_segments = len(periods)
+        base_score = mode_count / total_segments
+        
+        # Fragmentation penalty
+        short_threshold = mode_period * 0.5
+        short_fragments = sum(1 for p in periods if p < short_threshold)
+        fragmentation = short_fragments / total_segments
+        adjusted_score = base_score * (1 - fragmentation * 0.5)
+        
+        if adjusted_score > best_score:
+            best_score = adjusted_score
+            best_result = (cut_seq, base_score, mode_period, len(parts))
+    
+    if best_result is None:
+        # No cuts found, return whole array
+        return [array], Counter({array: 1}), "", 0, len(array)
+    
+    cut_seq, score, period, num_parts = best_result
+    
+    # Decompose with best cut
+    decomposition, repeats2count = decompose_array_iter1(
+        array, cut_seq, period, verbose=verbose, array_id=array_id
+    )
+    
+    return decomposition, repeats2count, cut_seq, score, period
+
+
 def decompose_array(array, depth=500, cutoff=None, verbose=False, array_id=None):
     ### Step 0. Set cutoff based on array size if not provided
     if cutoff is None:
@@ -538,7 +598,7 @@ def get_array_generator(input_file, format):
     exit(1)
     
 
-def main(input_file, output_prefix, format, threads):
+def main(input_file, output_prefix, format, threads, predefined_cuts=None, depth=100, verbose=False):
     """Main function."""
 
     sequences = get_array_generator(input_file, format)
@@ -548,10 +608,10 @@ def main(input_file, output_prefix, format, threads):
     sequences = get_array_generator(input_file, format)
 
     print(f"Start processing")
-    
-
-    depth = 100
-    verbose = False
+    if predefined_cuts:
+        print(f"Using predefined cuts: {', '.join(predefined_cuts)}")
+    else:
+        print(f"Will discover cuts automatically (depth={depth})")
 
     if output_prefix.endswith(".fasta"):
         print("Remove .fasta from output prefix")
@@ -583,14 +643,24 @@ def main(input_file, output_prefix, format, threads):
                 was_reversed = True
             
             # print(len(array), end=" ")
-            # cutoff will be set automatically based on array size
-            (
-                decomposition,
-                repeats2count,
-                best_cut_seq,
-                best_cut_score,
-                best_period,
-            ) = decompose_array(array, depth=depth, cutoff=None, verbose=verbose, array_id=header)
+            # Use predefined cuts or discover automatically
+            if predefined_cuts:
+                (
+                    decomposition,
+                    repeats2count,
+                    best_cut_seq,
+                    best_cut_score,
+                    best_period,
+                ) = decompose_array_with_cuts(array, predefined_cuts, verbose=verbose, array_id=header)
+            else:
+                # cutoff will be set automatically based on array size
+                (
+                    decomposition,
+                    repeats2count,
+                    best_cut_seq,
+                    best_cut_score,
+                    best_period,
+                ) = decompose_array(array, depth=depth, cutoff=None, verbose=verbose, array_id=header)
             
             # Rotate monomers to start with cut
             decomposition = rotate_monomers_to_cut(decomposition, best_cut_seq)
@@ -672,18 +742,39 @@ def run_it():
     parser.add_argument(
         "-t", "--threads", help="Number of threads", required=False, default=4
     )
+    parser.add_argument(
+        "-c", "--cuts", 
+        help="Comma-separated list of predefined cut sequences (e.g., ATG,ATGATG). If provided, skips cut discovery.", 
+        required=False, 
+        default=None
+    )
+    parser.add_argument(
+        "-d", "--depth", 
+        help="Depth for hint discovery (default: 100)", 
+        required=False, 
+        type=int,
+        default=100
+    )
+    parser.add_argument(
+        "-v", "--verbose", 
+        help="Verbose output", 
+        action="store_true"
+    )
     args = parser.parse_args()
 
     input_file = args.input
     output_prefix = args.output
     format = args.format
     threads = int(args.threads)
+    predefined_cuts = args.cuts.split(',') if args.cuts else None
+    depth = args.depth
+    verbose = args.verbose
 
     if not os.path.isfile(input_file):
         print(f"File {input_file} not found")
         exit(1)
 
-    main(input_file, output_prefix, format, threads)
+    main(input_file, output_prefix, format, threads, predefined_cuts, depth, verbose)
 
 if __name__ == "__main__":
     run_it()
