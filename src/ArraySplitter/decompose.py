@@ -299,108 +299,183 @@ def refine_repeat_even(repeat, best_period):
         yield repeat
 
 
-def merge_overcutting(decomposition, cut_seq, verbose=True, array_id=None):
+def optimize_monomer_lengths(decomposition, cut_seq, verbose=True, array_id=None):
     """
-    Merge fragments that were incorrectly split due to internal cut sequences.
-    Goal: minimize relative variance (coefficient of variation = std/mean).
+    Post-processing optimization to merge short frequent monomers with adjacent longer ones.
+    Goal: minimize variance of monomer lengths.
+    
+    This runs AFTER the main decomposition is complete.
     """
-    if len(decomposition) < 3:  # Need at least 3 fragments to consider merging
+    from collections import Counter
+    
+    if len(decomposition) < 3:
         return decomposition
+    
+    # Calculate original sequence for verification
+    original_sequence = "".join(decomposition)
+    original_length = len(original_sequence)
     
     # Skip if first fragment doesn't start with cut (it's a flank)
     start_idx = 0
     if decomposition[0] and not decomposition[0].startswith(cut_seq):
         start_idx = 1
     
-    # Calculate initial relative variance (excluding flanks)
-    monomer_lengths = []
+    # Get monomer lengths (excluding flanks)
+    monomer_info = []  # List of (index, length) tuples
     for i in range(start_idx, len(decomposition)):
-        if i == len(decomposition) - 1 and len(decomposition[i]) < len(cut_seq) * 2:
-            # Skip likely right flank
-            continue
-        monomer_lengths.append(len(decomposition[i]))
+        # Skip likely right flank
+        if i == len(decomposition) - 1:
+            avg_len = sum(len(d) for d in decomposition[start_idx:i]) / max(1, i - start_idx)
+            if len(decomposition[i]) < avg_len * 0.7:
+                continue
+        monomer_info.append((i, len(decomposition[i])))
     
-    if len(monomer_lengths) < 2:
+    if len(monomer_info) < 2:
         return decomposition
     
-    initial_mean = mean(monomer_lengths)
-    initial_std = stdev(monomer_lengths)
-    initial_cv = initial_std / initial_mean if initial_mean > 0 else 0
+    # Count length frequencies
+    length_counts = Counter(info[1] for info in monomer_info)
+    all_lengths = [info[1] for info in monomer_info]
     
-    # Look for alternating pattern of very different lengths
-    # e.g., 47, 649, 47, 649 suggests overcutting
-    length_ratios = []
-    for i in range(len(monomer_lengths) - 1):
-        ratio = max(monomer_lengths[i], monomer_lengths[i+1]) / min(monomer_lengths[i], monomer_lengths[i+1])
-        length_ratios.append(ratio)
+    # Calculate initial variance
+    initial_mean = mean(all_lengths)
+    initial_variance = sum((x - initial_mean) ** 2 for x in all_lengths) / len(all_lengths)
     
-    # If we see high ratios (>2), consider merging
-    if not any(ratio > 2 for ratio in length_ratios):
+    if verbose:
+        print(f"Initial variance: {initial_variance:.1f} (mean={initial_mean:.1f})")
+        print(f"Length distribution: {dict(sorted(length_counts.items())[:5])}...")
+    
+    # Find frequently occurring short monomers (at least 2 occurrences or 15% of monomers)
+    min_frequency = max(2, int(len(monomer_info) * 0.15))
+    short_lengths = [length for length, count in length_counts.items() 
+                     if count >= min_frequency and length < initial_mean * 0.5]
+    
+    if not short_lengths:
         return decomposition
     
-    # Try merging consecutive pairs
-    merged_decomposition = []
-    i = 0
+    if verbose:
+        print(f"Frequent short lengths: {short_lengths}")
     
-    # Handle left flank if present
-    if start_idx == 1:
-        merged_decomposition.append(decomposition[0])
-        i = 1
+    # Try merging short monomers with adjacent ones
+    working_decomposition = decomposition.copy()
+    merge_occurred = True
+    iteration = 0
     
-    merge_occurred = False
-    while i < len(decomposition):
-        if i < len(decomposition) - 1:
-            # Check if merging would reduce CV
-            current = decomposition[i]
-            next_frag = decomposition[i + 1]
-            
-            # Only merge if both start with cut sequence (excluding flanks)
-            if current.startswith(cut_seq) and next_frag.startswith(cut_seq):
-                # Calculate what CV would be after merge
-                test_lengths = monomer_lengths.copy()
-                
-                # Find indices in monomer_lengths
-                curr_idx = i - start_idx
-                next_idx = i + 1 - start_idx
-                
-                if curr_idx >= 0 and next_idx < len(test_lengths):
-                    merged_len = len(current) + len(next_frag)  # Full length of both fragments
-                    
-                    # Remove the two lengths and add merged length
-                    test_lengths_merged = []
-                    for j, length in enumerate(test_lengths):
-                        if j == curr_idx:
-                            test_lengths_merged.append(merged_len)
-                        elif j == next_idx:
-                            continue  # Skip this one
-                        else:
-                            test_lengths_merged.append(length)
-                    
-                    if len(test_lengths_merged) > 1:
-                        test_mean = mean(test_lengths_merged)
-                        test_std = stdev(test_lengths_merged)
-                        test_cv = test_std / test_mean if test_mean > 0 else 0
-                        
-                        # Merge if it reduces CV 
-                        if test_cv < initial_cv * 0.95:  # 5% improvement threshold (more permissive)
-                            # When merging, we keep the total length the same
-                            # Both fragments start with cut, but we need to preserve the internal cut
-                            # current = cut + part1  
-                            # next_frag = cut + part2
-                            # The original had: cut + part1 + cut + part2
-                            # So merged should be exactly: current + next_frag
-                            merged = current + next_frag  # Keep both fragments intact
-                            merged_decomposition.append(merged)
-                            i += 2  # Skip next fragment
-                            merge_occurred = True
-                            
-                            continue
+    while merge_occurred and iteration < 10:  # Max 10 iterations
+        merge_occurred = False
+        iteration += 1
+        new_decomposition = []
+        i = 0
         
-        # No merge, just add current fragment
-        merged_decomposition.append(decomposition[i])
-        i += 1
+        while i < len(working_decomposition):
+            if i < len(working_decomposition) - 1:
+                current = working_decomposition[i]
+                next_frag = working_decomposition[i + 1]
+                
+                # Check if current is a short frequent monomer
+                if (current.startswith(cut_seq) and 
+                    len(current) in short_lengths and
+                    next_frag.startswith(cut_seq)):
+                    
+                    # Calculate what variance would be after merge
+                    test_lengths = []
+                    for j, frag in enumerate(working_decomposition):
+                        if j == i:
+                            test_lengths.append(len(current) + len(next_frag))
+                        elif j == i + 1:
+                            continue
+                        else:
+                            # Only count monomers, not flanks
+                            if frag.startswith(cut_seq) or (j > 0 and j < len(working_decomposition) - 1):
+                                test_lengths.append(len(frag))
+                    
+                    if test_lengths:
+                        test_mean = mean(test_lengths)
+                        test_variance = sum((x - test_mean) ** 2 for x in test_lengths) / len(test_lengths)
+                        
+                        # For alternating patterns, also check coefficient of variation
+                        test_cv = (test_variance ** 0.5) / test_mean if test_mean > 0 else 0
+                        initial_cv = (initial_variance ** 0.5) / initial_mean if initial_mean > 0 else 0
+                        
+                        if verbose:
+                            print(f"  Testing merge {len(current)}+{len(next_frag)}: CV {initial_cv:.3f} -> {test_cv:.3f}")
+                        
+                        # Accept merge if it reduces CV (relative variation)
+                        if test_cv < initial_cv * 0.95:
+                            merged = current + next_frag
+                            new_decomposition.append(merged)
+                            i += 2
+                            merge_occurred = True
+                            if verbose:
+                                print(f"  ✓ Merged!")
+                            continue
+                
+                # Try merging next with current if next is short
+                elif (next_frag.startswith(cut_seq) and 
+                      len(next_frag) in short_lengths and
+                      current.startswith(cut_seq)):
+                    
+                    # Calculate variance after merge
+                    test_lengths = []
+                    for j, frag in enumerate(working_decomposition):
+                        if j == i:
+                            test_lengths.append(len(current) + len(next_frag))
+                        elif j == i + 1:
+                            continue
+                        else:
+                            if frag.startswith(cut_seq) or (j > 0 and j < len(working_decomposition) - 1):
+                                test_lengths.append(len(frag))
+                    
+                    if test_lengths:
+                        test_mean = mean(test_lengths)
+                        test_variance = sum((x - test_mean) ** 2 for x in test_lengths) / len(test_lengths)
+                        
+                        # Check coefficient of variation
+                        test_cv = (test_variance ** 0.5) / test_mean if test_mean > 0 else 0
+                        initial_cv = (initial_variance ** 0.5) / initial_mean if initial_mean > 0 else 0
+                        
+                        if verbose:
+                            print(f"  Testing merge {len(current)}+{len(next_frag)}: CV {initial_cv:.3f} -> {test_cv:.3f}")
+                        
+                        if test_cv < initial_cv * 0.95:
+                            merged = current + next_frag
+                            new_decomposition.append(merged)
+                            i += 2
+                            merge_occurred = True
+                            if verbose:
+                                print(f"  ✓ Merged!")
+                            continue
+            
+            # No merge, keep fragment
+            new_decomposition.append(working_decomposition[i])
+            i += 1
+        
+        working_decomposition = new_decomposition
+        
+        # Update variance for next iteration
+        current_lengths = [len(f) for f in working_decomposition 
+                          if f.startswith(cut_seq) or working_decomposition.index(f) > 0]
+        if current_lengths:
+            current_mean = mean(current_lengths)
+            initial_variance = sum((x - current_mean) ** 2 for x in current_lengths) / len(current_lengths)
     
-    return merged_decomposition
+    # Final verification - ensure perfect reconstruction
+    final_sequence = "".join(working_decomposition)
+    if final_sequence != original_sequence:
+        print(f"ERROR: Sequence changed during merging! {original_length} != {len(final_sequence)}")
+        print(f"Reverting to original decomposition")
+        return decomposition
+    
+    if verbose and working_decomposition != decomposition:
+        final_lengths = [len(f) for f in working_decomposition if f.startswith(cut_seq)]
+        if final_lengths:
+            final_mean = mean(final_lengths)
+            final_variance = sum((x - final_mean) ** 2 for x in final_lengths) / len(final_lengths)
+            print(f"Optimization complete: variance {sum((x - mean(all_lengths)) ** 2 for x in all_lengths) / len(all_lengths):.1f} -> {final_variance:.1f}")
+    
+    return working_decomposition
+
+
 
 
 def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True, array_id=None):
@@ -437,13 +512,7 @@ def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True, array_
         if verbose:
             print(f"Monomer {i}: {len(monomer)}bp (cut {len(best_cut_seq)}bp + part {len(parts[i])}bp)")
     
-    # Apply merging to fix over-cutting
-    decomposition = merge_overcutting(decomposition, best_cut_seq, verbose=verbose, array_id=array_id)
-    
-    # Rebuild repeats2count after merging
-    repeats2count = Counter()
-    for monomer in decomposition:
-        repeats2count[monomer] += 1
+    # Don't merge here - we'll do optimization at the very end of the pipeline
     
     # Verify reconstruction
     reconstructed = "".join(decomposition)
@@ -776,6 +845,9 @@ def main(input_file, output_prefix, format, threads, predefined_cuts=None, depth
             
             # Rotate monomers to start with cut
             decomposition = rotate_monomers_to_cut(decomposition, best_cut_seq)
+            
+            # Apply post-processing optimization to merge short frequent monomers
+            decomposition = optimize_monomer_lengths(decomposition, best_cut_seq, verbose=verbose, array_id=header)
 
             # print("best period:", best_period, "len:", len(decomposition))
             # print_pause_clean(decomposition, repeats2count, best_period)
