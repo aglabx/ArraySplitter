@@ -400,8 +400,12 @@ def optimize_monomer_lengths(decomposition, cut_seq, verbose=True, array_id=None
                         if verbose:
                             print(f"  Testing merge {len(current)}+{len(next_frag)}: CV {initial_cv:.3f} -> {test_cv:.3f}")
                         
-                        # Accept merge if it reduces CV (relative variation)
-                        if test_cv < initial_cv * 0.95:
+                        # Accept merge if:
+                        # 1. It reduces CV significantly, OR
+                        # 2. We're merging a short fragment with a much longer one (likely overcutting)
+                        length_ratio = len(next_frag) / len(current) if len(current) > 0 else 1
+                        
+                        if test_cv < initial_cv * 0.98 or length_ratio > 10:
                             merged = current + next_frag
                             new_decomposition.append(merged)
                             i += 2
@@ -437,7 +441,10 @@ def optimize_monomer_lengths(decomposition, cut_seq, verbose=True, array_id=None
                         if verbose:
                             print(f"  Testing merge {len(current)}+{len(next_frag)}: CV {initial_cv:.3f} -> {test_cv:.3f}")
                         
-                        if test_cv < initial_cv * 0.95:
+                        # Accept merge for short+long patterns
+                        length_ratio = len(current) / len(next_frag) if len(next_frag) > 0 else 1
+                        
+                        if test_cv < initial_cv * 0.98 or length_ratio > 10:
                             merged = current + next_frag
                             new_decomposition.append(merged)
                             i += 2
