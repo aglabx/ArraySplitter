@@ -361,7 +361,7 @@ def optimize_monomer_lengths(decomposition, cut_seq, verbose=True, array_id=None
     merge_occurred = True
     iteration = 0
     
-    while merge_occurred and iteration < 10:  # Max 10 iterations
+    while merge_occurred and iteration < 1:  # Only one iteration to avoid over-merging
         merge_occurred = False
         iteration += 1
         new_decomposition = []
@@ -372,10 +372,19 @@ def optimize_monomer_lengths(decomposition, cut_seq, verbose=True, array_id=None
                 current = working_decomposition[i]
                 next_frag = working_decomposition[i + 1]
                 
-                # Check if current is a short frequent monomer
-                if (current.startswith(cut_seq) and 
-                    len(current) in short_lengths and
-                    next_frag.startswith(cut_seq)):
+                # Check if current is a short frequent monomer or similar to one
+                current_is_short = False
+                if current.startswith(cut_seq) and next_frag.startswith(cut_seq):
+                    if len(current) in short_lengths:
+                        current_is_short = True
+                    else:
+                        # Check if it's within 5% of any frequent short length
+                        for short_len in short_lengths:
+                            if abs(len(current) - short_len) / short_len < 0.05:
+                                current_is_short = True
+                                break
+                
+                if current_is_short:
                     
                     # Calculate what variance would be after merge
                     test_lengths = []
@@ -405,7 +414,7 @@ def optimize_monomer_lengths(decomposition, cut_seq, verbose=True, array_id=None
                         # 2. We're merging a short fragment with a much longer one (likely overcutting)
                         length_ratio = len(next_frag) / len(current) if len(current) > 0 else 1
                         
-                        if test_cv < initial_cv * 0.98 or length_ratio > 10:
+                        if test_cv < initial_cv * 0.98 or length_ratio > 3:
                             merged = current + next_frag
                             new_decomposition.append(merged)
                             i += 2
@@ -415,43 +424,57 @@ def optimize_monomer_lengths(decomposition, cut_seq, verbose=True, array_id=None
                             continue
                 
                 # Try merging next with current if next is short
-                elif (next_frag.startswith(cut_seq) and 
-                      len(next_frag) in short_lengths and
-                      current.startswith(cut_seq)):
-                    
-                    # Calculate variance after merge
-                    test_lengths = []
-                    for j, frag in enumerate(working_decomposition):
-                        if j == i:
-                            test_lengths.append(len(current) + len(next_frag))
-                        elif j == i + 1:
-                            continue
+                else:
+                    next_is_short = False
+                    if next_frag.startswith(cut_seq) and current.startswith(cut_seq):
+                        if len(next_frag) in short_lengths:
+                            next_is_short = True
                         else:
-                            if frag.startswith(cut_seq) or (j > 0 and j < len(working_decomposition) - 1):
-                                test_lengths.append(len(frag))
+                            # Check if it's within 5% of any frequent short length
+                            for short_len in short_lengths:
+                                if abs(len(next_frag) - short_len) / short_len < 0.05:
+                                    next_is_short = True
+                                    break
                     
-                    if test_lengths:
-                        test_mean = mean(test_lengths)
-                        test_variance = sum((x - test_mean) ** 2 for x in test_lengths) / len(test_lengths)
-                        
-                        # Check coefficient of variation
-                        test_cv = (test_variance ** 0.5) / test_mean if test_mean > 0 else 0
-                        initial_cv = (initial_variance ** 0.5) / initial_mean if initial_mean > 0 else 0
-                        
-                        if verbose:
-                            print(f"  Testing merge {len(current)}+{len(next_frag)}: CV {initial_cv:.3f} -> {test_cv:.3f}")
-                        
-                        # Accept merge for short+long patterns
-                        length_ratio = len(current) / len(next_frag) if len(next_frag) > 0 else 1
-                        
-                        if test_cv < initial_cv * 0.98 or length_ratio > 10:
-                            merged = current + next_frag
-                            new_decomposition.append(merged)
-                            i += 2
-                            merge_occurred = True
-                            if verbose:
-                                print(f"  ✓ Merged!")
-                            continue
+                    if next_is_short:
+                        # Don't merge if current is already long (avoid merging already merged monomers)
+                        if len(current) > initial_mean * 1.5:
+                            # Skip - current is already a merged monomer
+                            pass
+                        else:
+                            # Calculate variance after merge
+                            test_lengths = []
+                            for j, frag in enumerate(working_decomposition):
+                                if j == i:
+                                    test_lengths.append(len(current) + len(next_frag))
+                                elif j == i + 1:
+                                    continue
+                                else:
+                                    if frag.startswith(cut_seq) or (j > 0 and j < len(working_decomposition) - 1):
+                                        test_lengths.append(len(frag))
+                    
+                            if test_lengths:
+                                test_mean = mean(test_lengths)
+                                test_variance = sum((x - test_mean) ** 2 for x in test_lengths) / len(test_lengths)
+                                
+                                # Check coefficient of variation
+                                test_cv = (test_variance ** 0.5) / test_mean if test_mean > 0 else 0
+                                initial_cv = (initial_variance ** 0.5) / initial_mean if initial_mean > 0 else 0
+                                
+                                if verbose:
+                                    print(f"  Testing merge {len(current)}+{len(next_frag)}: CV {initial_cv:.3f} -> {test_cv:.3f}")
+                                
+                                # Accept merge for short+long patterns
+                                length_ratio = len(current) / len(next_frag) if len(next_frag) > 0 else 1
+                                
+                                if test_cv < initial_cv * 0.98 or length_ratio > 3:
+                                    merged = current + next_frag
+                                    new_decomposition.append(merged)
+                                    i += 2
+                                    merge_occurred = True
+                                    if verbose:
+                                        print(f"  ✓ Merged!")
+                                    continue
             
             # No merge, keep fragment
             new_decomposition.append(working_decomposition[i])
@@ -465,6 +488,9 @@ def optimize_monomer_lengths(decomposition, cut_seq, verbose=True, array_id=None
         if current_lengths:
             current_mean = mean(current_lengths)
             initial_variance = sum((x - current_mean) ** 2 for x in current_lengths) / len(current_lengths)
+            
+            # Also update initial_mean for ratio calculations
+            initial_mean = current_mean
     
     # Final verification - ensure perfect reconstruction
     final_sequence = "".join(working_decomposition)
