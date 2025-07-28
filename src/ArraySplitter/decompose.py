@@ -7,6 +7,7 @@ import os
 from collections import Counter
 import re
 from tqdm import tqdm
+from statistics import mean, stdev
 
 import editdistance as ed
 
@@ -298,6 +299,143 @@ def refine_repeat_even(repeat, best_period):
         yield repeat
 
 
+def merge_overcutting(decomposition, cut_seq, verbose=True, array_id=None):
+    """
+    Merge fragments that were incorrectly split due to internal cut sequences.
+    Goal: minimize relative variance (coefficient of variation = std/mean).
+    """
+    if len(decomposition) < 3:  # Need at least 3 fragments to consider merging
+        return decomposition
+    
+    # Skip if first fragment doesn't start with cut (it's a flank)
+    start_idx = 0
+    if decomposition[0] and not decomposition[0].startswith(cut_seq):
+        start_idx = 1
+    
+    # Calculate initial relative variance (excluding flanks)
+    monomer_lengths = []
+    for i in range(start_idx, len(decomposition)):
+        if i == len(decomposition) - 1 and len(decomposition[i]) < len(cut_seq) * 2:
+            # Skip likely right flank
+            continue
+        monomer_lengths.append(len(decomposition[i]))
+    
+    if len(monomer_lengths) < 2:
+        return decomposition
+    
+    initial_mean = mean(monomer_lengths)
+    initial_std = stdev(monomer_lengths)
+    initial_cv = initial_std / initial_mean if initial_mean > 0 else 0
+    
+    if verbose:
+        print(f"Initial CV: {initial_cv:.3f} (mean={initial_mean:.1f}, std={initial_std:.1f})")
+    
+    # Look for alternating pattern of very different lengths
+    # e.g., 47, 649, 47, 649 suggests overcutting
+    length_ratios = []
+    for i in range(len(monomer_lengths) - 1):
+        ratio = max(monomer_lengths[i], monomer_lengths[i+1]) / min(monomer_lengths[i], monomer_lengths[i+1])
+        length_ratios.append(ratio)
+    
+    # If we see high ratios (>5), consider merging
+    if verbose and length_ratios:
+        print(f"Length ratios: {length_ratios[:5]}...")  # Show first 5
+        print(f"Max ratio: {max(length_ratios):.1f}")
+    
+    if not any(ratio > 5 for ratio in length_ratios):
+        if verbose:
+            print("No high ratios found, skipping merge")
+        return decomposition
+    
+    # Try merging consecutive pairs
+    merged_decomposition = []
+    i = 0
+    
+    # Handle left flank if present
+    if start_idx == 1:
+        merged_decomposition.append(decomposition[0])
+        i = 1
+    
+    merge_occurred = False
+    while i < len(decomposition):
+        if i < len(decomposition) - 1:
+            # Check if merging would reduce CV
+            current = decomposition[i]
+            next_frag = decomposition[i + 1]
+            
+            # Only merge if both start with cut sequence (excluding flanks)
+            if current.startswith(cut_seq) and next_frag.startswith(cut_seq):
+                # Calculate what CV would be after merge
+                test_lengths = monomer_lengths.copy()
+                
+                # Find indices in monomer_lengths
+                curr_idx = i - start_idx
+                next_idx = i + 1 - start_idx
+                
+                if curr_idx >= 0 and next_idx < len(test_lengths):
+                    merged_len = len(current) + len(next_frag)
+                    
+                    # Remove the two lengths and add merged length
+                    test_lengths_merged = []
+                    for j, length in enumerate(test_lengths):
+                        if j == curr_idx:
+                            test_lengths_merged.append(merged_len)
+                        elif j == next_idx:
+                            continue  # Skip this one
+                        else:
+                            test_lengths_merged.append(length)
+                    
+                    if len(test_lengths_merged) > 1:
+                        test_mean = mean(test_lengths_merged)
+                        test_std = stdev(test_lengths_merged)
+                        test_cv = test_std / test_mean if test_mean > 0 else 0
+                        
+                        if verbose:
+                            print(f"Testing merge: {len(current)}+{len(next_frag)} -> CV would be {test_cv:.3f}")
+                        
+                        # Merge if it reduces CV 
+                        if test_cv < initial_cv * 0.95:  # 5% improvement threshold (more permissive)
+                            # When merging, we need to handle the internal cut properly
+                            # The second fragment was created by splitting at an internal cut
+                            # So we need to reconstruct: first_part + cut + second_part
+                            # But since both fragments start with cut, we have:
+                            # current = cut + part1
+                            # next_frag = cut + part2
+                            # merged should be: cut + part1 + cut + part2
+                            # But that would duplicate the cut, so we remove one:
+                            merged = current + next_frag[len(cut_seq):]  # Remove duplicate cut
+                            merged_decomposition.append(merged)
+                            i += 2  # Skip next fragment
+                            merge_occurred = True
+                            
+                            if verbose:
+                                print(f"Merged {len(current)}bp + {len(next_frag)}bp = {len(merged)}bp")
+                            continue
+        
+        # No merge, just add current fragment
+        merged_decomposition.append(decomposition[i])
+        i += 1
+    
+    if merge_occurred and verbose:
+        # Recalculate final CV
+        final_lengths = []
+        for i in range(start_idx, len(merged_decomposition)):
+            if i == len(merged_decomposition) - 1 and len(merged_decomposition[i]) < len(cut_seq) * 2:
+                continue
+            final_lengths.append(len(merged_decomposition[i]))
+        
+        if len(final_lengths) > 1:
+            final_mean = mean(final_lengths)
+            final_std = stdev(final_lengths)
+            final_cv = final_std / final_mean if final_mean > 0 else 0
+            
+            print(f"Merging improved CV: {initial_cv:.3f} -> {final_cv:.3f}")
+            if array_id:
+                print(f"  Array: {array_id}")
+    
+    return merged_decomposition
+
+
 def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True, array_id=None):
     """
     Decompose array using the cut sequence, ensuring perfect reconstruction.
@@ -331,6 +469,14 @@ def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True, array_
         repeats2count[monomer] += 1
         if verbose:
             print(f"Monomer {i}: {len(monomer)}bp (cut {len(best_cut_seq)}bp + part {len(parts[i])}bp)")
+    
+    # Apply merging to fix over-cutting
+    decomposition = merge_overcutting(decomposition, best_cut_seq, verbose=verbose, array_id=array_id)
+    
+    # Rebuild repeats2count after merging
+    repeats2count = Counter()
+    for monomer in decomposition:
+        repeats2count[monomer] += 1
     
     # Verify reconstruction
     reconstructed = "".join(decomposition)
