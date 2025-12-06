@@ -881,6 +881,109 @@ def split_long_monomers(decomposition, cut_seq, verbose=False, array_id=None):
     return current_decomposition
 
 
+def split_duplicate_halves(decomposition, cut_seq, verbose=False, array_id=None):
+    """
+    Post-processing: split monomers that consist of two identical halves.
+
+    This catches cases like CCTAACCCTAAC which is actually CCTAAC + CCTAAC
+    (two rotated telomere units) that weren't caught by split_long_monomers
+    because CCTAAC is not within edit distance of TAACCC.
+
+    Iterates until no more splits can be made.
+
+    Args:
+        decomposition: List of monomer sequences
+        cut_seq: The cut/anchor sequence
+        verbose: Print debug info
+        array_id: Array identifier for logging
+
+    Returns:
+        New decomposition with duplicate-half monomers split
+    """
+    if len(decomposition) < 3:
+        return decomposition
+
+    # Calculate expected monomer length (median)
+    lengths = [len(mono) for mono in decomposition if mono.startswith(cut_seq)]
+    if not lengths:
+        return decomposition
+
+    median_length = sorted(lengths)[len(lengths) // 2]
+
+    # Only apply for short repeats where this pattern is common
+    if median_length > 24:
+        return decomposition
+
+    arr_info = f"[{array_id}] " if array_id else ""
+
+    # Save original for verification
+    original_sequence = "".join(decomposition)
+
+    # Iterate until no more splits
+    max_iterations = 10
+    total_splits = 0
+    current_decomposition = decomposition
+
+    for iteration in range(max_iterations):
+        result = []
+        splits_made = 0
+
+        for mono_idx, mono in enumerate(current_decomposition):
+            mono_len = len(mono)
+
+            # For short repeats, check ANY even-length monomer for duplicate halves
+            # This catches cases where median is 12bp but true unit is 6bp
+            if mono_len % 2 != 0:
+                result.append(mono)
+                continue
+
+            half_len = mono_len // 2
+            first_half = mono[:half_len]
+            second_half = mono[half_len:]
+
+            # Check if both halves are identical or nearly identical
+            if first_half == second_half:
+                # Perfect duplicate - split!
+                result.append(first_half)
+                result.append(second_half)
+                splits_made += 1
+
+                if verbose:
+                    print(f"{arr_info}  #{mono_idx}: Split duplicate halves: {mono_len}bp -> {half_len}bp + {half_len}bp ({first_half})")
+            else:
+                # Check edit distance for near-duplicates (allow 1 mismatch for sequences >= 8bp)
+                dist = ed.eval(first_half, second_half)
+                if dist <= 1 and half_len >= 4:
+                    result.append(first_half)
+                    result.append(second_half)
+                    splits_made += 1
+
+                    if verbose:
+                        print(f"{arr_info}  #{mono_idx}: Split near-duplicate halves (dist={dist}): {mono_len}bp -> {half_len}bp + {half_len}bp")
+                else:
+                    result.append(mono)
+
+        total_splits += splits_made
+        current_decomposition = result
+
+        if splits_made == 0:
+            break
+
+        if verbose:
+            print(f"{arr_info}  Duplicate halves iteration {iteration + 1}: {splits_made} splits")
+
+    # Verify reconstruction
+    final_sequence = "".join(current_decomposition)
+    if final_sequence != original_sequence:
+        print(f"ERROR: Sequence changed during split_duplicate_halves!")
+        return decomposition
+
+    if verbose and total_splits > 0:
+        print(f"{arr_info}  Total duplicate-half splits: {total_splits}")
+
+    return current_decomposition
+
+
 def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True, array_id=None):
     """
     Decompose array using the cut sequence, ensuring perfect reconstruction.
@@ -1414,6 +1517,9 @@ def main(input_file, output_prefix, format, threads, predefined_cuts=None, depth
 
             # Split long monomers where anchor has mutation (x2, x3 longer than expected)
             decomposition = split_long_monomers(decomposition, best_cut_seq, verbose=verbose, array_id=header)
+
+            # Split monomers that are duplicate halves (e.g., CCTAACCCTAAC -> CCTAAC + CCTAAC)
+            decomposition = split_duplicate_halves(decomposition, best_cut_seq, verbose=verbose, array_id=header)
 
             # print("best period:", best_period, "len:", len(decomposition))
             # print_pause_clean(decomposition, repeats2count, best_period)
