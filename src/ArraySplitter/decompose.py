@@ -1613,9 +1613,26 @@ def main(input_file, output_prefix, format, threads, predefined_cuts=None, depth
                     best_cut_score,
                     best_period,
                 ) = decompose_array(array, depth=depth, cutoff=None, verbose=verbose, array_id=header)
-            
-            # Rotate monomers to start with cut
-            decomposition = rotate_monomers_to_cut(decomposition, best_cut_seq)
+
+            # Verify initial decomposition before any modifications
+            reconstructed = "".join(decomposition)
+            if reconstructed != array:
+                print(f"FATAL ERROR: Initial decomposition does not match original sequence!")
+                print(f"  Array ID: {header}")
+                print(f"  Original length: {len(array)}")
+                print(f"  Reconstructed length: {len(reconstructed)}")
+                print(f"  Cut sequence: {best_cut_seq}")
+                for i in range(min(len(array), len(reconstructed))):
+                    if array[i] != reconstructed[i]:
+                        print(f"  First mismatch at position {i}")
+                        print(f"    Original: ...{array[max(0,i-10):i+20]}...")
+                        print(f"    Reconstructed: ...{reconstructed[max(0,i-10):i+20]}...")
+                        break
+                raise ValueError(f"Initial decomposition verification failed for {header}")
+
+            # Note: We do NOT rotate monomers internally - that would change the sequence.
+            # "Rotation" means choosing a different cut point, not circular shifting within monomers.
+            # decomposition = rotate_monomers_to_cut(decomposition, best_cut_seq)  # REMOVED - was breaking sequence
 
             # Detect and fix A-B alternating pattern (before other optimizations)
             decomposition, ab_merged = detect_and_fix_ab_pattern(decomposition, best_cut_seq, verbose=verbose)
@@ -1638,21 +1655,17 @@ def main(input_file, output_prefix, format, threads, predefined_cuts=None, depth
             # Example: CCTAACCCTA -> CCTAAC + CCTA if CCTAAC is the most common
             decomposition = split_by_popular_prefix(decomposition, best_cut_seq, verbose=verbose, array_id=header)
 
-            # Final verification: check that decomposition reconstructs the original array
-            reconstructed = "".join(decomposition)
-            if reconstructed != array:
+            # Final verification: decomposition must reconstruct original sequence exactly
+            final_seq = "".join(decomposition)
+            if final_seq != array:
                 print(f"FATAL ERROR: Decomposition does not match original sequence!")
                 print(f"  Array ID: {header}")
-                print(f"  Original length: {len(array)}")
-                print(f"  Reconstructed length: {len(reconstructed)}")
-                print(f"  Cut sequence: {best_cut_seq}")
-                print(f"  Number of fragments: {len(decomposition)}")
-                # Find first mismatch position
-                for i in range(min(len(array), len(reconstructed))):
-                    if array[i] != reconstructed[i]:
+                print(f"  Original length: {len(array)}, Reconstructed length: {len(final_seq)}")
+                for i in range(min(len(array), len(final_seq))):
+                    if array[i] != final_seq[i]:
                         print(f"  First mismatch at position {i}")
                         print(f"    Original: ...{array[max(0,i-10):i+20]}...")
-                        print(f"    Reconstructed: ...{reconstructed[max(0,i-10):i+20]}...")
+                        print(f"    Reconstructed: ...{final_seq[max(0,i-10):i+20]}...")
                         break
                 raise ValueError(f"Decomposition verification failed for {header}")
 
