@@ -19,6 +19,7 @@ from .core_functions.io.trf_reader import sc_iter_trf_file
 from .core_functions.tools.fs_tree import \
     iter_fs_tree_from_sequence
 from .core_functions.tools.sequences import get_revcomp
+from .core_functions.tools.anchor_graph import AnchorGraphDecomposer
 
 
 def get_canonical_orientation(sequence):
@@ -307,6 +308,7 @@ def optimize_monomer_lengths(decomposition, cut_seq, verbose=True, array_id=None
     This runs AFTER the main decomposition is complete.
     """
     from collections import Counter
+    import editdistance as ed
     
     if len(decomposition) < 3:
         return decomposition
@@ -385,6 +387,39 @@ def optimize_monomer_lengths(decomposition, cut_seq, verbose=True, array_id=None
                                 break
                 
                 if current_is_short:
+                    # Check if we're dealing with alternating different sequences (A B A B pattern)
+                    # Compare the short and long fragments to see if they're different types
+                    seq_short = current[len(cut_seq):min(len(current), len(cut_seq)+50)]
+                    seq_long = next_frag[len(cut_seq):min(len(next_frag), len(cut_seq)+50)]
+                    
+                    if len(seq_short) > 0 and len(seq_long) > 0:
+                        # Calculate similarity between short and long
+                        similarity = 1 - (ed.eval(seq_short, seq_long) / max(len(seq_short), len(seq_long)))
+                        
+                        # If short and long are dissimilar, check for A-B pattern
+                        if similarity < 0.8:  # Less than 80% similar means different types
+                            # Count how many short and long fragments we have
+                            short_count = 0
+                            long_count = 0
+                            
+                            for j, frag in enumerate(working_decomposition):
+                                if frag.startswith(cut_seq):
+                                    frag_len = len(frag)
+                                    # Check if it's a short fragment (similar length to current)
+                                    if abs(frag_len - len(current)) / len(current) < 0.2:
+                                        short_count += 1
+                                    # Check if it's a long fragment (similar length to next)
+                                    elif abs(frag_len - len(next_frag)) / len(next_frag) < 0.2:
+                                        long_count += 1
+                            
+                            # If we have multiple instances of both short and long, it's likely A-B
+                            if short_count >= 3 and long_count >= 3:
+                                if verbose:
+                                    print(f"  Detected A-B alternating pattern (dissimilar sequences), skipping merge of {len(current)}+{len(next_frag)}")
+                                # Skip this merge
+                                new_decomposition.append(current)
+                                i += 1
+                                continue
                     
                     # Calculate what variance would be after merge
                     test_lengths = []
@@ -779,13 +814,13 @@ def decompose_array(array, depth=500, cutoff=None, verbose=False, array_id=None)
     decomposition, repeats2count = decompose_array_iter1(
         array, best_cut_seq, best_period, verbose=verbose, array_id=array_id
     )
-    
+
     # assert "".join(decomposition) == array
-    
+
     # DISABLED: The second iteration breaks the cut structure
     # It tries to refine monomers but creates pieces that don't start with cut
     # TODO: Fix decompose_array_iter2 to preserve cut structure
-    
+
     # changed = True
     # while changed:
     #     # print("Firset iteration", len(decomposition))
@@ -794,9 +829,177 @@ def decompose_array(array, depth=500, cutoff=None, verbose=False, array_id=None)
     #     )
     #     # assert "".join(decomposition) == array
 
-    ### TODO: The third iteration tries to glue short dangling monomers to the nearest monomer
+    ### Step 6. Check for overcutting using anchor graph
+    decomposition, best_cut_seq, best_period, was_fixed = check_and_fix_overcutting(
+        array, decomposition, best_cut_seq, best_period, hints, verbose=verbose
+    )
+
+    if was_fixed:
+        # Recount monomers after graph-based decomposition
+        repeats2count = Counter(decomposition)
 
     return decomposition, repeats2count, best_cut_seq, best_cut_score, best_period
+
+
+def get_candidates_from_hints(array, hints):
+    """
+    Convert hints to candidates list with scores (same logic as compute_cuts but return all).
+    Used for anchor graph decomposition.
+    """
+    candidates = []
+
+    for L, cut_sequence, N in hints:
+        parts = array.split(cut_sequence)
+        periods = []
+        non_empty_periods = []
+
+        for i, part in enumerate(parts):
+            if i < len(parts) - 1 or part:
+                period = len(part) + len(cut_sequence)
+                periods.append(period)
+                if len(part) > 0:
+                    non_empty_periods.append(period)
+
+        if not periods:
+            continue
+
+        empty_ratio = (len(periods) - len(non_empty_periods)) / len(periods) if periods else 0
+
+        if empty_ratio >= 0.8:
+            period_counts = Counter([len(cut_sequence)])
+            mode_period = len(cut_sequence)
+            mode_count = len(periods)
+            total_segments = len(periods)
+        elif non_empty_periods:
+            period_counts = Counter(non_empty_periods)
+            mode_period, mode_count = period_counts.most_common(1)[0]
+            total_segments = len(non_empty_periods)
+        else:
+            period_counts = Counter(periods)
+            mode_period, mode_count = period_counts.most_common(1)[0]
+            total_segments = len(periods)
+
+        base_score = mode_count / total_segments
+        short_threshold = mode_period * 0.5
+        short_fragments = sum(1 for p in periods if p < short_threshold)
+        fragmentation = short_fragments / total_segments
+        adjusted_score = base_score * (1 - fragmentation * 0.5)
+
+        candidates.append({
+            'cut': cut_sequence,
+            'length': L,
+            'frequency': N,
+            'mode_period': mode_period,
+            'base_score': base_score,
+            'adjusted_score': adjusted_score,
+            'fragmentation': fragmentation,
+            'num_segments': total_segments,
+        })
+
+    return candidates
+
+
+def get_all_hints_for_graph(array, depth=100, cutoff=3):
+    """
+    Get hints from FS-tree for all nucleotides with small cutoff.
+    Used for anchor graph analysis to find longer/rarer anchors.
+    """
+    all_hints = []
+
+    for nucleotide in "ACTG":
+        positions = [i for i in range(len(array)) if array[i] == nucleotide]
+
+        if len(positions) <= cutoff:
+            continue
+
+        fs_tree = get_fs_tree(array, nucleotide, cutoff=cutoff)
+
+        for hint in iterate_hints(array, fs_tree, depth):
+            all_hints.append(hint)
+
+    # Remove duplicates, keeping highest frequency
+    unique = {}
+    for length, anchor, freq in all_hints:
+        key = (length, anchor)
+        if key not in unique or freq > unique[key][2]:
+            unique[key] = (length, anchor, freq)
+
+    return list(unique.values())
+
+
+def check_and_fix_overcutting(array, decomposition, best_cut_seq, best_period, hints, verbose=False):
+    """
+    Check if current decomposition shows signs of overcutting using anchor graph.
+
+    Overcutting indicators:
+    1. Multiple anchor cycle (>1 conserved parts per monomer)
+    2. Graph period significantly larger than FS-tree period
+
+    Returns:
+        (decomposition, cut_seq, period, was_fixed)
+    """
+    if len(decomposition) < 3:
+        return decomposition, best_cut_seq, best_period, False
+
+    # For large sequences, get more hints with smaller cutoff for better anchor detection
+    if len(array) > 10000:
+        graph_hints = get_all_hints_for_graph(array, depth=100, cutoff=3)
+        if len(graph_hints) > len(hints):
+            hints = graph_hints
+
+    # Build anchor graph from hints
+    candidates = get_candidates_from_hints(array, hints)
+
+    if not candidates:
+        return decomposition, best_cut_seq, best_period, False
+
+    decomposer = AnchorGraphDecomposer()
+    decomposer.build_from_candidates(array, candidates, top_k=10, verbose=False)
+
+    stats = decomposer.get_stats()
+    graph_period = stats['estimated_monomer_length']
+    cycle = stats['cycle']
+
+    # Check for overcutting indicators
+    is_overcutting = False
+    reason = ""
+
+    # Indicator 1: Multiple anchors in cycle (different conserved parts)
+    if len(cycle) > 1:
+        is_overcutting = True
+        reason = f"multi-anchor cycle ({len(cycle)} anchors)"
+
+    # Indicator 2: Graph period significantly larger (>2x)
+    elif graph_period > best_period * 2 and graph_period > 50:
+        is_overcutting = True
+        reason = f"period mismatch (graph={graph_period:.0f} vs fstree={best_period})"
+
+    if not is_overcutting:
+        return decomposition, best_cut_seq, best_period, False
+
+    # Try graph-based decomposition
+    graph_decomposition = decomposer.decompose(verbose=False)
+
+    # Verify reconstruction
+    reconstructed = "".join(graph_decomposition)
+    if reconstructed != array:
+        if verbose:
+            print(f"  Anchor graph reconstruction failed, keeping FS-tree result")
+        return decomposition, best_cut_seq, best_period, False
+
+    # Check if graph decomposition is better (fewer monomers with reasonable sizes)
+    if len(graph_decomposition) < len(decomposition) * 0.9:
+        if verbose:
+            print(f"  Overcutting detected ({reason})")
+            print(f"  FS-tree: {len(decomposition)} monomers, period={best_period}")
+            print(f"  Graph:   {len(graph_decomposition)} monomers, period={graph_period:.0f}")
+            print(f"  Using anchor graph decomposition")
+
+        # Use first anchor in cycle as cut sequence
+        new_cut_seq = cycle[0] if cycle else best_cut_seq
+        return graph_decomposition, new_cut_seq, int(graph_period), True
+
+    return decomposition, best_cut_seq, best_period, False
 
 
 def get_array_generator(input_file, format):
