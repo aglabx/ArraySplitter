@@ -221,8 +221,9 @@ def find_monomer_cycle(graph: Dict, hits: List[AnchorHit], sequence: str, verbos
             return [start_edge[0]], 0, float('inf'), 1
         return [], 0, float('inf'), 1
 
-    # Sort by CV (ascending) - best uniformity first
-    candidates.sort(key=lambda x: x[1])
+    # Sort by CV (ascending), then by step (ascending) - prefer smaller step at equal CV
+    # This prevents artificial period inflation (e.g., 18bp instead of 6bp for telomeres)
+    candidates.sort(key=lambda x: (x[1], x[4]))
 
     best_cycle, best_cv, best_mean, best_count, best_step = candidates[0]
 
