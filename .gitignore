@@ -162,3 +162,9 @@ test_data/rotation.norm.decomposed.fasta
 test_data/rotation.norm.decomposed.rot.fasta
 test_data/rotation.norm.fa
 test_data/rotation.norm.decomposed.monomers.tsv
+CLAUDE.md
+ALGORITHM_UNDERSTANDING_V2.md
+test_data/zebra_finch_satdna.fasta
+zebra_finch_satdna.decomposed.fasta
+zebra_finch_satdna.lengths
+zebra_finch_satdna.monomers.tsv
