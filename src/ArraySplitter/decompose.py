@@ -701,6 +701,7 @@ def find_mutant_anchor(sequence, anchor, expected_pos, window=50, max_dist=2):
 
     best_pos = None
     best_dist = max_dist + 1
+    best_pos_dist = float('inf')  # Distance from expected position
 
     for pos in range(start, end):
         # Check different lengths due to possible indels (±2bp)
@@ -709,9 +710,13 @@ def find_mutant_anchor(sequence, anchor, expected_pos, window=50, max_dist=2):
                 continue
             candidate = sequence[pos:pos + length]
             dist = ed.eval(anchor, candidate)
-            if dist < best_dist:
+            pos_dist = abs(pos - expected_pos)
+
+            # Prefer: 1) lower edit distance, 2) closer to expected position
+            if dist < best_dist or (dist == best_dist and pos_dist < best_pos_dist):
                 best_dist = dist
                 best_pos = pos
+                best_pos_dist = pos_dist
 
     if best_dist <= max_dist:
         return best_pos
@@ -792,15 +797,21 @@ def split_long_monomers(decomposition, cut_seq, verbose=False):
             offset = sum(len(p) for p in parts[:-1])
             rel_expected_pos = expected_pos - offset
 
-            if rel_expected_pos < len(cut_seq) or rel_expected_pos >= len(current_part) - len(cut_seq):
+            # Skip if expected position is too close to edges
+            # For short repeats, allow position at exactly the expected spot
+            min_pos = len(cut_seq) // 2  # Allow some flexibility for short repeats
+            max_pos = len(current_part) - len(cut_seq) // 2
+            if rel_expected_pos < min_pos or rel_expected_pos > max_pos:
                 continue
 
             # Find mutant anchor
+            # Window: 15% of median, but at least 5bp for short repeats like telomeres
+            search_window = max(5, int(median_length * 0.15))
             mutant_pos = find_mutant_anchor(
                 current_part,
                 cut_seq,
                 rel_expected_pos,
-                window=int(median_length * 0.15),  # 15% window
+                window=search_window,
                 max_dist=2
             )
 
