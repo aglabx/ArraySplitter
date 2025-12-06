@@ -1058,14 +1058,28 @@ def split_by_popular_prefix(decomposition, cut_seq, verbose=False, array_id=None
 
         # Check if it starts with the popular monomer
         if mono.startswith(popular_mono):
-            # Split into popular_mono + remainder
             remainder = mono[popular_len:]
-            result.append(popular_mono)
-            result.append(remainder)
-            splits_made += 1
+            remainder_len = len(remainder)
 
-            if verbose:
-                print(f"{arr_info}  #{mono_idx}: Split by prefix: {mono_len}bp -> {popular_len}bp + {len(remainder)}bp ({popular_mono} + {remainder})")
+            # Variance check: only split if it reduces total deviation
+            # Before: |mono_len - popular_len|
+            # After: |popular_len - popular_len| + |remainder_len - popular_len| = 0 + |remainder_len - popular_len|
+            dev_before = abs(mono_len - popular_len)
+            dev_after = abs(remainder_len - popular_len)
+
+            if dev_after < dev_before:
+                # Split improves variance
+                result.append(popular_mono)
+                result.append(remainder)
+                splits_made += 1
+
+                if verbose:
+                    print(f"{arr_info}  #{mono_idx}: Split by prefix: {mono_len}bp -> {popular_len}bp + {remainder_len}bp (dev {dev_before} -> {dev_after})")
+            else:
+                # Split would make variance worse, keep as is
+                result.append(mono)
+                if verbose:
+                    print(f"{arr_info}  #{mono_idx}: Skip prefix split: {mono_len}bp (dev {dev_before} -> {dev_after}, no improvement)")
         else:
             result.append(mono)
 
