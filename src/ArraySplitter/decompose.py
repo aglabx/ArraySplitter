@@ -1002,6 +1002,85 @@ def split_duplicate_halves(decomposition, cut_seq, verbose=False, array_id=None)
     return current_decomposition
 
 
+def split_by_popular_prefix(decomposition, cut_seq, verbose=False, array_id=None):
+    """
+    Post-processing: split monomers that start with the most popular monomer.
+
+    For short repeats, if a monomer starts with the most common monomer sequence
+    but is longer, split it into (popular_monomer) + (remainder).
+
+    Example: If popular monomer is CCTAAC (6bp), then CCTAACCCTA (10bp)
+    becomes CCTAAC (6bp) + CCTA (4bp).
+
+    Args:
+        decomposition: List of monomer sequences
+        cut_seq: The cut/anchor sequence
+        verbose: Print debug info
+        array_id: Array identifier for logging
+
+    Returns:
+        New decomposition with prefix-matched monomers split
+    """
+    if len(decomposition) < 3:
+        return decomposition
+
+    # Find the most common monomer
+    mono_counts = Counter(decomposition)
+    if not mono_counts:
+        return decomposition
+
+    popular_mono, popular_count = mono_counts.most_common(1)[0]
+    popular_len = len(popular_mono)
+
+    # Only apply for short repeats where this pattern is common
+    if popular_len > 20:
+        return decomposition
+
+    # Need significant majority to use as reference
+    if popular_count < len(decomposition) * 0.3:
+        return decomposition
+
+    arr_info = f"[{array_id}] " if array_id else ""
+
+    # Save original for verification
+    original_sequence = "".join(decomposition)
+
+    result = []
+    splits_made = 0
+
+    for mono_idx, mono in enumerate(decomposition):
+        mono_len = len(mono)
+
+        # Skip if it's the popular monomer or shorter
+        if mono_len <= popular_len:
+            result.append(mono)
+            continue
+
+        # Check if it starts with the popular monomer
+        if mono.startswith(popular_mono):
+            # Split into popular_mono + remainder
+            remainder = mono[popular_len:]
+            result.append(popular_mono)
+            result.append(remainder)
+            splits_made += 1
+
+            if verbose:
+                print(f"{arr_info}  #{mono_idx}: Split by prefix: {mono_len}bp -> {popular_len}bp + {len(remainder)}bp ({popular_mono} + {remainder})")
+        else:
+            result.append(mono)
+
+    # Verify reconstruction
+    final_sequence = "".join(result)
+    if final_sequence != original_sequence:
+        print(f"ERROR: Sequence changed during split_by_popular_prefix!")
+        return decomposition
+
+    if verbose and splits_made > 0:
+        print(f"{arr_info}  Split {splits_made} monomers by popular prefix ({popular_mono})")
+
+    return result
+
+
 def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True, array_id=None):
     """
     Decompose array using the cut sequence, ensuring perfect reconstruction.
@@ -1540,6 +1619,10 @@ def main(input_file, output_prefix, format, threads, predefined_cuts=None, depth
             # Split long monomers where anchor has mutation (x2, x3 longer than expected)
             # Now median is correct (e.g., 6bp instead of 12bp), so 11bp, 17bp etc. will be split
             decomposition = split_long_monomers(decomposition, best_cut_seq, verbose=verbose, array_id=header)
+
+            # Final polish: split monomers that start with popular monomer
+            # Example: CCTAACCCTA -> CCTAAC + CCTA if CCTAAC is the most common
+            decomposition = split_by_popular_prefix(decomposition, best_cut_seq, verbose=verbose, array_id=header)
 
             # Final verification: check that decomposition reconstructs the original array
             reconstructed = "".join(decomposition)
