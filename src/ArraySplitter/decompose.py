@@ -753,11 +753,10 @@ def split_long_monomers(decomposition, cut_seq, verbose=False, array_id=None):
     arr_info = f"[{array_id}] " if array_id else ""
 
     for iteration in range(max_iterations):
-        # Calculate expected monomer length (median of normal-sized monomers)
-        lengths = []
-        for mono in current_decomposition:
-            if mono.startswith(cut_seq):
-                lengths.append(len(mono))
+        # Calculate expected monomer length (median)
+        # For short repeats, use ALL monomers (after split_duplicate_halves, monomers
+        # may not start with original cut_seq anymore, e.g., 6bp pieces from 12bp split)
+        lengths = [len(mono) for mono in current_decomposition]
 
         if not lengths:
             break
@@ -772,11 +771,25 @@ def split_long_monomers(decomposition, cut_seq, verbose=False, array_id=None):
         result = []
         splits_made = 0
 
+        # For short repeats, find the most common monomer to use as reference
+        if median_length < 23:
+            mono_counts = Counter(current_decomposition)
+            most_common_mono = mono_counts.most_common(1)[0][0] if mono_counts else None
+        else:
+            most_common_mono = None
+
         for mono_idx, mono in enumerate(current_decomposition):
-            # Skip flanks (don't start with cut)
-            if not mono.startswith(cut_seq):
-                result.append(mono)
-                continue
+            # Skip flanks (don't start with cut or most common monomer for short repeats)
+            if median_length < 23:
+                # For short repeats, skip if it's the most common monomer (already correct size)
+                if mono == most_common_mono:
+                    result.append(mono)
+                    continue
+            else:
+                # For longer repeats, skip flanks that don't start with cut
+                if not mono.startswith(cut_seq):
+                    result.append(mono)
+                    continue
 
             # Check if monomer is longer than expected
             ratio = len(mono) / median_length
@@ -816,7 +829,12 @@ def split_long_monomers(decomposition, cut_seq, verbose=False, array_id=None):
                 # Find split position
                 split_pos = None
 
-                if ratio >= 1.7:
+                if median_length < 23:
+                    # For short repeats, just split at median_length position
+                    # No need to search for anchor - just use the expected position
+                    if rel_expected_pos > 0 and rel_expected_pos < len(current_part):
+                        split_pos = rel_expected_pos
+                elif ratio >= 1.7:
                     # For 2x, 3x: search for mutant anchor with edit distance
                     search_window = max(5, int(median_length * 0.15))
                     split_pos = find_mutant_anchor(
@@ -1515,14 +1533,31 @@ def main(input_file, output_prefix, format, threads, predefined_cuts=None, depth
             # Apply post-processing optimization to merge short frequent monomers
             decomposition = optimize_monomer_lengths(decomposition, best_cut_seq, verbose=verbose, array_id=header)
 
-            # Split long monomers where anchor has mutation (x2, x3 longer than expected)
-            decomposition = split_long_monomers(decomposition, best_cut_seq, verbose=verbose, array_id=header)
-
             # Split monomers that are duplicate halves (e.g., CCTAACCCTAAC -> CCTAAC + CCTAAC)
+            # Do this FIRST to establish correct median length before splitting long monomers
             decomposition = split_duplicate_halves(decomposition, best_cut_seq, verbose=verbose, array_id=header)
 
-            # print("best period:", best_period, "len:", len(decomposition))
-            # print_pause_clean(decomposition, repeats2count, best_period)
+            # Split long monomers where anchor has mutation (x2, x3 longer than expected)
+            # Now median is correct (e.g., 6bp instead of 12bp), so 11bp, 17bp etc. will be split
+            decomposition = split_long_monomers(decomposition, best_cut_seq, verbose=verbose, array_id=header)
+
+            # Final verification: check that decomposition reconstructs the original array
+            reconstructed = "".join(decomposition)
+            if reconstructed != array:
+                print(f"FATAL ERROR: Decomposition does not match original sequence!")
+                print(f"  Array ID: {header}")
+                print(f"  Original length: {len(array)}")
+                print(f"  Reconstructed length: {len(reconstructed)}")
+                print(f"  Cut sequence: {best_cut_seq}")
+                print(f"  Number of fragments: {len(decomposition)}")
+                # Find first mismatch position
+                for i in range(min(len(array), len(reconstructed))):
+                    if array[i] != reconstructed[i]:
+                        print(f"  First mismatch at position {i}")
+                        print(f"    Original: ...{array[max(0,i-10):i+20]}...")
+                        print(f"    Reconstructed: ...{reconstructed[max(0,i-10):i+20]}...")
+                        break
+                raise ValueError(f"Decomposition verification failed for {header}")
 
             # Calculate statistics for internal monomers (excluding flanks)
             internal_monomers = []
