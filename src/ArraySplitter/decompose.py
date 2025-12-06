@@ -769,16 +769,16 @@ def split_long_monomers(decomposition, cut_seq, verbose=False):
             result.append(mono)
             continue
 
-        # Check if monomer is significantly longer than expected
+        # Check if monomer is longer than expected
         ratio = len(mono) / median_length
 
-        if ratio < 1.7:
+        if ratio < 1.3:
             # Normal length monomer
             result.append(mono)
             continue
 
-        # This monomer is 2x, 3x, etc. - try to split it
-        n_expected = round(ratio)
+        # Try to split - either 2x/3x (mutant anchor) or 1.3-1.7x (exact anchor with tail)
+        n_expected = max(2, round(ratio))
 
         if verbose:
             print(f"  Long monomer: {len(mono)}bp ({ratio:.1f}x), trying to split into {n_expected} parts")
@@ -804,21 +804,40 @@ def split_long_monomers(decomposition, cut_seq, verbose=False):
             if rel_expected_pos < min_pos or rel_expected_pos > max_pos:
                 continue
 
-            # Find mutant anchor
-            # Window: 15% of median, but at least 5bp for short repeats like telomeres
-            search_window = max(5, int(median_length * 0.15))
-            mutant_pos = find_mutant_anchor(
-                current_part,
-                cut_seq,
-                rel_expected_pos,
-                window=search_window,
-                max_dist=2
-            )
+            # Find split position
+            split_pos = None
 
-            if mutant_pos is not None and mutant_pos > 0:
-                # Split at mutant anchor position
-                part1 = current_part[:mutant_pos]
-                part2 = current_part[mutant_pos:]
+            if ratio >= 1.7:
+                # For 2x, 3x: search for mutant anchor with edit distance
+                search_window = max(5, int(median_length * 0.15))
+                split_pos = find_mutant_anchor(
+                    current_part,
+                    cut_seq,
+                    rel_expected_pos,
+                    window=search_window,
+                    max_dist=2
+                )
+            else:
+                # For 1.3-1.7x: split at median_length if monomer starts with exact anchor
+                # This handles "exact anchor + short tail" cases
+                if current_part.startswith(cut_seq) and rel_expected_pos >= len(cut_seq):
+                    split_pos = rel_expected_pos
+
+            if split_pos is not None and split_pos > 0:
+                # Split at found position
+                part1 = current_part[:split_pos]
+                part2 = current_part[split_pos:]
+
+                # Check variance criterion: split only if it reduces total deviation
+                # Without split: |len(current_part) - median|
+                # With split: |len(part1) - median| + |len(part2) - median|
+                dev_no_split = abs(len(current_part) - median_length)
+                dev_with_split = abs(len(part1) - median_length) + abs(len(part2) - median_length)
+
+                if dev_with_split >= dev_no_split:
+                    if verbose:
+                        print(f"    Skip split at {split_pos}: deviation {dev_no_split} -> {dev_with_split} (no improvement)")
+                    continue
 
                 # Replace last part with two new parts
                 parts[-1] = part1
@@ -826,7 +845,7 @@ def split_long_monomers(decomposition, cut_seq, verbose=False):
                 splits_made += 1
 
                 if verbose:
-                    print(f"    Split at pos {mutant_pos}: {len(part1)}bp + {len(part2)}bp")
+                    print(f"    Split at pos {split_pos}: {len(part1)}bp + {len(part2)}bp (dev {dev_no_split} -> {dev_with_split})")
 
         result.extend(parts)
 
