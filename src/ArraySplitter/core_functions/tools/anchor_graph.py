@@ -16,6 +16,7 @@ The graph structure reveals the monomer architecture.
 from collections import defaultdict, Counter
 from typing import List, Tuple, Dict, Set, Optional
 from dataclasses import dataclass, field
+from statistics import median
 
 
 @dataclass
@@ -42,6 +43,227 @@ def get_top_candidates(candidates: List[Dict], top_k: int = 10) -> List[Dict]:
         reverse=True
     )
     return sorted_candidates[:top_k]
+
+
+# =============================================================================
+# Distance Clustering Functions
+# =============================================================================
+
+def simple_kmeans(data: List[float], k: int, max_iter: int = 100) -> Tuple[List[List[float]], List[float]]:
+    """
+    Simple k-means clustering without external dependencies.
+
+    Args:
+        data: List of values to cluster
+        k: Number of clusters
+        max_iter: Maximum iterations
+
+    Returns:
+        (clusters, centers) - list of clusters and their centers
+    """
+    if not data or k <= 0:
+        return [[]], [0]
+
+    if k == 1:
+        return [data], [sum(data) / len(data)]
+
+    # Initialize centers evenly across the data range
+    data_sorted = sorted(data)
+    n = len(data_sorted)
+    centers = [data_sorted[min(i * n // k, n - 1)] for i in range(k)]
+
+    for _ in range(max_iter):
+        # Assign points to nearest center
+        clusters = [[] for _ in range(k)]
+        for x in data:
+            nearest = min(range(k), key=lambda i: abs(x - centers[i]))
+            clusters[nearest].append(x)
+
+        # Update centers
+        new_centers = []
+        for i, c in enumerate(clusters):
+            if c:
+                new_centers.append(sum(c) / len(c))
+            else:
+                # Empty cluster - keep old center
+                new_centers.append(centers[i])
+
+        if new_centers == centers:
+            break
+        centers = new_centers
+
+    return clusters, centers
+
+
+def find_optimal_clusters(data: List[float], max_k: int = 4) -> Tuple[int, List[List[float]], List[float]]:
+    """
+    Find optimal number of clusters (1 to max_k).
+
+    Criteria:
+    - All clusters must be significant (>15% of data)
+    - Cluster centers must be well separated (gap > 20% of max center)
+
+    Returns:
+        (n_clusters, clusters, centers)
+    """
+    if len(data) < 4:
+        return 1, [data], [median(data)]
+
+    best_k = 1
+    best_score = 0
+    best_clusters = [data]
+    best_centers = [median(data)]
+
+    for k in range(2, min(max_k + 1, len(data) // 2 + 1)):
+        clusters, centers = simple_kmeans(data, k)
+
+        # Filter out empty clusters
+        non_empty = [(c, ctr) for c, ctr in zip(clusters, centers) if c]
+        if len(non_empty) < k:
+            continue
+
+        clusters = [x[0] for x in non_empty]
+        centers = [x[1] for x in non_empty]
+
+        # Check that all clusters are significant (>15% of data)
+        min_size = min(len(c) for c in clusters)
+        if min_size < len(data) * 0.15:
+            continue
+
+        # Check that centers are well separated
+        centers_sorted = sorted(centers)
+        if len(centers_sorted) < 2:
+            continue
+
+        min_gap = min(centers_sorted[i + 1] - centers_sorted[i]
+                      for i in range(len(centers_sorted) - 1))
+        max_center = max(centers_sorted)
+
+        if min_gap < 0.2 * max_center:
+            continue
+
+        # Score: separation quality
+        score = min_gap / max_center
+        if score > best_score:
+            best_score = score
+            best_k = k
+            best_clusters = clusters
+            best_centers = centers
+
+    return best_k, best_clusters, best_centers
+
+
+def analyze_distance_distribution(distances: List[float], verbose: bool = False) -> Tuple[int, List[float], float]:
+    """
+    Analyze distance distribution to detect multi-region patterns.
+
+    If anchor appears N times per monomer, distances will have N clusters.
+    True period = sum of cluster centers.
+
+    Args:
+        distances: List of distances between consecutive anchor occurrences
+        verbose: Print debug info
+
+    Returns:
+        (n_clusters, cluster_centers, true_period)
+    """
+    if len(distances) < 4:
+        med = median(distances) if distances else 0
+        return 1, [med], med
+
+    n_clusters, clusters, centers = find_optimal_clusters(distances, max_k=4)
+
+    # Sort centers by value for consistent ordering
+    centers_sorted = sorted(centers)
+    true_period = sum(centers_sorted)
+
+    if verbose and n_clusters > 1:
+        print(f"  Distance clustering: {n_clusters} clusters")
+        for i, (c, ctr) in enumerate(sorted(zip(clusters, centers), key=lambda x: x[1])):
+            print(f"    Cluster {i}: center={ctr:.0f}, count={len(c)}")
+        print(f"  True period: {true_period:.0f}")
+
+    return n_clusters, centers_sorted, true_period
+
+
+def classify_positions_by_distance(
+    positions: List[int],
+    centers: List[float],
+    verbose: bool = False
+) -> List[int]:
+    """
+    Classify each position by the cluster of its distance to the next position.
+
+    Args:
+        positions: Sorted list of anchor positions
+        centers: Cluster centers from analyze_distance_distribution
+
+    Returns:
+        List of cluster labels (0, 1, 2, ...) for each position.
+        Last position gets label -1 (no next position).
+    """
+    if len(positions) < 2:
+        return [-1] * len(positions)
+
+    labels = []
+    for i in range(len(positions) - 1):
+        dist = positions[i + 1] - positions[i]
+        # Find nearest cluster center
+        nearest = min(range(len(centers)), key=lambda j: abs(dist - centers[j]))
+        labels.append(nearest)
+
+    # Last position has no "next", mark with -1
+    labels.append(-1)
+
+    if verbose:
+        label_counts = Counter(l for l in labels if l >= 0)
+        print(f"  Position labels: {dict(label_counts)}")
+
+    return labels
+
+
+def select_cut_positions_by_cluster(
+    positions: List[int],
+    labels: List[int],
+    verbose: bool = False
+) -> List[int]:
+    """
+    Select cut positions based on cluster analysis.
+
+    Strategy: Cut at positions with the same label as the first position.
+    This preserves the monomer structure starting from the left flank.
+
+    Args:
+        positions: Sorted list of anchor positions
+        labels: Cluster labels for each position
+
+    Returns:
+        List of positions to cut at
+    """
+    if not positions or not labels:
+        return positions
+
+    # Use the label of the first position as the "start" label
+    # This defines which region (A, B, C...) is the monomer start
+    start_label = labels[0]
+
+    if start_label < 0:
+        # Only one position, return it
+        return positions
+
+    # Select all positions with the start label
+    cut_positions = [pos for pos, label in zip(positions, labels) if label == start_label]
+
+    # Also include the last position if it wasn't included
+    # (to capture the final partial monomer)
+    if positions[-1] not in cut_positions:
+        cut_positions.append(positions[-1])
+
+    if verbose:
+        print(f"  Start label: {start_label}")
+        print(f"  Cut positions: {len(cut_positions)} of {len(positions)} total")
+
+    return sorted(cut_positions)
 
 
 def find_anchor_hits_hierarchical(
@@ -138,34 +360,30 @@ def build_transition_graph(hits: List[AnchorHit]) -> Dict:
     }
 
 
-def find_monomer_cycle(graph: Dict, hits: List[AnchorHit], sequence: str, verbose: bool = False) -> Tuple[List[str], float, float, int]:
+def find_monomer_cycle(graph: Dict, hits: List[AnchorHit], sequence: str, verbose: bool = False) -> Tuple[List[str], float, float, int, List[float]]:
     """
-    Find the best cycle in the transition graph based on CV of ACTUAL decomposition.
-
-    This represents the sequence of anchors in one monomer.
+    Find the best anchor for decomposition using distance clustering.
 
     Strategy:
-    1. Collect candidate anchors (from self-loops and multi-anchor cycles)
-    2. For each anchor, try different step sizes (1, 2, 3) to handle A-B patterns
-    3. Calculate CV for each (anchor, step) combination
-    4. Select the combination with minimum CV (best uniformity)
-
-    The key insight: An anchor may appear multiple times per monomer (A-B pattern).
-    Using step=2 means we cut at every 2nd occurrence, effectively merging A+B.
+    1. For each anchor with self-loop, analyze distance distribution
+    2. Cluster distances to detect multi-region patterns (A-B, A-B-C, etc.)
+    3. True period = sum of cluster centers
+    4. Select anchor with lowest CV after cluster-based correction
 
     Returns:
-        Tuple of (cycle, mean_period, cv, step)
+        Tuple of (cycle, mean_period, cv, n_clusters, cluster_centers)
     """
     edges = graph["edges"]
     distances = graph.get("distances", {})
 
     if not edges:
-        return [], 0, float('inf'), 1
+        return [], 0, float('inf'), 1, []
 
-    # Collect all candidate anchors with their actual decomposition CV
-    candidates = []  # List of (cycle, cv, mean_length, count)
+    # Collect candidate anchors with cluster analysis
+    # Format: (cycle, cv, mean_period, count, n_clusters, centers)
+    candidates = []
 
-    # Get unique anchors from graph
+    # Get unique anchors from graph with self-loops
     anchors_to_try = set()
     for (from_a, to_a), count in edges.items():
         if count >= 3:  # Need enough occurrences
@@ -173,67 +391,72 @@ def find_monomer_cycle(graph: Dict, hits: List[AnchorHit], sequence: str, verbos
             if from_a != to_a:
                 anchors_to_try.add(to_a)
 
-    # Evaluate each anchor by ACTUAL decomposition
     for anchor in anchors_to_try:
-        # Find all positions of this anchor
-        positions = []
-        for hit in hits:
-            if hit.anchor == anchor:
-                positions.append(hit.position)
-
+        # Find ALL positions for this anchor (not just self-loop)
+        positions = [hit.position for hit in hits if hit.anchor == anchor]
         if len(positions) < 3:
             continue
-
         positions.sort()
 
-        # Try different step sizes (1=direct, 2=A-B pattern, etc.)
-        # This handles cases where anchor appears multiple times per monomer
-        for step in [1, 2, 3]:
-            if len(positions) <= step:
-                continue
+        # Calculate distances between ALL consecutive positions of this anchor
+        # This captures the full pattern even if other anchors appear in between
+        dist_list = []
+        for i in range(len(positions) - 1):
+            dist_list.append(positions[i + 1] - positions[i])
 
-            # Calculate lengths with this step size
-            lengths = []
-            for i in range(len(positions) - step):
-                length = positions[i + step] - positions[i]
-                lengths.append(length)
+        if len(dist_list) < 3:
+            continue
 
-            if len(lengths) < 2:
-                continue
+        # Analyze distance distribution - detect multi-region patterns
+        n_clusters, centers, true_period = analyze_distance_distribution(dist_list, verbose=False)
 
-            mean_len = sum(lengths) / len(lengths)
-            variance = sum((x - mean_len) ** 2 for x in lengths) / len(lengths)
-            cv = (variance ** 0.5) / mean_len if mean_len > 0 else float('inf')
+        # Classify positions and get cut positions
+        labels = classify_positions_by_distance(positions, centers)
+        cut_positions = select_cut_positions_by_cluster(positions, labels)
 
-            # Store anchor, step, and CV
-            candidates.append(([anchor], cv, mean_len, len(positions), step))
-            if verbose:
-                step_info = f"step={step}" if step > 1 else ""
-                print(f"  Candidate: {anchor[:20]}... period={mean_len:.0f}, CV={cv:.3f}, cuts={len(positions)} {step_info}")
+        if len(cut_positions) < 2:
+            continue
 
-    # Select best candidate by CV (lower is better)
+        # Calculate CV of resulting monomer lengths
+        lengths = []
+        for i in range(len(cut_positions) - 1):
+            lengths.append(cut_positions[i + 1] - cut_positions[i])
+
+        if len(lengths) < 2:
+            continue
+
+        mean_len = sum(lengths) / len(lengths)
+        variance = sum((x - mean_len) ** 2 for x in lengths) / len(lengths)
+        cv = (variance ** 0.5) / mean_len if mean_len > 0 else float('inf')
+
+        candidates.append(([anchor], cv, true_period, len(cut_positions), n_clusters, centers))
+
+        if verbose:
+            cluster_info = f" ({n_clusters} clusters)" if n_clusters > 1 else ""
+            print(f"  Candidate: {anchor[:20]}... period={true_period:.0f}, CV={cv:.3f}, cuts={len(cut_positions)}{cluster_info}")
+
+    # Select best candidate by CV
     if not candidates:
-        # Last resort: most frequent edge
+        # Fallback: most frequent edge
         if edges:
             start_edge = max(edges.items(), key=lambda x: x[1])[0]
             if verbose:
                 print(f"  Fallback to most frequent: {start_edge[0][:20]}...")
-            return [start_edge[0]], 0, float('inf'), 1
-        return [], 0, float('inf'), 1
+            return [start_edge[0]], 0, float('inf'), 1, []
+        return [], 0, float('inf'), 1, []
 
-    # Sort by CV (ascending), then by step (ascending) - prefer smaller step at equal CV
-    # This prevents artificial period inflation (e.g., 18bp instead of 6bp for telomeres)
+    # Sort by CV (ascending), then by n_clusters (ascending) - prefer simpler patterns
     candidates.sort(key=lambda x: (x[1], x[4]))
 
-    best_cycle, best_cv, best_mean, best_count, best_step = candidates[0]
+    best_cycle, best_cv, best_period, best_count, best_n_clusters, best_centers = candidates[0]
 
     if verbose:
-        step_info = f" step={best_step}" if best_step > 1 else ""
-        print(f"  Selected: {best_cycle[0][:20]}... period={best_mean:.0f}, CV={best_cv:.3f}{step_info}")
+        cluster_info = f" ({best_n_clusters} clusters)" if best_n_clusters > 1 else ""
+        print(f"  Selected: {best_cycle[0][:20]}... period={best_period:.0f}, CV={best_cv:.3f}{cluster_info}")
         if len(candidates) > 1:
-            print(f"  (rejected {len(candidates)-1} other candidates with higher CV)")
+            print(f"  (rejected {len(candidates)-1} other candidates)")
 
-    return best_cycle, best_mean, best_cv, best_step
+    return best_cycle, best_period, best_cv, best_n_clusters, best_centers
 
 
 def _calculate_cycle_distances(cycle: List[str], distances: Dict) -> List[float]:
@@ -305,22 +528,24 @@ def decompose_by_cycle(
     sequence: str,
     hits: List[AnchorHit],
     cycle: List[str],
-    step: int = 1,
+    cluster_centers: List[float] = None,
     verbose: bool = False
 ) -> List[str]:
     """
     Decompose sequence into monomers based on the anchor cycle.
 
     Strategy:
-    1. Find positions where the cycle starts (first anchor of cycle)
-    2. If step > 1, only cut at every step-th position (A-B pattern handling)
-    3. Cut at those positions
+    1. Find all positions of the anchor
+    2. If cluster_centers provided (multi-region pattern), use cluster analysis
+       to select only the "start" positions
+    3. Cut at selected positions
 
     Args:
         sequence: The array sequence
         hits: Sorted list of AnchorHit
         cycle: List of anchors representing one monomer
-        step: Cut at every step-th occurrence (1=every, 2=every 2nd for A-B pattern)
+        cluster_centers: If multi-region pattern detected, the cluster centers
+                        for classifying positions. None = cut at every position.
 
     Returns:
         List of monomer sequences
@@ -332,23 +557,33 @@ def decompose_by_cycle(
 
     # Find all positions where anchor appears
     all_positions = []
-
-    i = 0
-    while i < len(hits):
-        if hits[i].anchor == start_anchor:
-            all_positions.append(hits[i].position)
-        i += 1
+    for hit in hits:
+        if hit.anchor == start_anchor:
+            all_positions.append(hit.position)
 
     if not all_positions:
         return [sequence]
 
-    # Apply step: only use every step-th position
-    cut_positions = all_positions[::step]
+    all_positions.sort()
+
+    # Determine cut positions based on cluster analysis
+    if cluster_centers and len(cluster_centers) > 1:
+        # Multi-region pattern: use cluster-based selection
+        labels = classify_positions_by_distance(all_positions, cluster_centers)
+        cut_positions = select_cut_positions_by_cluster(all_positions, labels, verbose)
+
+        if verbose:
+            print(f"  Multi-region pattern: {len(cluster_centers)} clusters")
+            print(f"  All positions: {len(all_positions)}, cut positions: {len(cut_positions)}")
+    else:
+        # Single region: cut at every position
+        cut_positions = all_positions
 
     if verbose:
-        if step > 1:
-            print(f"  All anchor positions: {len(all_positions)}, using every {step}th: {len(cut_positions)}")
         print(f"  Cut positions: {cut_positions[:10]}{'...' if len(cut_positions) > 10 else ''}")
+
+    if not cut_positions:
+        return [sequence]
 
     # Cut sequence
     monomers = []
@@ -386,7 +621,8 @@ class AnchorGraphDecomposer:
         self.cycle: List[str] = []
         self.estimated_period: float = 0
         self.estimated_cv: float = float('inf')
-        self.step: int = 1  # Step size for A-B pattern handling
+        self.n_clusters: int = 1  # Number of distance clusters (1 = normal, >1 = multi-region)
+        self.cluster_centers: List[float] = []  # Cluster centers for multi-region patterns
 
     def build_from_candidates(
         self,
@@ -436,16 +672,16 @@ class AnchorGraphDecomposer:
                 mean_dist = sum(dists) / len(dists)
                 print(f"  {edge[0][:15]}... -> {edge[1][:15]}...: count={count}, mean_dist={mean_dist:.0f}")
 
-        # Find monomer cycle
+        # Find monomer cycle with cluster analysis
         if verbose:
             print(f"\nFinding monomer cycle:")
-        self.cycle, self.estimated_period, self.estimated_cv, self.step = find_monomer_cycle(
+        self.cycle, self.estimated_period, self.estimated_cv, self.n_clusters, self.cluster_centers = find_monomer_cycle(
             self.graph, self.hits, sequence, verbose
         )
 
         if verbose and self.cycle:
-            step_info = f", step={self.step}" if self.step > 1 else ""
-            print(f"\nEstimated monomer length: {self.estimated_period:.0f} bp (CV={self.estimated_cv:.3f}{step_info})")
+            cluster_info = f", {self.n_clusters} clusters" if self.n_clusters > 1 else ""
+            print(f"\nEstimated monomer length: {self.estimated_period:.0f} bp (CV={self.estimated_cv:.3f}{cluster_info})")
 
     def decompose(self, verbose: bool = False) -> List[str]:
         """
@@ -460,10 +696,10 @@ class AnchorGraphDecomposer:
             return [self.sequence] if self.sequence else []
 
         if verbose:
-            step_info = f" (step={self.step})" if self.step > 1 else ""
-            print(f"\nDecomposing by cycle: {' -> '.join(a[:10]+'...' for a in self.cycle)}{step_info}")
+            cluster_info = f" ({self.n_clusters} clusters)" if self.n_clusters > 1 else ""
+            print(f"\nDecomposing by cycle: {' -> '.join(a[:10]+'...' for a in self.cycle)}{cluster_info}")
 
-        monomers = decompose_by_cycle(self.sequence, self.hits, self.cycle, self.step, verbose)
+        monomers = decompose_by_cycle(self.sequence, self.hits, self.cycle, self.cluster_centers, verbose)
 
         # Verify reconstruction
         reconstructed = "".join(monomers)
@@ -484,5 +720,7 @@ class AnchorGraphDecomposer:
             "cycle": self.cycle,
             "estimated_monomer_length": self.estimated_period,
             "estimated_cv": self.estimated_cv,
+            "n_clusters": self.n_clusters,
+            "cluster_centers": self.cluster_centers,
             "edge_counts": self.graph.get("edges", {}),
         }
