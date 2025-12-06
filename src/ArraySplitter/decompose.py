@@ -300,16 +300,153 @@ def refine_repeat_even(repeat, best_period):
         yield repeat
 
 
+def detect_and_fix_ab_pattern(decomposition, cut_seq, verbose=False):
+    """
+    Detect A-B alternating pattern and merge if it improves length uniformity.
+
+    A-B pattern occurs when the cut sequence appears at TWO positions within each
+    true monomer, creating an alternating pattern of short (A) and long (B) fragments.
+
+    Decision is based on CV improvement, NOT sequence similarity.
+    Different parts of the same monomer CAN have dissimilar sequences.
+
+    Returns:
+        (new_decomposition, was_merged)
+    """
+    if len(decomposition) < 4:
+        return decomposition, False
+
+    # Get lengths of monomers that start with cut sequence
+    monomer_lengths = []
+    monomer_indices = []
+
+    for i, m in enumerate(decomposition):
+        if m.startswith(cut_seq):
+            monomer_lengths.append(len(m))
+            monomer_indices.append(i)
+
+    if len(monomer_lengths) < 4:
+        return decomposition, False
+
+    # Check for bimodal distribution
+    length_counts = Counter(monomer_lengths)
+
+    # Need at least 2 distinct length groups with significant counts
+    if len(length_counts) < 2:
+        return decomposition, False
+
+    # Find the two most common length modes
+    top_modes = length_counts.most_common(2)
+    mode_a_len, mode_a_count = top_modes[0]
+    mode_b_len, mode_b_count = top_modes[1]
+
+    # Both modes should have significant representation (at least 15% each)
+    total_monomers = len(monomer_lengths)
+    if mode_a_count < total_monomers * 0.15 or mode_b_count < total_monomers * 0.15:
+        return decomposition, False
+
+    # Check that the two modes are significantly different (not just noise)
+    # They should differ by at least 50% of the smaller one
+    smaller_len = min(mode_a_len, mode_b_len)
+    larger_len = max(mode_a_len, mode_b_len)
+
+    if larger_len < smaller_len * 1.5:
+        return decomposition, False
+
+    if verbose:
+        print(f"  Detected potential A-B pattern: {mode_a_len}bp ({mode_a_count}x) vs {mode_b_len}bp ({mode_b_count}x)")
+
+    # Calculate current CV
+    current_mean = mean(monomer_lengths)
+    current_std = stdev(monomer_lengths) if len(monomer_lengths) > 1 else 0
+    current_cv = current_std / current_mean if current_mean > 0 else 0
+
+    # Check if adjacent pairs sum to consistent values
+    # This is the key indicator of A-B pattern
+    merged_lengths = []
+    for i in range(0, len(monomer_indices) - 1, 2):
+        idx1 = monomer_indices[i]
+        idx2 = monomer_indices[i + 1]
+
+        # Only merge adjacent fragments in the original decomposition
+        if idx2 == idx1 + 1:
+            merged_len = len(decomposition[idx1]) + len(decomposition[idx2])
+            merged_lengths.append(merged_len)
+
+    if len(merged_lengths) < 3:
+        return decomposition, False
+
+    # Calculate CV of merged lengths
+    merged_mean = mean(merged_lengths)
+    merged_std = stdev(merged_lengths) if len(merged_lengths) > 1 else 0
+    merged_cv = merged_std / merged_mean if merged_mean > 0 else 0
+
+    if verbose:
+        print(f"  Current CV: {current_cv:.3f} (mean={current_mean:.0f})")
+        print(f"  Merged CV:  {merged_cv:.3f} (mean={merged_mean:.0f})")
+
+    # Merge if CV improves significantly (at least 50% reduction)
+    if merged_cv >= current_cv * 0.5:
+        if verbose:
+            print(f"  CV improvement not significant enough, skipping merge")
+        return decomposition, False
+
+    if verbose:
+        print(f"  ✓ Merging A-B pattern (CV improved by {(1 - merged_cv/current_cv)*100:.0f}%)")
+
+    # Perform the merge
+    original_sequence = "".join(decomposition)
+    new_decomposition = []
+    i = 0
+
+    while i < len(decomposition):
+        current = decomposition[i]
+
+        # Check if this and next are both monomers that should be merged
+        if (i < len(decomposition) - 1 and
+            current.startswith(cut_seq) and
+            decomposition[i + 1].startswith(cut_seq)):
+
+            # Check if their lengths match the A-B pattern
+            curr_len = len(current)
+            next_len = len(decomposition[i + 1])
+
+            # Check if one is close to mode_a and other is close to mode_b
+            curr_is_a = abs(curr_len - smaller_len) / smaller_len < 0.2
+            curr_is_b = abs(curr_len - larger_len) / larger_len < 0.2
+            next_is_a = abs(next_len - smaller_len) / smaller_len < 0.2
+            next_is_b = abs(next_len - larger_len) / larger_len < 0.2
+
+            # Merge if one is A and other is B (in either order)
+            if (curr_is_a and next_is_b) or (curr_is_b and next_is_a):
+                merged = current + decomposition[i + 1]
+                new_decomposition.append(merged)
+                i += 2
+                continue
+
+        new_decomposition.append(current)
+        i += 1
+
+    # Verify reconstruction
+    reconstructed = "".join(new_decomposition)
+    if reconstructed != original_sequence:
+        if verbose:
+            print(f"  ERROR: Reconstruction failed after A-B merge, reverting")
+        return decomposition, False
+
+    return new_decomposition, True
+
+
 def optimize_monomer_lengths(decomposition, cut_seq, verbose=True, array_id=None):
     """
     Post-processing optimization to merge short frequent monomers with adjacent longer ones.
     Goal: minimize variance of monomer lengths.
-    
+
     This runs AFTER the main decomposition is complete.
     """
     from collections import Counter
     import editdistance as ed
-    
+
     if len(decomposition) < 3:
         return decomposition
     
@@ -1081,7 +1218,13 @@ def main(input_file, output_prefix, format, threads, predefined_cuts=None, depth
             
             # Rotate monomers to start with cut
             decomposition = rotate_monomers_to_cut(decomposition, best_cut_seq)
-            
+
+            # Detect and fix A-B alternating pattern (before other optimizations)
+            decomposition, ab_merged = detect_and_fix_ab_pattern(decomposition, best_cut_seq, verbose=verbose)
+            if ab_merged:
+                # Recount monomers after A-B merge
+                repeats2count = Counter(decomposition)
+
             # Apply post-processing optimization to merge short frequent monomers
             decomposition = optimize_monomer_lengths(decomposition, best_cut_seq, verbose=verbose, array_id=header)
 
