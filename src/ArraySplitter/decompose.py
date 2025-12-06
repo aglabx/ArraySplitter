@@ -681,6 +681,154 @@ def optimize_monomer_lengths(decomposition, cut_seq, verbose=True, array_id=None
     return working_decomposition
 
 
+def find_mutant_anchor(sequence, anchor, expected_pos, window=50, max_dist=2):
+    """
+    Find anchor with mutations (including indels) near expected position.
+
+    Args:
+        sequence: The monomer sequence to search in
+        anchor: The original anchor sequence
+        expected_pos: Expected position of anchor (e.g., median monomer length)
+        window: Search window around expected position
+        max_dist: Maximum edit distance to accept
+
+    Returns:
+        Position of mutant anchor, or None if not found
+    """
+    anchor_len = len(anchor)
+    start = max(0, expected_pos - window)
+    end = min(len(sequence), expected_pos + window + anchor_len)
+
+    best_pos = None
+    best_dist = max_dist + 1
+
+    for pos in range(start, end):
+        # Check different lengths due to possible indels (±2bp)
+        for length in range(anchor_len - 2, anchor_len + 3):
+            if pos + length > len(sequence):
+                continue
+            candidate = sequence[pos:pos + length]
+            dist = ed.eval(anchor, candidate)
+            if dist < best_dist:
+                best_dist = dist
+                best_pos = pos
+
+    if best_dist <= max_dist:
+        return best_pos
+    return None
+
+
+def split_long_monomers(decomposition, cut_seq, verbose=False):
+    """
+    Post-processing: split monomers that are 2x, 3x, etc. longer than expected.
+
+    This happens when anchor has mutation and we missed a cut point.
+    We search for mutant anchor near expected position and split there.
+
+    Args:
+        decomposition: List of monomer sequences
+        cut_seq: The cut/anchor sequence
+        verbose: Print debug info
+
+    Returns:
+        New decomposition with long monomers split
+    """
+    if len(decomposition) < 3:
+        return decomposition
+
+    # Calculate expected monomer length (median of normal-sized monomers)
+    lengths = []
+    for mono in decomposition:
+        if mono.startswith(cut_seq):
+            lengths.append(len(mono))
+
+    if not lengths:
+        return decomposition
+
+    # Use median to avoid outliers affecting expected length
+    sorted_lengths = sorted(lengths)
+    median_length = sorted_lengths[len(sorted_lengths) // 2]
+
+    if verbose:
+        print(f"Split long monomers: median={median_length}bp, cut={cut_seq}")
+
+    # Save original for verification
+    original_sequence = "".join(decomposition)
+
+    result = []
+    splits_made = 0
+
+    for mono in decomposition:
+        # Skip flanks (don't start with cut)
+        if not mono.startswith(cut_seq):
+            result.append(mono)
+            continue
+
+        # Check if monomer is significantly longer than expected
+        ratio = len(mono) / median_length
+
+        if ratio < 1.7:
+            # Normal length monomer
+            result.append(mono)
+            continue
+
+        # This monomer is 2x, 3x, etc. - try to split it
+        n_expected = round(ratio)
+
+        if verbose:
+            print(f"  Long monomer: {len(mono)}bp ({ratio:.1f}x), trying to split into {n_expected} parts")
+
+        # Try to find mutant anchors and split
+        parts = [mono]
+
+        for split_num in range(1, n_expected):
+            # Expected position of next anchor
+            expected_pos = split_num * median_length
+
+            # Search in the last (unsplit) part
+            current_part = parts[-1]
+
+            # Adjust expected_pos relative to current part
+            offset = sum(len(p) for p in parts[:-1])
+            rel_expected_pos = expected_pos - offset
+
+            if rel_expected_pos < len(cut_seq) or rel_expected_pos >= len(current_part) - len(cut_seq):
+                continue
+
+            # Find mutant anchor
+            mutant_pos = find_mutant_anchor(
+                current_part,
+                cut_seq,
+                rel_expected_pos,
+                window=int(median_length * 0.15),  # 15% window
+                max_dist=2
+            )
+
+            if mutant_pos is not None and mutant_pos > 0:
+                # Split at mutant anchor position
+                part1 = current_part[:mutant_pos]
+                part2 = current_part[mutant_pos:]
+
+                # Replace last part with two new parts
+                parts[-1] = part1
+                parts.append(part2)
+                splits_made += 1
+
+                if verbose:
+                    print(f"    Split at pos {mutant_pos}: {len(part1)}bp + {len(part2)}bp")
+
+        result.extend(parts)
+
+    # Verify reconstruction
+    final_sequence = "".join(result)
+    if final_sequence != original_sequence:
+        print(f"ERROR: Sequence changed during split_long_monomers!")
+        return decomposition
+
+    if verbose and splits_made > 0:
+        print(f"  Split {splits_made} long monomers")
+
+    return result
 
 
 def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True, array_id=None):
@@ -1213,6 +1361,9 @@ def main(input_file, output_prefix, format, threads, predefined_cuts=None, depth
 
             # Apply post-processing optimization to merge short frequent monomers
             decomposition = optimize_monomer_lengths(decomposition, best_cut_seq, verbose=verbose, array_id=header)
+
+            # Split long monomers where anchor has mutation (x2, x3 longer than expected)
+            decomposition = split_long_monomers(decomposition, best_cut_seq, verbose=verbose)
 
             # print("best period:", best_period, "len:", len(decomposition))
             # print_pause_clean(decomposition, repeats2count, best_period)
