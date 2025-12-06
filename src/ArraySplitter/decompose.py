@@ -941,39 +941,31 @@ def decompose_array(array, depth=500, cutoff=None, verbose=False, array_id=None)
     
     hints = list(unique_hints.values())
     
-    ### Step 4. Find the optimal cut sequence and the best period
-    ### Defined as the maximal fraction of the cut sequence to the total cut sequence
+    ### Step 4. PRIMARY: Try anchor graph decomposition first
+    ### Anchor graph selects the cycle with minimum CV (best length uniformity)
+    graph_result = decompose_with_anchor_graph(array, hints, verbose=verbose)
+
+    if graph_result is not None:
+        decomposition, best_cut_seq, best_period, cv = graph_result
+        if verbose:
+            print(f"  Using anchor graph decomposition: {len(decomposition)} monomers, period={best_period}, CV={cv:.3f}")
+
+        # Calculate best_cut_score as fraction of monomers starting with cut
+        monomers_with_cut = sum(1 for m in decomposition if m.startswith(best_cut_seq))
+        best_cut_score = monomers_with_cut / len(decomposition) if decomposition else 0
+        repeats2count = Counter(decomposition)
+
+        return decomposition, repeats2count, best_cut_seq, best_cut_score, best_period
+
+    ### Step 5. FALLBACK: Use FS-tree decomposition if anchor graph fails
+    if verbose:
+        print(f"  Anchor graph failed, falling back to FS-tree decomposition")
+
     best_cut_seq, best_cut_score, best_period = compute_cuts(array, hints)
 
-    ### Step 5. Cut the array
-    ### The first iteration finds monomer frequencies
-    # print("Firset iteration")
     decomposition, repeats2count = decompose_array_iter1(
         array, best_cut_seq, best_period, verbose=verbose, array_id=array_id
     )
-
-    # assert "".join(decomposition) == array
-
-    # DISABLED: The second iteration breaks the cut structure
-    # It tries to refine monomers but creates pieces that don't start with cut
-    # TODO: Fix decompose_array_iter2 to preserve cut structure
-
-    # changed = True
-    # while changed:
-    #     # print("Firset iteration", len(decomposition))
-    #     decomposition, repeats2count, changed = decompose_array_iter2(
-    #         decomposition, best_period, repeats2count, verbose=verbose
-    #     )
-    #     # assert "".join(decomposition) == array
-
-    ### Step 6. Check for overcutting using anchor graph
-    decomposition, best_cut_seq, best_period, was_fixed = check_and_fix_overcutting(
-        array, decomposition, best_cut_seq, best_period, hints, verbose=verbose
-    )
-
-    if was_fixed:
-        # Recount monomers after graph-based decomposition
-        repeats2count = Counter(decomposition)
 
     return decomposition, repeats2count, best_cut_seq, best_cut_score, best_period
 
@@ -1064,78 +1056,72 @@ def get_all_hints_for_graph(array, depth=100, cutoff=3):
     return list(unique.values())
 
 
-def check_and_fix_overcutting(array, decomposition, best_cut_seq, best_period, hints, verbose=False):
+def decompose_with_anchor_graph(array, hints, verbose=False):
     """
-    Check if current decomposition shows signs of overcutting using anchor graph.
+    Primary decomposition method using anchor graph.
 
-    Overcutting indicators:
-    1. Multiple anchor cycle (>1 conserved parts per monomer)
-    2. Graph period significantly larger than FS-tree period
+    Anchor graph is built from FS-tree hints and selects the cycle
+    with minimum CV (best length uniformity).
 
     Returns:
-        (decomposition, cut_seq, period, was_fixed)
+        (decomposition, cut_seq, period, cv) or None if failed
     """
-    if len(decomposition) < 3:
-        return decomposition, best_cut_seq, best_period, False
-
-    # For large sequences, get more hints with smaller cutoff for better anchor detection
+    # For large sequences, get more hints with smaller cutoff
     if len(array) > 10000:
         graph_hints = get_all_hints_for_graph(array, depth=100, cutoff=3)
         if len(graph_hints) > len(hints):
             hints = graph_hints
 
-    # Build anchor graph from hints
+    # Build candidates from hints
     candidates = get_candidates_from_hints(array, hints)
 
     if not candidates:
-        return decomposition, best_cut_seq, best_period, False
+        return None
 
+    # Build anchor graph
     decomposer = AnchorGraphDecomposer()
-    decomposer.build_from_candidates(array, candidates, top_k=10, verbose=False)
+    decomposer.build_from_candidates(array, candidates, top_k=15, verbose=verbose)
 
     stats = decomposer.get_stats()
-    graph_period = stats['estimated_monomer_length']
     cycle = stats['cycle']
+    graph_period = stats['estimated_monomer_length']
 
-    # Check for overcutting indicators
-    is_overcutting = False
-    reason = ""
+    if not cycle or graph_period < 10:
+        return None
 
-    # Indicator 1: Multiple anchors in cycle (different conserved parts)
-    if len(cycle) > 1:
-        is_overcutting = True
-        reason = f"multi-anchor cycle ({len(cycle)} anchors)"
-
-    # Indicator 2: Graph period significantly larger (>2x)
-    elif graph_period > best_period * 2 and graph_period > 50:
-        is_overcutting = True
-        reason = f"period mismatch (graph={graph_period:.0f} vs fstree={best_period})"
-
-    if not is_overcutting:
-        return decomposition, best_cut_seq, best_period, False
-
-    # Try graph-based decomposition
-    graph_decomposition = decomposer.decompose(verbose=False)
+    # Decompose using graph
+    graph_decomposition = decomposer.decompose(verbose=verbose)
 
     # Verify reconstruction
     reconstructed = "".join(graph_decomposition)
     if reconstructed != array:
         if verbose:
-            print(f"  Anchor graph reconstruction failed, keeping FS-tree result")
-        return decomposition, best_cut_seq, best_period, False
+            print(f"  Graph reconstruction failed")
+        return None
 
-    # Check if graph decomposition is better (fewer monomers with reasonable sizes)
-    if len(graph_decomposition) < len(decomposition) * 0.9:
-        if verbose:
-            print(f"  Overcutting detected ({reason})")
-            print(f"  FS-tree: {len(decomposition)} monomers, period={best_period}")
-            print(f"  Graph:   {len(graph_decomposition)} monomers, period={graph_period:.0f}")
-            print(f"  Using anchor graph decomposition")
+    # Calculate CV of resulting decomposition
+    cut_seq = cycle[0]
+    lengths = [len(m) for m in graph_decomposition if m.startswith(cut_seq)]
 
-        # Use first anchor in cycle as cut sequence
-        new_cut_seq = cycle[0] if cycle else best_cut_seq
-        return graph_decomposition, new_cut_seq, int(graph_period), True
+    if len(lengths) < 2:
+        return None
 
+    mean_len = sum(lengths) / len(lengths)
+    variance = sum((x - mean_len) ** 2 for x in lengths) / len(lengths)
+    cv = (variance ** 0.5) / mean_len if mean_len > 0 else float('inf')
+
+    if verbose:
+        print(f"  Graph result: {len(graph_decomposition)} monomers, period={graph_period:.0f}, CV={cv:.3f}")
+
+    return graph_decomposition, cut_seq, int(graph_period), cv
+
+
+def check_and_fix_overcutting(array, decomposition, best_cut_seq, best_period, hints, verbose=False):
+    """
+    DEPRECATED: This function is kept for backwards compatibility.
+    The anchor graph is now the primary decomposition method.
+    """
+    # This is now a no-op since graph is applied first
     return decomposition, best_cut_seq, best_period, False
 
 

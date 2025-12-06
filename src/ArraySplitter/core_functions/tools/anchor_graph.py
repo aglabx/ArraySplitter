@@ -138,127 +138,119 @@ def build_transition_graph(hits: List[AnchorHit]) -> Dict:
     }
 
 
-def find_monomer_cycle(graph: Dict, verbose: bool = False) -> List[str]:
+def find_monomer_cycle(graph: Dict, hits: List[AnchorHit], sequence: str, verbose: bool = False) -> Tuple[List[str], float, float, int]:
     """
-    Find the dominant cycle in the transition graph.
+    Find the best cycle in the transition graph based on CV of ACTUAL decomposition.
 
     This represents the sequence of anchors in one monomer.
 
     Strategy:
-    1. First check for high-quality self-loops (single anchor per monomer, consistent distance)
-    2. If no good self-loop, try multi-anchor cycles (multiple conserved parts per monomer)
-    3. For multi-anchor cycles, ensure anchors are not overlapping variants
+    1. Collect candidate anchors (from self-loops and multi-anchor cycles)
+    2. For each anchor, try different step sizes (1, 2, 3) to handle A-B patterns
+    3. Calculate CV for each (anchor, step) combination
+    4. Select the combination with minimum CV (best uniformity)
+
+    The key insight: An anchor may appear multiple times per monomer (A-B pattern).
+    Using step=2 means we cut at every 2nd occurrence, effectively merging A+B.
+
+    Returns:
+        Tuple of (cycle, mean_period, cv, step)
     """
     edges = graph["edges"]
     distances = graph.get("distances", {})
 
     if not edges:
-        return []
+        return [], 0, float('inf'), 1
 
-    # Separate self-loops from cross-anchor edges
-    self_loops = {e: c for e, c in edges.items() if e[0] == e[1]}
-    cross_edges = {e: c for e, c in edges.items() if e[0] != e[1]}
+    # Collect all candidate anchors with their actual decomposition CV
+    candidates = []  # List of (cycle, cv, mean_length, count)
 
-    # First, evaluate best self-loop quality
-    best_self_loop = None
-    best_self_score = 0
-    best_self_cv = float('inf')
+    # Get unique anchors from graph
+    anchors_to_try = set()
+    for (from_a, to_a), count in edges.items():
+        if count >= 3:  # Need enough occurrences
+            anchors_to_try.add(from_a)
+            if from_a != to_a:
+                anchors_to_try.add(to_a)
 
-    for (anchor, _), count in self_loops.items():
-        edge = (anchor, anchor)
-        if edge in distances:
-            dists = distances[edge]
-            if len(dists) >= 3:  # Need enough data points
-                mean_dist = sum(dists) / len(dists)
-                variance = sum((d - mean_dist) ** 2 for d in dists) / len(dists)
-                cv = (variance ** 0.5) / mean_dist if mean_dist > 0 else float('inf')
-                # Score: high count + low CV (consistency)
-                score = count * (1 / (1 + cv * 2))
+    # Evaluate each anchor by ACTUAL decomposition
+    for anchor in anchors_to_try:
+        # Find all positions of this anchor
+        positions = []
+        for hit in hits:
+            if hit.anchor == anchor:
+                positions.append(hit.position)
 
-                if score > best_self_score:
-                    best_self_score = score
-                    best_self_cv = cv
-                    best_self_loop = anchor
+        if len(positions) < 3:
+            continue
 
-    # If we have a good self-loop (consistent distances), use it
-    # CV < 0.3 means distances are very consistent (good monomer periodicity)
-    if best_self_loop and best_self_cv < 0.3:
-        if verbose:
-            print(f"  High-quality self-loop: {best_self_loop[:20]}... (CV={best_self_cv:.3f})")
-        return [best_self_loop]
+        positions.sort()
 
-    # Otherwise, try to find multi-anchor cycle (different conserved parts)
-    if cross_edges:
-        # Filter out edges between overlapping anchors (>50% overlap)
-        filtered_cross_edges = {}
-        for (from_a, to_a), count in cross_edges.items():
-            # Check if anchors share a common substring
-            min_len = min(len(from_a), len(to_a))
-            is_overlapping = False
-            for offset in range(max(1, min_len - 5)):
-                if from_a[offset:] == to_a[:len(from_a)-offset]:
-                    is_overlapping = True
-                    break
-                if to_a[offset:] == from_a[:len(to_a)-offset]:
-                    is_overlapping = True
-                    break
-            if not is_overlapping:
-                filtered_cross_edges[(from_a, to_a)] = count
+        # Try different step sizes (1=direct, 2=A-B pattern, etc.)
+        # This handles cases where anchor appears multiple times per monomer
+        for step in [1, 2, 3]:
+            if len(positions) <= step:
+                continue
 
-        if filtered_cross_edges:
-            # Find multi-anchor cycle using filtered edges
-            best_cross_edge = max(filtered_cross_edges.items(), key=lambda x: x[1])[0]
-            start_anchor = best_cross_edge[0]
+            # Calculate lengths with this step size
+            lengths = []
+            for i in range(len(positions) - step):
+                length = positions[i + step] - positions[i]
+                lengths.append(length)
 
-            cycle = [start_anchor]
-            current = start_anchor
-            visited_anchors = {start_anchor}
+            if len(lengths) < 2:
+                continue
 
-            for _ in range(100):
-                best_next = None
-                best_count = 0
+            mean_len = sum(lengths) / len(lengths)
+            variance = sum((x - mean_len) ** 2 for x in lengths) / len(lengths)
+            cv = (variance ** 0.5) / mean_len if mean_len > 0 else float('inf')
 
-                for (from_a, to_a), count in filtered_cross_edges.items():
-                    if from_a == current and count > best_count:
-                        if to_a == start_anchor and len(cycle) > 1:
-                            if verbose:
-                                print(f"  Multi-anchor cycle: {' -> '.join([a[:15]+'...' for a in cycle])}")
-                            return cycle
-                        if to_a not in visited_anchors:
-                            best_next = to_a
-                            best_count = count
+            # Store anchor, step, and CV
+            candidates.append(([anchor], cv, mean_len, len(positions), step))
+            if verbose:
+                step_info = f"step={step}" if step > 1 else ""
+                print(f"  Candidate: {anchor[:20]}... period={mean_len:.0f}, CV={cv:.3f}, cuts={len(positions)} {step_info}")
 
-                if best_next is None:
-                    for (from_a, to_a), count in filtered_cross_edges.items():
-                        if from_a == current and to_a == start_anchor and len(cycle) > 1:
-                            if verbose:
-                                print(f"  Multi-anchor cycle: {' -> '.join([a[:15]+'...' for a in cycle])}")
-                            return cycle
-                    break
+    # Select best candidate by CV (lower is better)
+    if not candidates:
+        # Last resort: most frequent edge
+        if edges:
+            start_edge = max(edges.items(), key=lambda x: x[1])[0]
+            if verbose:
+                print(f"  Fallback to most frequent: {start_edge[0][:20]}...")
+            return [start_edge[0]], 0, float('inf'), 1
+        return [], 0, float('inf'), 1
 
-                cycle.append(best_next)
-                visited_anchors.add(best_next)
-                current = best_next
+    # Sort by CV (ascending) - best uniformity first
+    candidates.sort(key=lambda x: x[1])
 
-            if len(cycle) > 1:
-                if verbose:
-                    print(f"  Partial multi-anchor: {' -> '.join([a[:15]+'...' for a in cycle])}")
-                return cycle
+    best_cycle, best_cv, best_mean, best_count, best_step = candidates[0]
 
-    # Fall back to best self-loop even if not super consistent
-    if best_self_loop:
-        if verbose:
-            print(f"  Self-loop fallback: {best_self_loop[:20]}... (CV={best_self_cv:.3f})")
-        return [best_self_loop]
+    if verbose:
+        step_info = f" step={best_step}" if best_step > 1 else ""
+        print(f"  Selected: {best_cycle[0][:20]}... period={best_mean:.0f}, CV={best_cv:.3f}{step_info}")
+        if len(candidates) > 1:
+            print(f"  (rejected {len(candidates)-1} other candidates with higher CV)")
 
-    # Last resort: most frequent edge
-    if edges:
-        start_edge = max(edges.items(), key=lambda x: x[1])[0]
-        if verbose:
-            print(f"  Fallback to most frequent: {start_edge[0][:20]}...")
-        return [start_edge[0]]
+    return best_cycle, best_mean, best_cv, best_step
 
-    return []
+
+def _calculate_cycle_distances(cycle: List[str], distances: Dict) -> List[float]:
+    """Calculate full cycle distances from edge distances."""
+    if len(cycle) == 1:
+        edge = (cycle[0], cycle[0])
+        return distances.get(edge, [])
+
+    # For multi-anchor cycle, sum distances along the cycle
+    # This is approximate - we'd need to track actual cycle instances
+    cycle_dists = []
+    edge = (cycle[0], cycle[1])
+    if edge in distances:
+        # Use first edge distances as proxy
+        # TODO: properly track full cycle instances
+        cycle_dists = distances[edge]
+
+    return cycle_dists
 
 
 def estimate_monomer_length(graph: Dict, cycle: List[str]) -> Tuple[float, float]:
@@ -312,6 +304,7 @@ def decompose_by_cycle(
     sequence: str,
     hits: List[AnchorHit],
     cycle: List[str],
+    step: int = 1,
     verbose: bool = False
 ) -> List[str]:
     """
@@ -319,12 +312,14 @@ def decompose_by_cycle(
 
     Strategy:
     1. Find positions where the cycle starts (first anchor of cycle)
-    2. Cut at those positions
+    2. If step > 1, only cut at every step-th position (A-B pattern handling)
+    3. Cut at those positions
 
     Args:
         sequence: The array sequence
         hits: Sorted list of AnchorHit
         cycle: List of anchors representing one monomer
+        step: Cut at every step-th occurrence (1=every, 2=every 2nd for A-B pattern)
 
     Returns:
         List of monomer sequences
@@ -334,27 +329,24 @@ def decompose_by_cycle(
 
     start_anchor = cycle[0]
 
-    # Find all positions where cycle starts
-    cut_positions = []
+    # Find all positions where anchor appears
+    all_positions = []
 
     i = 0
     while i < len(hits):
         if hits[i].anchor == start_anchor:
-            # Check if this is start of a valid cycle
-            # (following anchors match the cycle pattern)
-            is_cycle_start = True
-
-            # We don't strictly require full cycle match -
-            # just that it starts with the right anchor
-            # This handles cases with mutations
-
-            cut_positions.append(hits[i].position)
+            all_positions.append(hits[i].position)
         i += 1
 
-    if not cut_positions:
+    if not all_positions:
         return [sequence]
 
+    # Apply step: only use every step-th position
+    cut_positions = all_positions[::step]
+
     if verbose:
+        if step > 1:
+            print(f"  All anchor positions: {len(all_positions)}, using every {step}th: {len(cut_positions)}")
         print(f"  Cut positions: {cut_positions[:10]}{'...' if len(cut_positions) > 10 else ''}")
 
     # Cut sequence
@@ -391,6 +383,9 @@ class AnchorGraphDecomposer:
         self.hits: List[AnchorHit] = []
         self.graph: Dict = {}
         self.cycle: List[str] = []
+        self.estimated_period: float = 0
+        self.estimated_cv: float = float('inf')
+        self.step: int = 1  # Step size for A-B pattern handling
 
     def build_from_candidates(
         self,
@@ -410,14 +405,17 @@ class AnchorGraphDecomposer:
         """
         self.sequence = sequence
 
-        # Get top candidates
+        # Get top candidates, filtering by max anchor length
+        # Anchors should be short (<=11bp) - they are graph nodes, not sequences
+        MAX_ANCHOR_LENGTH = 11
         top = get_top_candidates(candidates, top_k)
-        self.anchors = [c['cut'] for c in top]
+        self.anchors = [c['cut'] for c in top if len(c['cut']) <= MAX_ANCHOR_LENGTH]
 
         if verbose:
-            print(f"Top {len(self.anchors)} anchors:")
+            print(f"Top {len(self.anchors)} anchors (max length {MAX_ANCHOR_LENGTH}bp):")
             for c in top:
-                print(f"  '{c['cut']}' score={c.get('adjusted_score', c.get('base_score', 0)):.3f}")
+                if len(c['cut']) <= MAX_ANCHOR_LENGTH:
+                    print(f"  '{c['cut']}' score={c.get('adjusted_score', c.get('base_score', 0)):.3f}")
 
         # Find hits hierarchically (longer first)
         if verbose:
@@ -440,11 +438,13 @@ class AnchorGraphDecomposer:
         # Find monomer cycle
         if verbose:
             print(f"\nFinding monomer cycle:")
-        self.cycle = find_monomer_cycle(self.graph, verbose)
+        self.cycle, self.estimated_period, self.estimated_cv, self.step = find_monomer_cycle(
+            self.graph, self.hits, sequence, verbose
+        )
 
         if verbose and self.cycle:
-            length, var = estimate_monomer_length(self.graph, self.cycle)
-            print(f"\nEstimated monomer length: {length:.0f} bp (var={var:.0f})")
+            step_info = f", step={self.step}" if self.step > 1 else ""
+            print(f"\nEstimated monomer length: {self.estimated_period:.0f} bp (CV={self.estimated_cv:.3f}{step_info})")
 
     def decompose(self, verbose: bool = False) -> List[str]:
         """
@@ -459,9 +459,10 @@ class AnchorGraphDecomposer:
             return [self.sequence] if self.sequence else []
 
         if verbose:
-            print(f"\nDecomposing by cycle: {' -> '.join(a[:10]+'...' for a in self.cycle)}")
+            step_info = f" (step={self.step})" if self.step > 1 else ""
+            print(f"\nDecomposing by cycle: {' -> '.join(a[:10]+'...' for a in self.cycle)}{step_info}")
 
-        monomers = decompose_by_cycle(self.sequence, self.hits, self.cycle, verbose)
+        monomers = decompose_by_cycle(self.sequence, self.hits, self.cycle, self.step, verbose)
 
         # Verify reconstruction
         reconstructed = "".join(monomers)
@@ -475,13 +476,12 @@ class AnchorGraphDecomposer:
 
     def get_stats(self) -> Dict:
         """Get decomposer statistics."""
-        length, var = estimate_monomer_length(self.graph, self.cycle)
         return {
             "num_anchors": len(self.anchors),
             "anchors": self.anchors,
             "num_hits": len(self.hits),
             "cycle": self.cycle,
-            "estimated_monomer_length": length,
-            "length_variance": var,
+            "estimated_monomer_length": self.estimated_period,
+            "estimated_cv": self.estimated_cv,
             "edge_counts": self.graph.get("edges", {}),
         }
