@@ -723,17 +723,19 @@ def find_mutant_anchor(sequence, anchor, expected_pos, window=50, max_dist=2):
     return None
 
 
-def split_long_monomers(decomposition, cut_seq, verbose=False):
+def split_long_monomers(decomposition, cut_seq, verbose=False, array_id=None):
     """
     Post-processing: split monomers that are 2x, 3x, etc. longer than expected.
 
     This happens when anchor has mutation and we missed a cut point.
     We search for mutant anchor near expected position and split there.
+    Iterates until no more splits can be made.
 
     Args:
         decomposition: List of monomer sequences
         cut_seq: The cut/anchor sequence
         verbose: Print debug info
+        array_id: Array identifier for logging
 
     Returns:
         New decomposition with long monomers split
@@ -741,124 +743,142 @@ def split_long_monomers(decomposition, cut_seq, verbose=False):
     if len(decomposition) < 3:
         return decomposition
 
-    # Calculate expected monomer length (median of normal-sized monomers)
-    lengths = []
-    for mono in decomposition:
-        if mono.startswith(cut_seq):
-            lengths.append(len(mono))
-
-    if not lengths:
-        return decomposition
-
-    # Use median to avoid outliers affecting expected length
-    sorted_lengths = sorted(lengths)
-    median_length = sorted_lengths[len(sorted_lengths) // 2]
-
-    if verbose:
-        print(f"Split long monomers: median={median_length}bp, cut={cut_seq}")
-
     # Save original for verification
     original_sequence = "".join(decomposition)
 
-    result = []
-    splits_made = 0
+    # Iterate until no more splits can be made
+    max_iterations = 10  # Safety limit
+    total_splits = 0
+    current_decomposition = decomposition
+    arr_info = f"[{array_id}] " if array_id else ""
 
-    for mono in decomposition:
-        # Skip flanks (don't start with cut)
-        if not mono.startswith(cut_seq):
-            result.append(mono)
-            continue
+    for iteration in range(max_iterations):
+        # Calculate expected monomer length (median of normal-sized monomers)
+        lengths = []
+        for mono in current_decomposition:
+            if mono.startswith(cut_seq):
+                lengths.append(len(mono))
 
-        # Check if monomer is longer than expected
-        ratio = len(mono) / median_length
+        if not lengths:
+            break
 
-        if ratio < 1.3:
-            # Normal length monomer
-            result.append(mono)
-            continue
+        # Use median to avoid outliers affecting expected length
+        sorted_lengths = sorted(lengths)
+        median_length = sorted_lengths[len(sorted_lengths) // 2]
 
-        # Try to split - either 2x/3x (mutant anchor) or 1.3-1.7x (exact anchor with tail)
-        n_expected = max(2, round(ratio))
+        if verbose and iteration == 0:
+            print(f"{arr_info}Split long monomers: median={median_length}bp, cut={cut_seq}")
 
-        if verbose:
-            print(f"  Long monomer: {len(mono)}bp ({ratio:.1f}x), trying to split into {n_expected} parts")
+        result = []
+        splits_made = 0
 
-        # Try to find mutant anchors and split
-        parts = [mono]
-
-        for split_num in range(1, n_expected):
-            # Expected position of next anchor
-            expected_pos = split_num * median_length
-
-            # Search in the last (unsplit) part
-            current_part = parts[-1]
-
-            # Adjust expected_pos relative to current part
-            offset = sum(len(p) for p in parts[:-1])
-            rel_expected_pos = expected_pos - offset
-
-            # Skip if expected position is too close to edges
-            # For short repeats, allow position at exactly the expected spot
-            min_pos = len(cut_seq) // 2  # Allow some flexibility for short repeats
-            max_pos = len(current_part) - len(cut_seq) // 2
-            if rel_expected_pos < min_pos or rel_expected_pos > max_pos:
+        for mono_idx, mono in enumerate(current_decomposition):
+            # Skip flanks (don't start with cut)
+            if not mono.startswith(cut_seq):
+                result.append(mono)
                 continue
 
-            # Find split position
-            split_pos = None
+            # Check if monomer is longer than expected
+            ratio = len(mono) / median_length
 
-            if ratio >= 1.7:
-                # For 2x, 3x: search for mutant anchor with edit distance
-                search_window = max(5, int(median_length * 0.15))
-                split_pos = find_mutant_anchor(
-                    current_part,
-                    cut_seq,
-                    rel_expected_pos,
-                    window=search_window,
-                    max_dist=2
-                )
-            else:
-                # For 1.3-1.7x: split at median_length if monomer starts with exact anchor
-                # This handles "exact anchor + short tail" cases
-                if current_part.startswith(cut_seq) and rel_expected_pos >= len(cut_seq):
-                    split_pos = rel_expected_pos
+            if ratio < 1.3:
+                # Normal length monomer
+                result.append(mono)
+                continue
 
-            if split_pos is not None and split_pos > 0:
-                # Split at found position
-                part1 = current_part[:split_pos]
-                part2 = current_part[split_pos:]
+            # Try to split - either 2x/3x (mutant anchor) or 1.3-1.7x (exact anchor with tail)
+            n_expected = max(2, round(ratio))
 
-                # Check variance criterion: split only if it reduces total deviation
-                # Without split: |len(current_part) - median|
-                # With split: |len(part1) - median| + |len(part2) - median|
-                dev_no_split = abs(len(current_part) - median_length)
-                dev_with_split = abs(len(part1) - median_length) + abs(len(part2) - median_length)
+            if verbose:
+                print(f"{arr_info}  #{mono_idx}: Long monomer {len(mono)}bp ({ratio:.1f}x), trying to split into {n_expected} parts")
 
-                if dev_with_split >= dev_no_split:
-                    if verbose:
-                        print(f"    Skip split at {split_pos}: deviation {dev_no_split} -> {dev_with_split} (no improvement)")
+            # Try to find mutant anchors and split
+            parts = [mono]
+
+            for split_num in range(1, n_expected):
+                # Expected position of next anchor
+                expected_pos = split_num * median_length
+
+                # Search in the last (unsplit) part
+                current_part = parts[-1]
+
+                # Adjust expected_pos relative to current part
+                offset = sum(len(p) for p in parts[:-1])
+                rel_expected_pos = expected_pos - offset
+
+                # Skip if expected position is too close to edges
+                # For short repeats, allow position at exactly the expected spot
+                min_pos = len(cut_seq) // 2  # Allow some flexibility for short repeats
+                max_pos = len(current_part) - len(cut_seq) // 2
+                if rel_expected_pos < min_pos or rel_expected_pos > max_pos:
                     continue
 
-                # Replace last part with two new parts
-                parts[-1] = part1
-                parts.append(part2)
-                splits_made += 1
+                # Find split position
+                split_pos = None
 
-                if verbose:
-                    print(f"    Split at pos {split_pos}: {len(part1)}bp + {len(part2)}bp (dev {dev_no_split} -> {dev_with_split})")
+                if ratio >= 1.7:
+                    # For 2x, 3x: search for mutant anchor with edit distance
+                    search_window = max(5, int(median_length * 0.15))
+                    split_pos = find_mutant_anchor(
+                        current_part,
+                        cut_seq,
+                        rel_expected_pos,
+                        window=search_window,
+                        max_dist=2
+                    )
+                else:
+                    # For 1.3-1.7x: split at median_length if monomer starts with exact anchor
+                    # This handles "exact anchor + short tail" cases
+                    if current_part.startswith(cut_seq) and rel_expected_pos >= len(cut_seq):
+                        split_pos = rel_expected_pos
 
-        result.extend(parts)
+                if split_pos is not None and split_pos > 0:
+                    # Split at found position
+                    part1 = current_part[:split_pos]
+                    part2 = current_part[split_pos:]
+
+                    # Check variance criterion: split only if it reduces total deviation
+                    # Without split: |len(current_part) - median|
+                    # With split: |len(part1) - median| + |len(part2) - median|
+                    dev_no_split = abs(len(current_part) - median_length)
+                    dev_with_split = abs(len(part1) - median_length) + abs(len(part2) - median_length)
+
+                    if dev_with_split >= dev_no_split:
+                        if verbose:
+                            print(f"{arr_info}    #{mono_idx}: Skip split at {split_pos}: deviation {dev_no_split} -> {dev_with_split} (no improvement)")
+                        continue
+
+                    # Replace last part with two new parts
+                    parts[-1] = part1
+                    parts.append(part2)
+                    splits_made += 1
+
+                    if verbose:
+                        print(f"{arr_info}    #{mono_idx}: Split at pos {split_pos}: {len(part1)}bp + {len(part2)}bp (dev {dev_no_split} -> {dev_with_split})")
+
+            result.extend(parts)
+
+        # Update for next iteration
+        total_splits += splits_made
+        current_decomposition = result
+
+        if splits_made == 0:
+            # No more splits possible
+            break
+
+        if verbose:
+            print(f"{arr_info}  Iteration {iteration + 1}: {splits_made} splits, continuing...")
 
     # Verify reconstruction
-    final_sequence = "".join(result)
+    final_sequence = "".join(current_decomposition)
     if final_sequence != original_sequence:
         print(f"ERROR: Sequence changed during split_long_monomers!")
         return decomposition
 
-    if verbose and splits_made > 0:
-        print(f"  Split {splits_made} long monomers")
+    if verbose and total_splits > 0:
+        print(f"{arr_info}  Total: {total_splits} splits in {iteration + 1} iteration(s)")
 
-    return result
+    return current_decomposition
 
 
 def decompose_array_iter1(array, best_cut_seq, best_period, verbose=True, array_id=None):
@@ -1393,7 +1413,7 @@ def main(input_file, output_prefix, format, threads, predefined_cuts=None, depth
             decomposition = optimize_monomer_lengths(decomposition, best_cut_seq, verbose=verbose, array_id=header)
 
             # Split long monomers where anchor has mutation (x2, x3 longer than expected)
-            decomposition = split_long_monomers(decomposition, best_cut_seq, verbose=verbose)
+            decomposition = split_long_monomers(decomposition, best_cut_seq, verbose=verbose, array_id=header)
 
             # print("best period:", best_period, "len:", len(decomposition))
             # print_pause_clean(decomposition, repeats2count, best_period)
@@ -1443,13 +1463,16 @@ def main(input_file, output_prefix, format, threads, predefined_cuts=None, depth
             
             # Write detailed monomer information
             for i, monomer in enumerate(decomposition):
-                if not monomer.startswith(best_cut_seq):
+                # LEFT_FLANK: only first fragment if it doesn't start with cut
+                if i == 0 and not monomer.startswith(best_cut_seq):
                     piece_type = "LEFT_FLANK"
                     is_flank = "TRUE"
+                # RIGHT_FLANK: only last fragment if too short
                 elif i == len(decomposition) - 1 and len(monomer) < flank_threshold:
                     piece_type = "RIGHT_FLANK"
                     is_flank = "TRUE"
                 else:
+                    # Everything else is MONOMER (including mutant monomers without exact cut)
                     piece_type = "MONOMER"
                     is_flank = "FALSE"
                 
