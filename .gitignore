@@ -168,3 +168,16 @@ test_data/zebra_finch_satdna.fasta
 zebra_finch_satdna.decomposed.fasta
 zebra_finch_satdna.lengths
 zebra_finch_satdna.monomers.tsv
+zebra_finch_satdna_fastan.10kb.decomposed.fasta
+zebra_finch_satdna_fastan.10kb.lengths
+zebra_finch_satdna_fastan.10kb.monomers.tsv
+test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.1aln
+test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.1kb.fasta
+test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.1kb.trf
+test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.3kb.fasta
+test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.3kb.trf
+test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.10kb.fasta
+test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.10kb.trf
+test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.bed
+test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.fasta
+test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.trf
