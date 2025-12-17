@@ -237,3 +237,87 @@ void seq_split_free(char **parts, size_t count, size_t *lengths) {
     }
     free(lengths);
 }
+
+/*
+ * Calculate Levenshtein (edit) distance between two sequences
+ * Uses O(min(m,n)) space optimization
+ */
+size_t seq_edit_distance(const char *s1, size_t len1, const char *s2, size_t len2) {
+    /* Handle edge cases */
+    if (len1 == 0) return len2;
+    if (len2 == 0) return len1;
+
+    /* Make s1 the shorter string for space optimization */
+    if (len1 > len2) {
+        const char *tmp_s = s1;
+        s1 = s2;
+        s2 = tmp_s;
+        size_t tmp_len = len1;
+        len1 = len2;
+        len2 = tmp_len;
+    }
+
+    /* Allocate two rows */
+    size_t *prev_row = malloc((len1 + 1) * sizeof(size_t));
+    size_t *curr_row = malloc((len1 + 1) * sizeof(size_t));
+
+    if (!prev_row || !curr_row) {
+        free(prev_row);
+        free(curr_row);
+        return SIZE_MAX;  /* Error indicator */
+    }
+
+    /* Initialize first row */
+    for (size_t i = 0; i <= len1; i++) {
+        prev_row[i] = i;
+    }
+
+    /* Fill the matrix row by row */
+    for (size_t j = 1; j <= len2; j++) {
+        curr_row[0] = j;
+
+        for (size_t i = 1; i <= len1; i++) {
+            size_t cost = (toupper((unsigned char)s1[i-1]) ==
+                          toupper((unsigned char)s2[j-1])) ? 0 : 1;
+
+            size_t deletion = prev_row[i] + 1;
+            size_t insertion = curr_row[i-1] + 1;
+            size_t substitution = prev_row[i-1] + cost;
+
+            /* Min of three */
+            size_t min_val = deletion;
+            if (insertion < min_val) min_val = insertion;
+            if (substitution < min_val) min_val = substitution;
+
+            curr_row[i] = min_val;
+        }
+
+        /* Swap rows */
+        size_t *tmp = prev_row;
+        prev_row = curr_row;
+        curr_row = tmp;
+    }
+
+    size_t result = prev_row[len1];
+
+    free(prev_row);
+    free(curr_row);
+
+    return result;
+}
+
+/*
+ * Calculate edit distance as percentage (0-100)
+ * Returns (1 - edit_dist / max_len) * 100
+ * Higher value = more similar
+ */
+double seq_edit_distance_percent(const char *s1, size_t len1, const char *s2, size_t len2) {
+    if (len1 == 0 && len2 == 0) return 100.0;
+
+    size_t max_len = len1 > len2 ? len1 : len2;
+    size_t edit_dist = seq_edit_distance(s1, len1, s2, len2);
+
+    if (edit_dist == SIZE_MAX) return 0.0;  /* Error case */
+
+    return (1.0 - (double)edit_dist / max_len) * 100.0;
+}

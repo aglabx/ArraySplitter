@@ -128,6 +128,12 @@ size_t seq_count_char(const char *seq, size_t len, char c);
 /* Get most frequent nucleotide */
 char seq_most_frequent_nucleotide(const char *seq, size_t len);
 
+/* Calculate Levenshtein (edit) distance between two sequences */
+size_t seq_edit_distance(const char *s1, size_t len1, const char *s2, size_t len2);
+
+/* Calculate edit distance as percentage (0-100, higher = more similar) */
+double seq_edit_distance_percent(const char *s1, size_t len1, const char *s2, size_t len2);
+
 /* ============================================================================
  * FS-Tree Functions
  * ============================================================================ */
