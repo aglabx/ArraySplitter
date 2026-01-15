@@ -1,7 +1,8 @@
 /*
- * K-mer Enrichment Analysis for Centromeric Regions
+ * K-mer Enrichment Analysis for Centromeric Regions (v2 with TF-DF)
  *
  * Compares k-mer frequencies between CDR (deep centromere) and flanking regions.
+ * Now tracks both TF (total count) and DF (number of unique regions).
  * Multi-threaded implementation for efficiency.
  *
  * Usage: kmer_enrichment -g genome.fa -c cdr.bed -f centromere.bed -o output.tsv [-k max_k] [-m min_count] [-t threads]
@@ -29,6 +30,7 @@ typedef struct {
     char chrom[64];
     uint64_t start;
     uint64_t end;
+    int region_id;  // unique ID for DF tracking
 } Region;
 
 // Chromosome sequence
@@ -39,12 +41,17 @@ typedef struct {
     uint64_t offset;  // offset in file for fai
 } ChromSeq;
 
-// K-mer count entry
+// K-mer count entry with TF and DF
 typedef struct {
-    uint64_t kmer;      // encoded k-mer
-    uint64_t cdr_count;
-    uint64_t flank_count;
+    uint64_t kmer;           // encoded k-mer
+    uint64_t cdr_count;      // TF in CDR
+    uint64_t flank_count;    // TF in flanking
+    uint32_t cdr_regions;    // DF - number of unique CDR regions
+    uint32_t flank_regions;  // DF - number of unique flanking regions
     int k;
+    // Bitmap for tracking which regions contain this k-mer (for small region counts)
+    uint64_t *cdr_bitmap;    // bitmap of CDR regions (allocated if needed)
+    uint64_t *flank_bitmap;  // bitmap of flanking regions
 } KmerCount;
 
 // Global data
@@ -57,8 +64,11 @@ int num_cdr_regions = 0;
 Region *centromere_regions = NULL;
 int num_centromere_regions = 0;
 
+// Flanking regions (computed from centromere - CDR)
+Region *flank_regions = NULL;
+int num_flank_regions = 0;
+
 // K-mer hash tables (one per k value)
-// Using simple arrays for k <= 14, hash tables for larger
 typedef struct {
     KmerCount *entries;
     uint64_t capacity;
@@ -68,18 +78,14 @@ typedef struct {
 KmerTable kmer_tables[MAX_KMER + 1];
 pthread_mutex_t table_mutexes[MAX_KMER + 1];
 
-// Thread arguments
-typedef struct {
-    int thread_id;
-    int num_threads;
-    int region_type;  // 0 = CDR, 1 = flanking
-    int min_k;
-    int max_k;
-} ThreadArg;
+// Bitmap size (in 64-bit words) for region tracking
+int cdr_bitmap_words = 0;
+int flank_bitmap_words = 0;
 
 // Parameters
 int max_k = 20;
 int min_count = 40;
+int min_df = 1;  // minimum DF to report
 int num_threads = 8;
 char *genome_file = NULL;
 char *cdr_bed = NULL;
@@ -103,17 +109,6 @@ static inline char code_to_base(int code) {
     return bases[code & 3];
 }
 
-// Encode k-mer to uint64
-static inline uint64_t encode_kmer(const char *seq, int k) {
-    uint64_t kmer = 0;
-    for (int i = 0; i < k; i++) {
-        int code = base_to_code(seq[i]);
-        if (code < 0) return UINT64_MAX;  // invalid
-        kmer = (kmer << 2) | code;
-    }
-    return kmer;
-}
-
 // Decode k-mer to string
 void decode_kmer(uint64_t kmer, int k, char *out) {
     for (int i = k - 1; i >= 0; i--) {
@@ -127,7 +122,7 @@ void decode_kmer(uint64_t kmer, int k, char *out) {
 static inline uint64_t reverse_complement(uint64_t kmer, int k) {
     uint64_t rc = 0;
     for (int i = 0; i < k; i++) {
-        rc = (rc << 2) | (3 - (kmer & 3));  // complement and reverse
+        rc = (rc << 2) | (3 - (kmer & 3));
         kmer >>= 2;
     }
     return rc;
@@ -141,7 +136,6 @@ static inline uint64_t canonical_kmer(uint64_t kmer, int k) {
 
 // Hash function for k-mer
 static inline uint64_t hash_kmer(uint64_t kmer, uint64_t capacity) {
-    // MurmurHash-like mixing
     kmer ^= kmer >> 33;
     kmer *= 0xff51afd7ed558ccdULL;
     kmer ^= kmer >> 33;
@@ -154,7 +148,7 @@ static inline uint64_t hash_kmer(uint64_t kmer, uint64_t capacity) {
 void init_kmer_table(int k) {
     uint64_t capacity;
     if (k <= 14) {
-        capacity = 1ULL << (2 * k);  // exact size for small k
+        capacity = 1ULL << (2 * k);
     } else {
         capacity = 1ULL << 28;  // ~256M entries for large k
     }
@@ -165,19 +159,28 @@ void init_kmer_table(int k) {
     pthread_mutex_init(&table_mutexes[k], NULL);
 }
 
-// Add or update k-mer count
-void add_kmer(int k, uint64_t kmer, int is_cdr) {
+// Set bit in bitmap
+static inline void set_bit(uint64_t *bitmap, int bit) {
+    if (bitmap) {
+        bitmap[bit / 64] |= (1ULL << (bit % 64));
+    }
+}
+
+// Check bit in bitmap
+static inline int get_bit(uint64_t *bitmap, int bit) {
+    if (!bitmap) return 0;
+    return (bitmap[bit / 64] >> (bit % 64)) & 1;
+}
+
+// Add or update k-mer count with region tracking
+void add_kmer(int k, uint64_t kmer, int is_cdr, int region_id) {
     KmerTable *table = &kmer_tables[k];
     uint64_t idx;
 
     if (k <= 14) {
-        // Direct indexing for small k
         idx = kmer;
     } else {
-        // Hash table lookup for large k
         idx = hash_kmer(kmer, table->capacity);
-
-        // Linear probing
         while (table->entries[idx].k != 0 && table->entries[idx].kmer != kmer) {
             idx = (idx + 1) % table->capacity;
         }
@@ -185,47 +188,42 @@ void add_kmer(int k, uint64_t kmer, int is_cdr) {
 
     pthread_mutex_lock(&table_mutexes[k]);
 
-    if (table->entries[idx].k == 0) {
-        table->entries[idx].kmer = kmer;
-        table->entries[idx].k = k;
+    KmerCount *entry = &table->entries[idx];
+
+    if (entry->k == 0) {
+        entry->kmer = kmer;
+        entry->k = k;
+        entry->cdr_count = 0;
+        entry->flank_count = 0;
+        entry->cdr_regions = 0;
+        entry->flank_regions = 0;
+
+        // Allocate bitmaps for region tracking
+        if (cdr_bitmap_words > 0) {
+            entry->cdr_bitmap = calloc(cdr_bitmap_words, sizeof(uint64_t));
+        }
+        if (flank_bitmap_words > 0) {
+            entry->flank_bitmap = calloc(flank_bitmap_words, sizeof(uint64_t));
+        }
         table->count++;
     }
 
     if (is_cdr) {
-        table->entries[idx].cdr_count++;
+        entry->cdr_count++;
+        // Update DF if this is a new region for this k-mer
+        if (entry->cdr_bitmap && !get_bit(entry->cdr_bitmap, region_id)) {
+            set_bit(entry->cdr_bitmap, region_id);
+            entry->cdr_regions++;
+        }
     } else {
-        table->entries[idx].flank_count++;
-    }
-
-    pthread_mutex_unlock(&table_mutexes[k]);
-}
-
-// Read FASTA index
-int read_fai(const char *fai_path) {
-    FILE *fp = fopen(fai_path, "r");
-    if (!fp) {
-        fprintf(stderr, "Error: Cannot open FAI file: %s\n", fai_path);
-        return -1;
-    }
-
-    chromosomes = malloc(sizeof(ChromSeq) * 1000);
-    char line[MAX_LINE];
-
-    while (fgets(line, MAX_LINE, fp)) {
-        ChromSeq *chr = &chromosomes[num_chromosomes];
-        uint64_t line_bases, line_bytes;
-
-        if (sscanf(line, "%63s\t%llu\t%llu\t%llu\t%llu",
-                   chr->name, (unsigned long long*)&chr->length, (unsigned long long*)&chr->offset,
-                   (unsigned long long*)&line_bases, (unsigned long long*)&line_bytes) >= 3) {
-            chr->seq = NULL;
-            num_chromosomes++;
+        entry->flank_count++;
+        if (entry->flank_bitmap && !get_bit(entry->flank_bitmap, region_id)) {
+            set_bit(entry->flank_bitmap, region_id);
+            entry->flank_regions++;
         }
     }
 
-    fclose(fp);
-    fprintf(stderr, "Loaded %d chromosomes from FAI\n", num_chromosomes);
-    return 0;
+    pthread_mutex_unlock(&table_mutexes[k]);
 }
 
 // Read full genome FASTA
@@ -246,7 +244,6 @@ int read_genome(const char *fasta_path) {
 
     while (fgets(line, MAX_LINE, fp)) {
         if (line[0] == '>') {
-            // New chromosome
             if (current_chr >= 0) {
                 chromosomes[current_chr].length = seq_pos;
             }
@@ -254,51 +251,43 @@ int read_genome(const char *fasta_path) {
             current_chr = num_chromosomes++;
             ChromSeq *chr = &chromosomes[current_chr];
 
-            // Parse chromosome name
             char *name_end = strchr(line + 1, ' ');
             if (!name_end) name_end = strchr(line + 1, '\n');
             if (!name_end) name_end = strchr(line + 1, '\t');
 
-            int name_len = name_end ? (name_end - line - 1) : strlen(line + 1);
+            int name_len = name_end ? (int)(name_end - line - 1) : (int)strlen(line + 1);
             if (name_len > 63) name_len = 63;
             strncpy(chr->name, line + 1, name_len);
             chr->name[name_len] = '\0';
 
-            // Remove trailing whitespace
             while (name_len > 0 && (chr->name[name_len-1] == '\n' || chr->name[name_len-1] == '\r')) {
                 chr->name[--name_len] = '\0';
             }
 
-            // Allocate sequence buffer
-            seq_capacity = 300000000;  // 300MB initial
+            seq_capacity = 300000000;
             chr->seq = malloc(seq_capacity);
             seq_pos = 0;
 
             fprintf(stderr, "  Reading %s...\n", chr->name);
         } else if (current_chr >= 0) {
-            // Sequence line
             ChromSeq *chr = &chromosomes[current_chr];
             size_t len = strlen(line);
 
-            // Remove newline
             while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) {
                 line[--len] = '\0';
             }
 
-            // Expand buffer if needed
             if (seq_pos + len >= seq_capacity) {
                 seq_capacity *= 2;
                 chr->seq = realloc(chr->seq, seq_capacity);
             }
 
-            // Convert to uppercase and copy
             for (size_t i = 0; i < len; i++) {
                 chr->seq[seq_pos++] = toupper(line[i]);
             }
         }
     }
 
-    // Finalize last chromosome
     if (current_chr >= 0) {
         chromosomes[current_chr].length = seq_pos;
     }
@@ -334,7 +323,10 @@ int read_bed(const char *bed_path, Region **regions, int *num_regions) {
         if (line[0] == '#' || line[0] == '\n') continue;
 
         Region *r = &(*regions)[*num_regions];
-        if (sscanf(line, "%63s\t%llu\t%llu", r->chrom, (unsigned long long*)&r->start, (unsigned long long*)&r->end) >= 3) {
+        if (sscanf(line, "%63s\t%llu\t%llu", r->chrom,
+                   (unsigned long long*)&r->start,
+                   (unsigned long long*)&r->end) >= 3) {
+            r->region_id = *num_regions;
             (*num_regions)++;
         }
     }
@@ -344,115 +336,144 @@ int read_bed(const char *bed_path, Region **regions, int *num_regions) {
     return 0;
 }
 
-// Check if position is in CDR region
-int is_in_cdr(const char *chrom, uint64_t pos) {
-    for (int i = 0; i < num_cdr_regions; i++) {
-        if (strcmp(cdr_regions[i].chrom, chrom) == 0 &&
-            pos >= cdr_regions[i].start && pos < cdr_regions[i].end) {
-            return 1;
+// Compute flanking regions (centromere - CDR)
+void compute_flanking_regions() {
+    flank_regions = malloc(sizeof(Region) * MAX_REGIONS * 2);
+    num_flank_regions = 0;
+
+    for (int i = 0; i < num_centromere_regions; i++) {
+        Region *centro = &centromere_regions[i];
+        uint64_t current_pos = centro->start;
+
+        // Find overlapping CDR regions
+        for (int j = 0; j < num_cdr_regions; j++) {
+            Region *cdr = &cdr_regions[j];
+
+            if (strcmp(cdr->chrom, centro->chrom) != 0) continue;
+            if (cdr->end <= centro->start || cdr->start >= centro->end) continue;
+
+            uint64_t cdr_start = cdr->start < centro->start ? centro->start : cdr->start;
+            uint64_t cdr_end = cdr->end > centro->end ? centro->end : cdr->end;
+
+            // Add flanking region before CDR
+            if (current_pos < cdr_start) {
+                Region *flank = &flank_regions[num_flank_regions];
+                strcpy(flank->chrom, centro->chrom);
+                flank->start = current_pos;
+                flank->end = cdr_start;
+                flank->region_id = num_flank_regions;
+                num_flank_regions++;
+            }
+            current_pos = cdr_end;
+        }
+
+        // Add remaining flanking after last CDR
+        if (current_pos < centro->end) {
+            Region *flank = &flank_regions[num_flank_regions];
+            strcpy(flank->chrom, centro->chrom);
+            flank->start = current_pos;
+            flank->end = centro->end;
+            flank->region_id = num_flank_regions;
+            num_flank_regions++;
         }
     }
-    return 0;
+
+    fprintf(stderr, "Computed %d flanking regions\n", num_flank_regions);
 }
 
-// Process sequence for k-mers
-void process_sequence(const char *seq, uint64_t len, int is_cdr, int min_k, int max_k_local) {
+// Process sequence for k-mers with region tracking
+void process_sequence_with_region(const char *seq, uint64_t len, int is_cdr, int region_id, int min_k, int max_k_local) {
     if (len < (uint64_t)min_k) return;
 
     for (int k = min_k; k <= max_k_local && k <= (int)len; k++) {
-        // Sliding window
         uint64_t valid_pos = 0;
         uint64_t current_kmer = 0;
+        uint64_t mask = (1ULL << (2*k)) - 1;
 
         for (uint64_t i = 0; i < len; i++) {
             int code = base_to_code(seq[i]);
 
             if (code < 0) {
-                // Reset on N
                 valid_pos = 0;
                 current_kmer = 0;
                 continue;
             }
 
-            current_kmer = ((current_kmer << 2) | code) & ((1ULL << (2*k)) - 1);
+            current_kmer = ((current_kmer << 2) | code) & mask;
             valid_pos++;
 
             if (valid_pos >= (uint64_t)k) {
                 uint64_t canon = canonical_kmer(current_kmer, k);
-                add_kmer(k, canon, is_cdr);
+                add_kmer(k, canon, is_cdr, region_id);
             }
         }
     }
 }
 
-// Thread worker function
-void* count_kmers_thread(void *arg) {
+// Thread argument
+typedef struct {
+    int thread_id;
+    int num_threads;
+    int is_cdr;
+    int min_k;
+    int max_k;
+} ThreadArg;
+
+// Thread worker for CDR regions
+void* count_kmers_cdr_thread(void *arg) {
     ThreadArg *targ = (ThreadArg*)arg;
-    int is_cdr = (targ->region_type == 0);
 
-    // Select regions
-    Region *regions = is_cdr ? cdr_regions : centromere_regions;
-    int num_regions_local = is_cdr ? num_cdr_regions : num_centromere_regions;
-
-    for (int i = targ->thread_id; i < num_regions_local; i += targ->num_threads) {
-        Region *r = &regions[i];
+    for (int i = targ->thread_id; i < num_cdr_regions; i += targ->num_threads) {
+        Region *r = &cdr_regions[i];
         ChromSeq *chr = find_chromosome(r->chrom);
 
-        if (!chr || !chr->seq) {
-            fprintf(stderr, "Warning: Chromosome %s not found\n", r->chrom);
-            continue;
-        }
+        if (!chr || !chr->seq) continue;
 
         uint64_t start = r->start;
         uint64_t end = r->end;
         if (end > chr->length) end = chr->length;
         if (start >= end) continue;
 
-        if (is_cdr) {
-            // Process CDR region directly
-            process_sequence(chr->seq + start, end - start, 1, targ->min_k, targ->max_k);
-        } else {
-            // For centromere regions, process flanking parts (exclude CDR)
-            // Find overlapping CDR regions and process gaps
-            uint64_t current_pos = start;
-
-            for (int j = 0; j < num_cdr_regions; j++) {
-                if (strcmp(cdr_regions[j].chrom, r->chrom) != 0) continue;
-
-                uint64_t cdr_start = cdr_regions[j].start;
-                uint64_t cdr_end = cdr_regions[j].end;
-
-                // Check if CDR overlaps with this centromere region
-                if (cdr_end <= start || cdr_start >= end) continue;
-
-                // Clip CDR to centromere boundaries
-                if (cdr_start < start) cdr_start = start;
-                if (cdr_end > end) cdr_end = end;
-
-                // Process flanking before CDR
-                if (current_pos < cdr_start) {
-                    process_sequence(chr->seq + current_pos, cdr_start - current_pos, 0, targ->min_k, targ->max_k);
-                }
-
-                current_pos = cdr_end;
-            }
-
-            // Process remaining flanking after last CDR
-            if (current_pos < end) {
-                process_sequence(chr->seq + current_pos, end - current_pos, 0, targ->min_k, targ->max_k);
-            }
-        }
+        process_sequence_with_region(chr->seq + start, end - start, 1, r->region_id,
+                                      targ->min_k, targ->max_k);
     }
 
     return NULL;
 }
 
-// Comparison function for sorting by enrichment
-int compare_enrichment(const void *a, const void *b) {
+// Thread worker for flanking regions
+void* count_kmers_flank_thread(void *arg) {
+    ThreadArg *targ = (ThreadArg*)arg;
+
+    for (int i = targ->thread_id; i < num_flank_regions; i += targ->num_threads) {
+        Region *r = &flank_regions[i];
+        ChromSeq *chr = find_chromosome(r->chrom);
+
+        if (!chr || !chr->seq) continue;
+
+        uint64_t start = r->start;
+        uint64_t end = r->end;
+        if (end > chr->length) end = chr->length;
+        if (start >= end) continue;
+
+        process_sequence_with_region(chr->seq + start, end - start, 0, r->region_id,
+                                      targ->min_k, targ->max_k);
+    }
+
+    return NULL;
+}
+
+// Comparison function for sorting by CDR DF (most regions first), then by enrichment
+int compare_cdr_df(const void *a, const void *b) {
     const KmerCount *ka = (const KmerCount*)a;
     const KmerCount *kb = (const KmerCount*)b;
 
-    // Calculate log2 fold change
+    // First sort by CDR DF (descending)
+    if (kb->cdr_regions != ka->cdr_regions) {
+        return (int)kb->cdr_regions - (int)ka->cdr_regions;
+    }
+
+    // Then by log2 fold change
     double fc_a = (ka->cdr_count + 1.0) / (ka->flank_count + 1.0);
     double fc_b = (kb->cdr_count + 1.0) / (kb->flank_count + 1.0);
 
@@ -461,7 +482,24 @@ int compare_enrichment(const void *a, const void *b) {
     return 0;
 }
 
-// Write results
+// Comparison for flanking DF
+int compare_flank_df(const void *a, const void *b) {
+    const KmerCount *ka = (const KmerCount*)a;
+    const KmerCount *kb = (const KmerCount*)b;
+
+    if (kb->flank_regions != ka->flank_regions) {
+        return (int)kb->flank_regions - (int)ka->flank_regions;
+    }
+
+    double fc_a = (ka->flank_count + 1.0) / (ka->cdr_count + 1.0);
+    double fc_b = (kb->flank_count + 1.0) / (kb->cdr_count + 1.0);
+
+    if (fc_b > fc_a) return 1;
+    if (fc_b < fc_a) return -1;
+    return 0;
+}
+
+// Write results with TF and DF
 void write_results(const char *output_path) {
     FILE *fp = fopen(output_path, "w");
     if (!fp) {
@@ -469,14 +507,13 @@ void write_results(const char *output_path) {
         return;
     }
 
-    // Header
-    fprintf(fp, "k\trank\tkmer\tcdr_count\tflank_count\ttotal\tlog2_fc\tenrichment\n");
+    // Header with TF and DF columns
+    fprintf(fp, "k\trank\tkmer\tcdr_tf\tcdr_df\tflank_tf\tflank_df\ttotal_tf\tlog2_fc\tcdr_df_pct\tflank_df_pct\tenrichment\n");
 
-    // Process each k
     for (int k = 1; k <= max_k; k++) {
         KmerTable *table = &kmer_tables[k];
 
-        // Collect significant k-mers
+        // Collect significant k-mers (by total count)
         KmerCount *significant = malloc(sizeof(KmerCount) * table->count);
         int num_significant = 0;
 
@@ -489,43 +526,63 @@ void write_results(const char *output_path) {
             }
         }
 
-        // Sort by enrichment (CDR/flanking ratio)
-        qsort(significant, num_significant, sizeof(KmerCount), compare_enrichment);
+        // Sort by CDR DF and output top CDR-enriched
+        qsort(significant, num_significant, sizeof(KmerCount), compare_cdr_df);
 
-        // Output top 20
-        int top_n = num_significant < 20 ? num_significant : 20;
         char kmer_str[MAX_KMER + 1];
+        int top_n = num_significant < 20 ? num_significant : 20;
 
         for (int i = 0; i < top_n; i++) {
             KmerCount *kc = &significant[i];
+
+            // Skip if CDR DF is 0
+            if (kc->cdr_regions == 0) continue;
+
             decode_kmer(kc->kmer, k, kmer_str);
 
             uint64_t total = kc->cdr_count + kc->flank_count;
             double fc = (kc->cdr_count + 1.0) / (kc->flank_count + 1.0);
             double log2_fc = log2(fc);
+            double cdr_df_pct = 100.0 * kc->cdr_regions / num_cdr_regions;
+            double flank_df_pct = num_flank_regions > 0 ? 100.0 * kc->flank_regions / num_flank_regions : 0;
             const char *enrichment = (log2_fc > 0.5) ? "CDR" : (log2_fc < -0.5) ? "Flanking" : "Neutral";
 
-            fprintf(fp, "%d\t%d\t%s\t%" PRIu64 "\t%" PRIu64 "\t%" PRIu64 "\t%.3f\t%s\n",
-                    k, i + 1, kmer_str, kc->cdr_count, kc->flank_count, total, log2_fc, enrichment);
+            fprintf(fp, "%d\t%d\t%s\t%" PRIu64 "\t%u\t%" PRIu64 "\t%u\t%" PRIu64 "\t%.3f\t%.1f\t%.1f\t%s\n",
+                    k, i + 1, kmer_str,
+                    kc->cdr_count, kc->cdr_regions,
+                    kc->flank_count, kc->flank_regions,
+                    total, log2_fc, cdr_df_pct, flank_df_pct, enrichment);
         }
 
-        // Also output top 20 flanking-enriched (reverse order)
-        for (int i = num_significant - 1; i >= 0 && i >= num_significant - 20; i--) {
-            KmerCount *kc = &significant[i];
-            double fc = (kc->cdr_count + 1.0) / (kc->flank_count + 1.0);
-            double log2_fc = log2(fc);
+        // Sort by Flanking DF and output top flanking-enriched
+        qsort(significant, num_significant, sizeof(KmerCount), compare_flank_df);
 
-            if (log2_fc >= -0.5) break;  // Stop if not flanking-enriched
+        for (int i = 0; i < top_n; i++) {
+            KmerCount *kc = &significant[i];
+
+            if (kc->flank_regions == 0) continue;
+
+            // Skip if already CDR-enriched
+            double fc = (kc->cdr_count + 1.0) / (kc->flank_count + 1.0);
+            if (fc > 1.0) continue;
 
             decode_kmer(kc->kmer, k, kmer_str);
-            uint64_t total = kc->cdr_count + kc->flank_count;
 
-            fprintf(fp, "%d\t%d\t%s\t%" PRIu64 "\t%" PRIu64 "\t%" PRIu64 "\t%.3f\tFlanking\n",
-                    k, -(num_significant - i), kmer_str, kc->cdr_count, kc->flank_count, total, log2_fc);
+            uint64_t total = kc->cdr_count + kc->flank_count;
+            double log2_fc = log2(fc);
+            double cdr_df_pct = 100.0 * kc->cdr_regions / num_cdr_regions;
+            double flank_df_pct = num_flank_regions > 0 ? 100.0 * kc->flank_regions / num_flank_regions : 0;
+
+            fprintf(fp, "%d\t%d\t%s\t%" PRIu64 "\t%u\t%" PRIu64 "\t%u\t%" PRIu64 "\t%.3f\t%.1f\t%.1f\tFlanking\n",
+                    k, -(i + 1), kmer_str,
+                    kc->cdr_count, kc->cdr_regions,
+                    kc->flank_count, kc->flank_regions,
+                    total, log2_fc, cdr_df_pct, flank_df_pct);
         }
 
         free(significant);
-        fprintf(stderr, "k=%d: %d significant k-mers\n", k, num_significant);
+        fprintf(stderr, "k=%d: %d significant k-mers (CDR regions: %d, Flank regions: %d)\n",
+                k, num_significant, num_cdr_regions, num_flank_regions);
     }
 
     fclose(fp);
@@ -533,7 +590,7 @@ void write_results(const char *output_path) {
 }
 
 void print_usage(const char *prog) {
-    fprintf(stderr, "K-mer Enrichment Analysis for Centromeric Regions\n\n");
+    fprintf(stderr, "K-mer Enrichment Analysis with TF-DF (v2)\n\n");
     fprintf(stderr, "Usage: %s [options]\n\n", prog);
     fprintf(stderr, "Required:\n");
     fprintf(stderr, "  -g, --genome FILE     Genome FASTA file\n");
@@ -545,8 +602,18 @@ void print_usage(const char *prog) {
     fprintf(stderr, "  -m, --min-count INT   Minimum total count threshold [default: 40]\n");
     fprintf(stderr, "  -t, --threads INT     Number of threads [default: 8]\n");
     fprintf(stderr, "  -h, --help            Show this help\n\n");
-    fprintf(stderr, "Output:\n");
-    fprintf(stderr, "  TSV file with columns: k, rank, kmer, cdr_count, flank_count, total, log2_fc, enrichment\n");
+    fprintf(stderr, "Output columns:\n");
+    fprintf(stderr, "  k          - k-mer size\n");
+    fprintf(stderr, "  rank       - rank (positive=CDR-enriched, negative=Flanking-enriched)\n");
+    fprintf(stderr, "  kmer       - k-mer sequence\n");
+    fprintf(stderr, "  cdr_tf     - total count in CDR regions\n");
+    fprintf(stderr, "  cdr_df     - number of unique CDR regions containing k-mer\n");
+    fprintf(stderr, "  flank_tf   - total count in flanking regions\n");
+    fprintf(stderr, "  flank_df   - number of unique flanking regions containing k-mer\n");
+    fprintf(stderr, "  total_tf   - total count\n");
+    fprintf(stderr, "  log2_fc    - log2 fold change (CDR/Flanking)\n");
+    fprintf(stderr, "  cdr_df_pct - %% of CDR regions containing k-mer\n");
+    fprintf(stderr, "  flank_df_pct - %% of flanking regions containing k-mer\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -577,7 +644,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Validate parameters
     if (!genome_file || !cdr_bed || !centromere_bed || !output_file) {
         fprintf(stderr, "Error: Missing required arguments\n\n");
         print_usage(argv[0]);
@@ -589,8 +655,8 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    fprintf(stderr, "K-mer Enrichment Analysis\n");
-    fprintf(stderr, "=========================\n");
+    fprintf(stderr, "K-mer Enrichment Analysis (v2 with TF-DF)\n");
+    fprintf(stderr, "==========================================\n");
     fprintf(stderr, "Genome:     %s\n", genome_file);
     fprintf(stderr, "CDR BED:    %s\n", cdr_bed);
     fprintf(stderr, "Centro BED: %s\n", centromere_bed);
@@ -606,8 +672,18 @@ int main(int argc, char *argv[]) {
     if (read_bed(cdr_bed, &cdr_regions, &num_cdr_regions) < 0) return 1;
     if (read_bed(centromere_bed, &centromere_regions, &num_centromere_regions) < 0) return 1;
 
+    // Compute flanking regions
+    compute_flanking_regions();
+
+    // Calculate bitmap sizes
+    cdr_bitmap_words = (num_cdr_regions + 63) / 64;
+    flank_bitmap_words = (num_flank_regions + 63) / 64;
+
+    fprintf(stderr, "CDR regions: %d, Flanking regions: %d\n", num_cdr_regions, num_flank_regions);
+    fprintf(stderr, "Bitmap sizes: CDR=%d words, Flank=%d words\n\n", cdr_bitmap_words, flank_bitmap_words);
+
     // Initialize k-mer tables
-    fprintf(stderr, "\nInitializing k-mer tables...\n");
+    fprintf(stderr, "Initializing k-mer tables...\n");
     for (int k = 1; k <= max_k; k++) {
         init_kmer_table(k);
     }
@@ -620,10 +696,10 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < num_threads; i++) {
         thread_args[i].thread_id = i;
         thread_args[i].num_threads = num_threads;
-        thread_args[i].region_type = 0;  // CDR
+        thread_args[i].is_cdr = 1;
         thread_args[i].min_k = 1;
         thread_args[i].max_k = max_k;
-        pthread_create(&threads[i], NULL, count_kmers_thread, &thread_args[i]);
+        pthread_create(&threads[i], NULL, count_kmers_cdr_thread, &thread_args[i]);
     }
 
     for (int i = 0; i < num_threads; i++) {
@@ -633,8 +709,8 @@ int main(int argc, char *argv[]) {
     // Count k-mers in flanking regions
     fprintf(stderr, "Counting k-mers in flanking regions...\n");
     for (int i = 0; i < num_threads; i++) {
-        thread_args[i].region_type = 1;  // Flanking
-        pthread_create(&threads[i], NULL, count_kmers_thread, &thread_args[i]);
+        thread_args[i].is_cdr = 0;
+        pthread_create(&threads[i], NULL, count_kmers_flank_thread, &thread_args[i]);
     }
 
     for (int i = 0; i < num_threads; i++) {
@@ -654,8 +730,15 @@ int main(int argc, char *argv[]) {
     free(chromosomes);
     free(cdr_regions);
     free(centromere_regions);
+    free(flank_regions);
+
     for (int k = 1; k <= max_k; k++) {
-        free(kmer_tables[k].entries);
+        KmerTable *table = &kmer_tables[k];
+        for (uint64_t i = 0; i < table->capacity; i++) {
+            if (table->entries[i].cdr_bitmap) free(table->entries[i].cdr_bitmap);
+            if (table->entries[i].flank_bitmap) free(table->entries[i].flank_bitmap);
+        }
+        free(table->entries);
         pthread_mutex_destroy(&table_mutexes[k]);
     }
 

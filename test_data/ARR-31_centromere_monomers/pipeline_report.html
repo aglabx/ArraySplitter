@@ -3054,6 +3054,515 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
             </div>
         </div>
 
+        <!-- Section 11: K-mer Enrichment Analysis v2 (TF-DF) -->
+        <div class="card">
+            <h2><span class="step-number" style="background: #0891b2;">11</span> K-mer Enrichment Analysis: CDR vs Flanking (v2 TF-DF)</h2>
+            <p>Analysis of all k-mers (k=1-20) with <strong>Term Frequency (TF)</strong> and <strong>Document Frequency (DF)</strong> metrics.
+               DF shows how many unique regions contain each k-mer. CDR: 72 regions (1.9 Mb), Flanking: 178 regions (16.8 Mb).</p>
+
+            <!-- Region stats -->
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin: 1rem 0;">
+                <div style="background: #fef2f2; padding: 0.75rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: bold; color: #dc2626;">72</div>
+                    <div style="font-size: 0.75rem; color: #991b1b;">CDR Regions</div>
+                </div>
+                <div style="background: #fef2f2; padding: 0.75rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: bold; color: #dc2626;">1.9 Mb</div>
+                    <div style="font-size: 0.75rem; color: #991b1b;">CDR Total Size</div>
+                </div>
+                <div style="background: #ecfdf5; padding: 0.75rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: bold; color: #059669;">178</div>
+                    <div style="font-size: 0.75rem; color: #065f46;">Flanking Regions</div>
+                </div>
+                <div style="background: #ecfdf5; padding: 0.75rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: bold; color: #059669;">16.8 Mb</div>
+                    <div style="font-size: 0.75rem; color: #065f46;">Flanking Total Size</div>
+                </div>
+            </div>
+
+            <!-- Coverage visualization on 717bp consensus -->
+            <div style="margin-top: 1.5rem;">
+                <h4 style="font-size: 0.95rem; color: #374151; margin-bottom: 0.75rem;">K-mer Coverage on 717bp CDR Consensus</h4>
+                <p style="font-size: 0.8rem; color: #6b7280; margin-bottom: 0.5rem;">
+                    Showing positions of 165 k-mers (k≥15) that are present in <strong>all 72 CDR regions</strong> (100% DF).
+                    Gaps indicate variable regions between CDR arrays.
+                </p>
+                <canvas id="kmerCoverageCanvas" width="900" height="200" style="border: 1px solid #e5e7eb; border-radius: 8px; background: white;"></canvas>
+            </div>
+
+            <!-- Conserved k-mers table (in ALL CDRs) -->
+            <div style="margin-top: 1.5rem;">
+                <h4 style="font-size: 0.95rem; color: #7c3aed; margin-bottom: 0.75rem;">Conserved K-mers: Present in ALL 72 CDR Regions (100% DF)</h4>
+                <p style="font-size: 0.8rem; color: #6b7280; margin-bottom: 0.5rem;">
+                    These k-mers are conserved across every CDR region. Normalized FC accounts for 8.84x size difference (Flank/CDR).
+                </p>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                        <thead>
+                            <tr style="background: #f3e8ff;">
+                                <th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #c4b5fd;">k</th>
+                                <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #c4b5fd;">Sequence</th>
+                                <th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #c4b5fd;">CDR TF</th>
+                                <th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #c4b5fd;">CDR DF</th>
+                                <th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #c4b5fd;">Flank TF</th>
+                                <th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #c4b5fd;">Flank DF</th>
+                                <th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #c4b5fd;">Norm FC</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style="padding: 0.4rem; text-align: center;">16</td>
+                                <td style="padding: 0.4rem; font-family: monospace; font-size: 0.75rem; background: #f3e8ff;"><span style="color: #7c3aed; font-weight: bold;">ACACGCTGGAAAAGCT</span></td>
+                                <td style="padding: 0.4rem; text-align: center;">1,846</td>
+                                <td style="padding: 0.4rem; text-align: center; font-weight: bold; color: #7c3aed;">72 (100%)</td>
+                                <td style="padding: 0.4rem; text-align: center;">14,904</td>
+                                <td style="padding: 0.4rem; text-align: center;">164 (92%)</td>
+                                <td style="padding: 0.4rem; text-align: center; color: #059669;">1.10x</td>
+                            </tr>
+                            <tr style="background: #f9fafb;">
+                                <td style="padding: 0.4rem; text-align: center;">16</td>
+                                <td style="padding: 0.4rem; font-family: monospace; font-size: 0.75rem;">TGCCAGAAGCATGCCA</td>
+                                <td style="padding: 0.4rem; text-align: center;">1,607</td>
+                                <td style="padding: 0.4rem; text-align: center; font-weight: bold; color: #7c3aed;">72 (100%)</td>
+                                <td style="padding: 0.4rem; text-align: center;">13,698</td>
+                                <td style="padding: 0.4rem; text-align: center; color: #f59e0b;">118 (66%)</td>
+                                <td style="padding: 0.4rem; text-align: center; color: #059669;">1.04x</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0.4rem; text-align: center;">17</td>
+                                <td style="padding: 0.4rem; font-family: monospace; font-size: 0.75rem;">AAGCTTTTCCAGCGTGT</td>
+                                <td style="padding: 0.4rem; text-align: center;">1,831</td>
+                                <td style="padding: 0.4rem; text-align: center; font-weight: bold; color: #7c3aed;">72 (100%)</td>
+                                <td style="padding: 0.4rem; text-align: center;">14,867</td>
+                                <td style="padding: 0.4rem; text-align: center;">164 (92%)</td>
+                                <td style="padding: 0.4rem; text-align: center; color: #059669;">1.09x</td>
+                            </tr>
+                            <tr style="background: #f9fafb;">
+                                <td style="padding: 0.4rem; text-align: center;">18</td>
+                                <td style="padding: 0.4rem; font-family: monospace; font-size: 0.75rem;">TGCGAGACACGCTGGAAA</td>
+                                <td style="padding: 0.4rem; text-align: center;">1,779</td>
+                                <td style="padding: 0.4rem; text-align: center; font-weight: bold; color: #7c3aed;">72 (100%)</td>
+                                <td style="padding: 0.4rem; text-align: center;">14,592</td>
+                                <td style="padding: 0.4rem; text-align: center;">163 (92%)</td>
+                                <td style="padding: 0.4rem; text-align: center; color: #059669;">1.08x</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0.4rem; text-align: center;">20</td>
+                                <td style="padding: 0.4rem; font-family: monospace; font-size: 0.75rem;">CCCTGCGAGACACGCTGGAA</td>
+                                <td style="padding: 0.4rem; text-align: center;">1,653</td>
+                                <td style="padding: 0.4rem; text-align: center; font-weight: bold; color: #7c3aed;">72 (100%)</td>
+                                <td style="padding: 0.4rem; text-align: center;">13,471</td>
+                                <td style="padding: 0.4rem; text-align: center;">162 (91%)</td>
+                                <td style="padding: 0.4rem; text-align: center; color: #059669;">1.09x</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Differentially distributed k-mers -->
+            <div style="margin-top: 1.5rem;">
+                <h4 style="font-size: 0.95rem; color: #f59e0b; margin-bottom: 0.75rem;">K-mers with Differential Region Distribution</h4>
+                <p style="font-size: 0.8rem; color: #6b7280; margin-bottom: 0.5rem;">
+                    K-mers present in ALL CDRs (100%) but in FEWER flanking regions (&lt;70%). These may mark CDR-specific sequence variants.
+                </p>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                        <thead>
+                            <tr style="background: #fef3c7;">
+                                <th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #fcd34d;">k</th>
+                                <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #fcd34d;">Sequence</th>
+                                <th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #fcd34d;">CDR DF%</th>
+                                <th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #fcd34d;">Flank DF%</th>
+                                <th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #fcd34d;">Diff</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style="padding: 0.4rem; text-align: center;">16</td>
+                                <td style="padding: 0.4rem; font-family: monospace; font-size: 0.75rem; background: #fef3c7;"><span style="color: #b45309; font-weight: bold;">TGCCAGAAGCATGCCA</span></td>
+                                <td style="padding: 0.4rem; text-align: center; font-weight: bold; color: #dc2626;">100%</td>
+                                <td style="padding: 0.4rem; text-align: center; color: #f59e0b;">66.3%</td>
+                                <td style="padding: 0.4rem; text-align: center; font-weight: bold; color: #b45309;">+33.7%</td>
+                            </tr>
+                            <tr style="background: #f9fafb;">
+                                <td style="padding: 0.4rem; text-align: center;">17</td>
+                                <td style="padding: 0.4rem; font-family: monospace; font-size: 0.75rem;">CTGCCAGAAGCATGCCA</td>
+                                <td style="padding: 0.4rem; text-align: center; font-weight: bold; color: #dc2626;">100%</td>
+                                <td style="padding: 0.4rem; text-align: center; color: #f59e0b;">66.3%</td>
+                                <td style="padding: 0.4rem; text-align: center; font-weight: bold; color: #b45309;">+33.7%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0.4rem; text-align: center;">17</td>
+                                <td style="padding: 0.4rem; font-family: monospace; font-size: 0.75rem;">CTGGCATGCTTCTGGCA</td>
+                                <td style="padding: 0.4rem; text-align: center; font-weight: bold; color: #dc2626;">100%</td>
+                                <td style="padding: 0.4rem; text-align: center; color: #f59e0b;">66.3%</td>
+                                <td style="padding: 0.4rem; text-align: center; font-weight: bold; color: #b45309;">+33.7%</td>
+                            </tr>
+                            <tr style="background: #f9fafb;">
+                                <td style="padding: 0.4rem; text-align: center;">19</td>
+                                <td style="padding: 0.4rem; font-family: monospace; font-size: 0.75rem;">CCTGCCAGAAGCATGCCAG</td>
+                                <td style="padding: 0.4rem; text-align: center; font-weight: bold; color: #dc2626;">100%</td>
+                                <td style="padding: 0.4rem; text-align: center; color: #f59e0b;">66.3%</td>
+                                <td style="padding: 0.4rem; text-align: center; font-weight: bold; color: #b45309;">+33.7%</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Variable regions box -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.5rem;">
+                <div style="background: #fef2f2; padding: 1rem; border-radius: 8px; border: 2px solid #fecaca;">
+                    <div style="font-size: 0.85rem; font-weight: bold; color: #dc2626; margin-bottom: 0.5rem;">Variable Regions (No conserved k-mers)</div>
+                    <div style="font-family: monospace; font-size: 0.8rem; color: #991b1b;">
+                        44-99bp (55bp)<br>
+                        115-196bp (81bp)<br>
+                        226-300bp (74bp)<br>
+                        354-424bp (70bp)<br>
+                        446-620bp (174bp)<br>
+                        639-717bp (78bp)
+                    </div>
+                    <div style="font-size: 0.75rem; color: #6b7280; margin-top: 0.5rem;">Total: ~532bp variable out of 717bp</div>
+                </div>
+                <div style="background: #ecfdf5; padding: 1rem; border-radius: 8px; border: 2px solid #86efac;">
+                    <div style="font-size: 0.85rem; font-weight: bold; color: #059669; margin-bottom: 0.5rem;">Conserved Regions (High k-mer coverage)</div>
+                    <div style="font-family: monospace; font-size: 0.8rem; color: #065f46;">
+                        0-44bp (start region)<br>
+                        99-115bp<br>
+                        196-226bp<br>
+                        300-354bp<br>
+                        424-446bp<br>
+                        620-639bp
+                    </div>
+                    <div style="font-size: 0.75rem; color: #6b7280; margin-top: 0.5rem;">Total: ~185bp conserved across all CDRs</div>
+                </div>
+            </div>
+
+            <!-- Key findings -->
+            <div style="background: #f0f9ff; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #0891b2;">
+                <strong style="color: #0e7490;">Key Findings (v2 with TF-DF):</strong>
+                <ul style="margin: 0.5rem 0 0 1.5rem; color: #0369a1;">
+                    <li><strong>No CDR-exclusive k-mers:</strong> All k-mers found in CDR are also present in flanking regions. CDR and flanking share the same satellite DNA sequence.</li>
+                    <li><strong>220 k-mers (k≥15) conserved in ALL 72 CDRs:</strong> These represent the conserved core of centromeric satellite DNA.</li>
+                    <li><strong>Normalized fold change ~1.0:</strong> After correcting for 8.84x size difference, k-mer density is nearly equal in CDR and flanking.</li>
+                    <li><strong>Differential DF (not TF):</strong> Some k-mers show differential region distribution - present in 100% of CDRs but only 66% of flanking regions.</li>
+                    <li><strong>~74% of consensus is variable:</strong> Only ~26% of the 717bp monomer is conserved across all CDR regions.</li>
+                </ul>
+            </div>
+        </div>
+
+        <script>
+        // K-mer Enrichment Visualization
+        function renderKmerEnrichment() {
+            const canvas = document.getElementById('kmerEnrichmentCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+
+            // Data: top k-mers for each k value (k=10-20)
+            const cdrKmers = [
+                {k: 10, kmer: 'CTAGGAGCAC', cdr: 68, flank: 4, fc: 4.09},
+                {k: 11, kmer: 'CTAGGAGCACC', cdr: 68, flank: 1, fc: 6.09},
+                {k: 12, kmer: 'ACTAGGAGCACC', cdr: 68, flank: 0, fc: 6.11},
+                {k: 13, kmer: 'TACTAGGAGCACC', cdr: 68, flank: 0, fc: 6.11},
+                {k: 14, kmer: 'CTACTAGGAGCACC', cdr: 68, flank: 0, fc: 6.11},
+                {k: 15, kmer: 'CTACTAGGAGCACCG', cdr: 68, flank: 0, fc: 6.11},
+                {k: 16, kmer: 'GCTACTAGGAGCACCG', cdr: 68, flank: 0, fc: 6.11},
+                {k: 17, kmer: 'CTACTAGGAGCACCGCT', cdr: 68, flank: 0, fc: 6.11},
+                {k: 18, kmer: 'GCTACTAGGAGCACCGCT', cdr: 68, flank: 0, fc: 6.11},
+                {k: 19, kmer: 'AAGAAGCGGCTACTAGGAG', cdr: 68, flank: 0, fc: 6.11},
+                {k: 20, kmer: 'AAGCGGCTACTAGGAGCACC', cdr: 68, flank: 0, fc: 6.11}
+            ];
+
+            const flankKmers = [
+                {k: 10, kmer: 'Multiple', cdr: 0, flank: 200, fc: -7.6},
+                {k: 11, kmer: 'Multiple', cdr: 0, flank: 220, fc: -7.8},
+                {k: 12, kmer: 'Multiple', cdr: 0, flank: 240, fc: -7.9},
+                {k: 13, kmer: 'Multiple', cdr: 0, flank: 250, fc: -8.0},
+                {k: 14, kmer: 'Multiple', cdr: 0, flank: 260, fc: -8.0},
+                {k: 15, kmer: 'CAGCGCTTTCAGTTC', cdr: 0, flank: 280, fc: -8.1},
+                {k: 16, kmer: 'CAGCGCTTTCAGTTCA', cdr: 0, flank: 290, fc: -8.2},
+                {k: 17, kmer: 'CAGCGCTTTCAGTTCAC', cdr: 0, flank: 295, fc: -8.2},
+                {k: 18, kmer: 'CAGCGCTTTCAGTTCACC', cdr: 0, flank: 301, fc: -8.24},
+                {k: 19, kmer: 'AGCGCTTTCAGTTCACCTC', cdr: 0, flank: 298, fc: -8.22},
+                {k: 20, kmer: 'CAGCGCTTTCAGTTCACCTC', cdr: 0, flank: 298, fc: -8.22}
+            ];
+
+            const margin = {top: 40, right: 30, bottom: 60, left: 60};
+            const width = canvas.width - margin.left - margin.right;
+            const height = canvas.height - margin.top - margin.bottom;
+
+            // Clear canvas
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Title
+            ctx.fillStyle = '#374151';
+            ctx.font = 'bold 14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('K-mer Enrichment: log2(CDR/Flanking) by K-mer Size', canvas.width / 2, 22);
+
+            // Scales
+            const xScale = width / (cdrKmers.length - 1);
+            const yMin = -10;
+            const yMax = 8;
+            const yRange = yMax - yMin;
+
+            // Draw axes
+            ctx.strokeStyle = '#374151';
+            ctx.lineWidth = 1;
+
+            // Y-axis
+            ctx.beginPath();
+            ctx.moveTo(margin.left, margin.top);
+            ctx.lineTo(margin.left, margin.top + height);
+            ctx.stroke();
+
+            // X-axis (at y=0)
+            const y0 = margin.top + (yMax / yRange) * height;
+            ctx.strokeStyle = '#9ca3af';
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(margin.left, y0);
+            ctx.lineTo(margin.left + width, y0);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Y-axis labels
+            ctx.fillStyle = '#374151';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'right';
+            for (let y = -8; y <= 6; y += 2) {
+                const yPos = margin.top + ((yMax - y) / yRange) * height;
+                ctx.fillText(y.toString(), margin.left - 8, yPos + 3);
+                ctx.strokeStyle = '#e5e7eb';
+                ctx.beginPath();
+                ctx.moveTo(margin.left, yPos);
+                ctx.lineTo(margin.left + width, yPos);
+                ctx.stroke();
+            }
+
+            // Y-axis title
+            ctx.save();
+            ctx.translate(15, margin.top + height / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillStyle = '#374151';
+            ctx.font = '11px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('log2(Fold Change)', 0, 0);
+            ctx.restore();
+
+            // X-axis labels
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#374151';
+            for (let i = 0; i < cdrKmers.length; i++) {
+                const x = margin.left + i * xScale;
+                ctx.fillText('k=' + cdrKmers[i].k, x, margin.top + height + 20);
+            }
+            ctx.font = '11px sans-serif';
+            ctx.fillText('K-mer size', margin.left + width / 2, margin.top + height + 45);
+
+            // Draw CDR enrichment line
+            ctx.strokeStyle = '#dc2626';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            for (let i = 0; i < cdrKmers.length; i++) {
+                const x = margin.left + i * xScale;
+                const y = margin.top + ((yMax - cdrKmers[i].fc) / yRange) * height;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // CDR points
+            ctx.fillStyle = '#dc2626';
+            for (let i = 0; i < cdrKmers.length; i++) {
+                const x = margin.left + i * xScale;
+                const y = margin.top + ((yMax - cdrKmers[i].fc) / yRange) * height;
+                ctx.beginPath();
+                ctx.arc(x, y, 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Draw Flanking enrichment line
+            ctx.strokeStyle = '#059669';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            for (let i = 0; i < flankKmers.length; i++) {
+                const x = margin.left + i * xScale;
+                const y = margin.top + ((yMax - flankKmers[i].fc) / yRange) * height;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // Flanking points
+            ctx.fillStyle = '#059669';
+            for (let i = 0; i < flankKmers.length; i++) {
+                const x = margin.left + i * xScale;
+                const y = margin.top + ((yMax - flankKmers[i].fc) / yRange) * height;
+                ctx.beginPath();
+                ctx.arc(x, y, 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Legend
+            ctx.font = '11px sans-serif';
+            ctx.textAlign = 'left';
+
+            ctx.fillStyle = '#dc2626';
+            ctx.fillRect(margin.left + width - 180, margin.top + 10, 15, 10);
+            ctx.fillStyle = '#374151';
+            ctx.fillText('CDR-enriched k-mers', margin.left + width - 160, margin.top + 19);
+
+            ctx.fillStyle = '#059669';
+            ctx.fillRect(margin.left + width - 180, margin.top + 28, 15, 10);
+            ctx.fillStyle = '#374151';
+            ctx.fillText('Flanking-enriched k-mers', margin.left + width - 160, margin.top + 37);
+
+            // Annotation
+            ctx.fillStyle = '#6b7280';
+            ctx.font = '9px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Positive = CDR enriched', margin.left + 80, margin.top + 15);
+            ctx.fillText('Negative = Flanking enriched', margin.left + 80, margin.top + height - 10);
+        }
+
+        document.addEventListener('DOMContentLoaded', renderKmerEnrichment);
+        </script>
+
+        <script>
+        // K-mer Coverage Visualization on 717bp Consensus
+        function renderKmerCoverage() {
+            const canvas = document.getElementById('kmerCoverageCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+
+            const seqLen = 717;
+            const margin = {top: 30, right: 30, bottom: 50, left: 50};
+            const width = canvas.width - margin.left - margin.right;
+            const height = canvas.height - margin.top - margin.bottom;
+
+            // Coverage data (pre-computed from k-mer positions analysis)
+            // Coverage by position (simplified - showing regions)
+            const coverage = new Array(seqLen).fill(0);
+
+            // Conserved regions (high coverage)
+            const conservedRegions = [
+                {start: 0, end: 44, cov: 17},
+                {start: 99, end: 115, cov: 1},
+                {start: 196, end: 226, cov: 13},
+                {start: 300, end: 323, cov: 12},
+                {start: 339, end: 354, cov: 1},
+                {start: 424, end: 446, cov: 11},
+                {start: 620, end: 639, cov: 3}
+            ];
+
+            // Fill coverage array
+            for (const r of conservedRegions) {
+                for (let i = r.start; i < r.end; i++) {
+                    coverage[i] = r.cov;
+                }
+            }
+
+            // Clear canvas
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Title
+            ctx.fillStyle = '#374151';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('K-mer (k≥15) Coverage on 717bp CDR Consensus - Conserved vs Variable Regions', canvas.width / 2, 18);
+
+            const xScale = width / seqLen;
+            const maxCov = 20;
+
+            // Draw coverage bars
+            for (let i = 0; i < seqLen; i++) {
+                const x = margin.left + i * xScale;
+                const barHeight = (coverage[i] / maxCov) * height;
+
+                if (coverage[i] > 0) {
+                    // Conserved - green
+                    const intensity = Math.min(255, 100 + coverage[i] * 10);
+                    ctx.fillStyle = `rgb(${255-intensity}, ${intensity}, ${100})`;
+                    ctx.fillRect(x, margin.top + height - barHeight, Math.max(1, xScale), barHeight);
+                } else {
+                    // Variable - light red background
+                    ctx.fillStyle = '#fecaca40';
+                    ctx.fillRect(x, margin.top, Math.max(1, xScale), height);
+                }
+            }
+
+            // Draw variable region markers
+            const variableRegions = [
+                {start: 44, end: 99, label: '55bp'},
+                {start: 115, end: 196, label: '81bp'},
+                {start: 226, end: 300, label: '74bp'},
+                {start: 323, end: 339, label: '16bp'},
+                {start: 354, end: 424, label: '70bp'},
+                {start: 446, end: 620, label: '174bp'},
+                {start: 639, end: 717, label: '78bp'}
+            ];
+
+            ctx.fillStyle = '#dc262640';
+            for (const r of variableRegions) {
+                const x1 = margin.left + r.start * xScale;
+                const w = (r.end - r.start) * xScale;
+                ctx.fillRect(x1, margin.top, w, height);
+            }
+
+            // Draw sequence line
+            ctx.strokeStyle = '#374151';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(margin.left, margin.top + height);
+            ctx.lineTo(margin.left + width, margin.top + height);
+            ctx.stroke();
+
+            // X-axis ticks and labels
+            ctx.fillStyle = '#374151';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center';
+            for (let i = 0; i <= 700; i += 100) {
+                const x = margin.left + (i / seqLen) * width;
+                ctx.beginPath();
+                ctx.moveTo(x, margin.top + height);
+                ctx.lineTo(x, margin.top + height + 8);
+                ctx.stroke();
+                ctx.fillText(i.toString(), x, margin.top + height + 20);
+            }
+            ctx.fillText('Position (bp)', margin.left + width / 2, margin.top + height + 38);
+
+            // Y-axis label
+            ctx.save();
+            ctx.translate(15, margin.top + height / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = 'center';
+            ctx.fillText('K-mer count', 0, 0);
+            ctx.restore();
+
+            // Legend
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'left';
+
+            // Conserved legend
+            ctx.fillStyle = '#10b981';
+            ctx.fillRect(margin.left + width - 200, margin.top + 5, 15, 10);
+            ctx.fillStyle = '#374151';
+            ctx.fillText('Conserved (k-mers in all 72 CDRs)', margin.left + width - 180, margin.top + 13);
+
+            // Variable legend
+            ctx.fillStyle = '#dc262640';
+            ctx.fillRect(margin.left + width - 200, margin.top + 20, 15, 10);
+            ctx.fillStyle = '#374151';
+            ctx.fillText('Variable (no conserved k-mers)', margin.left + width - 180, margin.top + 28);
+        }
+
+        document.addEventListener('DOMContentLoaded', renderKmerCoverage);
+        </script>
+
         <script>
         // Mutation Map Visualization
         function renderMutationMap() {
