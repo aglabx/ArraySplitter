@@ -2634,6 +2634,160 @@ arraysplitter msa_refine -i zf_flanking.msa_696.aligned.fasta -o zf_flanking.msa
             </p>
         </div>
 
+        <!-- Step 9.6: Final Consensus Sequences -->
+        <div class="card">
+            <h2><span class="step-number">9.6</span> Final Consensus Sequences (Flanking)</h2>
+            <p>Generated consensus sequences from refined MSA using majority rule (>50% threshold).</p>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1rem;">
+                <!-- 717bp consensus -->
+                <div style="background: #f0fdf4; padding: 1.25rem; border-radius: 12px; border: 2px solid #86efac;">
+                    <h3 style="font-size: 1.1rem; color: #166534; margin-bottom: 1rem;">717 bp Flanking Consensus</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                        <div>
+                            <div style="font-size: 0.75rem; color: #15803d;">Length</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">717 bp</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #15803d;">Sequences used</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">6,263</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #15803d;">Unanimous (>99%)</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">42.0%</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #15803d;">Majority (>50%)</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #059669;">58.0%</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid #86efac;">
+                        <div style="font-size: 0.75rem; color: #15803d; margin-bottom: 0.25rem;">Ambiguous positions</div>
+                        <div style="font-size: 0.9rem; color: #166534;"><strong>0</strong> (100% resolved)</div>
+                    </div>
+                </div>
+
+                <!-- 696bp consensus -->
+                <div style="background: #eff6ff; padding: 1.25rem; border-radius: 12px; border: 2px solid #93c5fd;">
+                    <h3 style="font-size: 1.1rem; color: #1e40af; margin-bottom: 1rem;">696 bp Flanking Consensus</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                        <div>
+                            <div style="font-size: 0.75rem; color: #1d4ed8;">Length</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #1e40af;">696 bp</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #1d4ed8;">Sequences used</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #1e40af;">4,385</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #1d4ed8;">Unanimous (>99%)</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #1e40af;">37.9%</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #1d4ed8;">Majority (>50%)</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #059669;">62.1%</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid #93c5fd;">
+                        <div style="font-size: 0.75rem; color: #1d4ed8; margin-bottom: 0.25rem;">Ambiguous positions</div>
+                        <div style="font-size: 0.9rem; color: #1e40af;"><strong>0</strong> (100% resolved)</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CDR vs Flanking Comparison -->
+            <div style="background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); padding: 1.5rem; border-radius: 12px; margin-top: 1.5rem; border: 2px solid #10b981;">
+                <h3 style="font-size: 1.1rem; color: #065f46; margin-bottom: 1rem;">CDR vs Flanking Consensus Comparison</h3>
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                    <tr style="background: rgba(255,255,255,0.5); border-bottom: 2px solid #10b981;">
+                        <th style="text-align: left; padding: 0.75rem;">Variant</th>
+                        <th style="text-align: center; padding: 0.75rem;">Edit Distance</th>
+                        <th style="text-align: center; padding: 0.75rem;">Identity</th>
+                        <th style="text-align: left; padding: 0.75rem;">Conclusion</th>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0.75rem; font-weight: bold;">717 bp</td>
+                        <td style="text-align: center; padding: 0.75rem; color: #15803d; font-weight: bold;">8 bp</td>
+                        <td style="text-align: center; padding: 0.75rem; color: #15803d; font-weight: bold;">98.88%</td>
+                        <td style="padding: 0.75rem; color: #065f46;">Nearly identical, minor variants</td>
+                    </tr>
+                    <tr style="background: rgba(255,255,255,0.5);">
+                        <td style="padding: 0.75rem; font-weight: bold;">696 bp</td>
+                        <td style="text-align: center; padding: 0.75rem; color: #059669; font-weight: bold;">0 bp</td>
+                        <td style="text-align: center; padding: 0.75rem; color: #059669; font-weight: bold;">100.00%</td>
+                        <td style="padding: 0.75rem; color: #047857;"><strong>Identical!</strong> Same sequence family</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div style="background: #ecfdf5; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #10b981;">
+                <strong style="color: #065f46;">Key Finding:</strong>
+                <span style="color: #047857;">The 696bp flanking consensus is <strong>100% identical</strong> to CDR, and 717bp is <strong>98.88% identical</strong>. This confirms that CDR and flanking regions contain the <strong>same 716bp satellite DNA family</strong>, but with different levels of sequence heterogeneity.</span>
+            </div>
+
+            <!-- Flanking 717bp Consensus Sequence -->
+            <div style="margin-top: 1.5rem; padding: 1rem; background: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <h4 style="font-size: 0.95rem; color: #374151;">Flanking 717bp Consensus</h4>
+                    <button onclick="copyFlankingSeq717(this)" style="padding: 0.25rem 0.5rem; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">Copy</button>
+                </div>
+                <pre id="seqFlanking717" style="background: #1e293b; color: #93c5fd; padding: 0.75rem; border-radius: 6px; font-size: 0.7rem; overflow-x: auto; line-height: 1.4; margin: 0;">CTTCGCCTCTCAGAAGCCAACCGCTCTCCCCGGCTGCCGGAGGCGAAGAAGCGGCTACTA
+GGTGCACCGCTGACGTGAACCGCACTTGTAGGCTGCAAAGCGCGGCTTCGGCAGAAAGAC
+GCCGGCAACCGCCGCTTCCCTGCGGACAGCTGCGGAGAGCCGAAGTCTGCGTCTCTAGCG
+GACTGCATCATAGCGAAAAGCTTTTCCAGCGTGTCTCGCAGGGAGAAAGCTTGCCAGCAC
+AGTGCACGCATCCCGCCCTTGCCCAGAAACATATATTTGCTGAACACTCCAAAAACACTG
+CTCTTTCCTAGGCAAGCTTCAAACTGCTGTCAGAC<span style="color:#f87171;">A</span>TC<span style="color:#f87171;">T</span>GTGCTCTCTGTTTTCTGCTGC
+CCTGCTCGTTGTAGAAGAGTGCACAGCTC<span style="color:#f87171;">C</span><span style="color:#f87171;">A</span>CCT<span style="color:#f87171;">G</span>AC<span style="color:#f87171;">A</span>TTCAGTGCACAGCGAAGTCAAC
+TGCAAAAAACCAGCAGCTGCTCACTCCCAAACACAAGGCGCTGTCTATGTCCTTGCTTCC
+CGAGCAAT<span style="color:#f87171;">T</span>CAGCACAGCCCTTCTTTTCTGCAGCTGCCATCGAGATCTCTGCAAC<span style="color:#f87171;">T</span>CG<span style="color:#f87171;">T</span>A
+AACTCAGGGTACGAACAAGAATTCTCCAGATTCGTCTGCATCAGGACCAAGTCAAAACGC
+AGGAAAGTCGTCCTGGAGCACCTGCCAGAAGCATGCCAGCGGTGAATTGAAAGGGCTGGC
+AGCTGCAGCCACCGTCCTCTAGCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
+                <p style="font-size: 0.75rem; color: #6b7280; margin-top: 0.5rem;"><span style="color: #f87171;">Highlighted</span>: 8 positions different from CDR</p>
+            </div>
+
+            <!-- Flanking 696bp Consensus Sequence -->
+            <div style="margin-top: 1rem; padding: 1rem; background: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <h4 style="font-size: 0.95rem; color: #374151;">Flanking 696bp Consensus (identical to CDR)</h4>
+                    <button onclick="copyFlankingSeq696(this)" style="padding: 0.25rem 0.5rem; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">Copy</button>
+                </div>
+                <pre id="seqFlanking696" style="background: #1e293b; color: #86efac; padding: 0.75rem; border-radius: 6px; font-size: 0.7rem; overflow-x: auto; line-height: 1.4; margin: 0;">CTTCGCCTCTCAGAAGCCAACCGCTCTCCCCGGCTGCCGGAGGCGAAGAAGCGGCTACTA
+GGTGCACCGCTGACGTGAACCGCACTTGTAGGCTGCAAAGCGCGGCTTCGGCAGAAAGAC
+GCCGGCAACCGCCGCTTCCCTGCGGACAGCTGCGGAGAGCCGAAGTCTGCGTCTCTAGCG
+GACTGCATCATAGCGAAAAGCTTTTCCAGCGTGTCTCGCAGGGAGAAAGCTTGCCAGCAC
+AGTGCACGCATCCCGCCCTTGCCCAGAAACATATATTTGCTGAACACTCCAAAAACACTG
+CTCTTTCCTAGGCAAGCTTCAAACTGCTGTCAGACATCTGTGCTCTCTGTTTTCTGCTGC
+CCTGCTCGTTGTAGAAGAGTGCACAGCTCCACCTGACATTCAGTGCACAGCGAAGTCAAC
+TGCAAAAAACCAGCAGCTGCTCACTCCCAAACACAAGGCGCTGTCTATGTCCTTGCTTCC
+CGAGCAACTCAGCGCAGCCCTTCTTCTCTGCATCTCGGAAGCTCAGGGCACGAACAAGAA
+TTCTCCAGATTCGTCTGCATCAGGACCAAGTCAAAACGCAGGAAAGTCGTCCTGGAGCAC
+CTGCCAGAAGCATGCCAGCGGTGAATTGAAAGGGCTGGCAGCTGCAGCCACCGTCCTCTA
+GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
+            </div>
+
+            <p style="margin-top: 1rem; font-size: 0.85rem; color: #6b7280;">
+                Output files: <code class="inline-code">zf_flanking.717bp.consensus.fasta</code>, <code class="inline-code">zf_flanking.696bp.consensus.fasta</code>
+            </p>
+        </div>
+
+        <script>
+        function copyFlankingSeq717(btn) {
+            const seq = 'CTTCGCCTCTCAGAAGCCAACCGCTCTCCCCGGCTGCCGGAGGCGAAGAAGCGGCTACTAGGTGCACCGCTGACGTGAACCGCACTTGTAGGCTGCAAAGCGCGGCTTCGGCAGAAAGACGCCGGCAACCGCCGCTTCCCTGCGGACAGCTGCGGAGAGCCGAAGTCTGCGTCTCTAGCGGACTGCATCATAGCGAAAAGCTTTTCCAGCGTGTCTCGCAGGGAGAAAGCTTGCCAGCACAGTGCACGCATCCCGCCCTTGCCCAGAAACATATATTTGCTGAACACTCCAAAAACACTGCTCTTTCCTAGGCAAGCTTCAAACTGCTGTCAGACATCTGTGCTCTCTGTTTTCTGCTGCCCTGCTCGTTGTAGAAGAGTGCACAGCTCCACCTGACATTCAGTGCACAGCGAAGTCAACTGCAAAAAACCAGCAGCTGCTCACTCCCAAACACAAGGCGCTGTCTATGTCCTTGCTTCCCGAGCAATTCAGCACAGCCCTTCTTTTCTGCAGCTGCCATCGAGATCTCTGCAACTCGTAAACTCAGGGTACGAACAAGAATTCTCCAGATTCGTCTGCATCAGGACCAAGTCAAAACGCAGGAAAGTCGTCCTGGAGCACCTGCCAGAAGCATGCCAGCGGTGAATTGAAAGGGCTGGCAGCTGCAGCCACCGTCCTCTAGCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT';
+            navigator.clipboard.writeText('>ZF_Flanking_717bp_consensus\n' + seq).then(() => {
+                btn.textContent = 'Copied!';
+                setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+            });
+        }
+        function copyFlankingSeq696(btn) {
+            const seq = 'CTTCGCCTCTCAGAAGCCAACCGCTCTCCCCGGCTGCCGGAGGCGAAGAAGCGGCTACTAGGTGCACCGCTGACGTGAACCGCACTTGTAGGCTGCAAAGCGCGGCTTCGGCAGAAAGACGCCGGCAACCGCCGCTTCCCTGCGGACAGCTGCGGAGAGCCGAAGTCTGCGTCTCTAGCGGACTGCATCATAGCGAAAAGCTTTTCCAGCGTGTCTCGCAGGGAGAAAGCTTGCCAGCACAGTGCACGCATCCCGCCCTTGCCCAGAAACATATATTTGCTGAACACTCCAAAAACACTGCTCTTTCCTAGGCAAGCTTCAAACTGCTGTCAGACATCTGTGCTCTCTGTTTTCTGCTGCCCTGCTCGTTGTAGAAGAGTGCACAGCTCCACCTGACATTCAGTGCACAGCGAAGTCAACTGCAAAAAACCAGCAGCTGCTCACTCCCAAACACAAGGCGCTGTCTATGTCCTTGCTTCCCGAGCAACTCAGCGCAGCCCTTCTTCTCTGCATCTCGGAAGCTCAGGGCACGAACAAGAATTCTCCAGATTCGTCTGCATCAGGACCAAGTCAAAACGCAGGAAAGTCGTCCTGGAGCACCTGCCAGAAGCATGCCAGCGGTGAATTGAAAGGGCTGGCAGCTGCAGCCACCGTCCTCTAGCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT';
+            navigator.clipboard.writeText('>ZF_Flanking_696bp_consensus\n' + seq).then(() => {
+                btn.textContent = 'Copied!';
+                setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+            });
+        }
+        </script>
+
         <script>
         function copySeq717(btn) {
             const seq = document.getElementById('seq717').textContent;
