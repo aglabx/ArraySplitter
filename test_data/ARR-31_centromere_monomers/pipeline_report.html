@@ -3432,36 +3432,36 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
         </script>
 
         <script>
-        // K-mer Coverage Visualization on 717bp Consensus
+        // K-mer Coverage Visualization on 717bp Consensus (DF% based)
         function renderKmerCoverage() {
             const canvas = document.getElementById('kmerCoverageCanvas');
             if (!canvas) return;
             const ctx = canvas.getContext('2d');
 
             const seqLen = 717;
-            const margin = {top: 30, right: 30, bottom: 50, left: 50};
+            const margin = {top: 30, right: 30, bottom: 50, left: 60};
             const width = canvas.width - margin.left - margin.right;
             const height = canvas.height - margin.top - margin.bottom;
 
-            // Coverage data (pre-computed from k-mer positions analysis)
-            // Coverage by position (simplified - showing regions)
-            const coverage = new Array(seqLen).fill(0);
+            // DF% = percentage of 72 CDR regions containing k-mers at each position
+            // Conserved = 100% DF (k-mer in ALL 72 CDRs)
+            // Variable = positions without 100% DF k-mers
+            const dfPercent = new Array(seqLen).fill(0);
 
-            // Conserved regions (high coverage)
+            // Regions with 100% DF (165 k-mers with DF=72/72=100%)
             const conservedRegions = [
-                {start: 0, end: 44, cov: 17},
-                {start: 99, end: 115, cov: 1},
-                {start: 196, end: 226, cov: 13},
-                {start: 300, end: 323, cov: 12},
-                {start: 339, end: 354, cov: 1},
-                {start: 424, end: 446, cov: 11},
-                {start: 620, end: 639, cov: 3}
-            ];
+                {start: 0, end: 44},     // 44bp
+                {start: 99, end: 115},   // 16bp
+                {start: 196, end: 226},  // 30bp
+                {start: 300, end: 323},  // 23bp
+                {start: 339, end: 354},  // 15bp
+                {start: 424, end: 446},  // 22bp
+                {start: 620, end: 639}   // 19bp
+            ];  // Total: ~169bp conserved
 
-            // Fill coverage array
             for (const r of conservedRegions) {
                 for (let i = r.start; i < r.end; i++) {
-                    coverage[i] = r.cov;
+                    dfPercent[i] = 100;
                 }
             }
 
@@ -3473,47 +3473,56 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
             ctx.fillStyle = '#374151';
             ctx.font = 'bold 12px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('K-mer (k≥15) Coverage on 717bp CDR Consensus - Conserved vs Variable Regions', canvas.width / 2, 18);
+            ctx.fillText('K-mer (k≥15) Document Frequency: % of 72 CDR Regions with k-mer at Position', canvas.width / 2, 18);
 
             const xScale = width / seqLen;
-            const maxCov = 20;
 
-            // Draw coverage bars
-            for (let i = 0; i < seqLen; i++) {
-                const x = margin.left + i * xScale;
-                const barHeight = (coverage[i] / maxCov) * height;
-
-                if (coverage[i] > 0) {
-                    // Conserved - green
-                    const intensity = Math.min(255, 100 + coverage[i] * 10);
-                    ctx.fillStyle = `rgb(${255-intensity}, ${intensity}, ${100})`;
-                    ctx.fillRect(x, margin.top + height - barHeight, Math.max(1, xScale), barHeight);
-                } else {
-                    // Variable - light red background
-                    ctx.fillStyle = '#fecaca40';
-                    ctx.fillRect(x, margin.top, Math.max(1, xScale), height);
-                }
-            }
-
-            // Draw variable region markers
+            // Draw variable regions background (pink)
             const variableRegions = [
-                {start: 44, end: 99, label: '55bp'},
-                {start: 115, end: 196, label: '81bp'},
-                {start: 226, end: 300, label: '74bp'},
-                {start: 323, end: 339, label: '16bp'},
-                {start: 354, end: 424, label: '70bp'},
-                {start: 446, end: 620, label: '174bp'},
-                {start: 639, end: 717, label: '78bp'}
+                {start: 44, end: 99},
+                {start: 115, end: 196},
+                {start: 226, end: 300},
+                {start: 323, end: 339},
+                {start: 354, end: 424},
+                {start: 446, end: 620},
+                {start: 639, end: 717}
             ];
 
-            ctx.fillStyle = '#dc262640';
+            ctx.fillStyle = '#fef2f2';
             for (const r of variableRegions) {
                 const x1 = margin.left + r.start * xScale;
                 const w = (r.end - r.start) * xScale;
                 ctx.fillRect(x1, margin.top, w, height);
             }
 
-            // Draw sequence line
+            // Draw 100% DF bars (green, full height)
+            ctx.fillStyle = '#10b981';
+            for (let i = 0; i < seqLen; i++) {
+                if (dfPercent[i] === 100) {
+                    const x = margin.left + i * xScale;
+                    ctx.fillRect(x, margin.top, Math.max(1.5, xScale), height);
+                }
+            }
+
+            // Draw Y-axis gridlines and labels
+            ctx.strokeStyle = '#d1d5db';
+            ctx.lineWidth = 1;
+            ctx.fillStyle = '#374151';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'right';
+
+            for (let pct = 0; pct <= 100; pct += 25) {
+                const y = margin.top + height - (pct / 100) * height;
+                ctx.setLineDash([3, 3]);
+                ctx.beginPath();
+                ctx.moveTo(margin.left, y);
+                ctx.lineTo(margin.left + width, y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillText(pct + '%', margin.left - 5, y + 4);
+            }
+
+            // Draw X-axis
             ctx.strokeStyle = '#374151';
             ctx.lineWidth = 2;
             ctx.beginPath();
@@ -3537,27 +3546,29 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
 
             // Y-axis label
             ctx.save();
-            ctx.translate(15, margin.top + height / 2);
+            ctx.translate(14, margin.top + height / 2);
             ctx.rotate(-Math.PI / 2);
             ctx.textAlign = 'center';
-            ctx.fillText('K-mer count', 0, 0);
+            ctx.font = '11px sans-serif';
+            ctx.fillText('DF% (of 72 CDRs)', 0, 0);
             ctx.restore();
 
-            // Legend
+            // Legend with stats
             ctx.font = '10px sans-serif';
             ctx.textAlign = 'left';
 
-            // Conserved legend
             ctx.fillStyle = '#10b981';
-            ctx.fillRect(margin.left + width - 200, margin.top + 5, 15, 10);
+            ctx.fillRect(margin.left + width - 240, margin.top + 5, 15, 12);
             ctx.fillStyle = '#374151';
-            ctx.fillText('Conserved (k-mers in all 72 CDRs)', margin.left + width - 180, margin.top + 13);
+            ctx.fillText('DF=100%: in all 72 CDRs (~169bp, 24%)', margin.left + width - 220, margin.top + 15);
 
-            // Variable legend
-            ctx.fillStyle = '#dc262640';
-            ctx.fillRect(margin.left + width - 200, margin.top + 20, 15, 10);
+            ctx.fillStyle = '#fef2f2';
+            ctx.fillRect(margin.left + width - 240, margin.top + 22, 15, 12);
+            ctx.strokeStyle = '#f87171';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(margin.left + width - 240, margin.top + 22, 15, 12);
             ctx.fillStyle = '#374151';
-            ctx.fillText('Variable (no conserved k-mers)', margin.left + width - 180, margin.top + 28);
+            ctx.fillText('DF<100%: variable (~548bp, 76%)', margin.left + width - 220, margin.top + 32);
         }
 
         document.addEventListener('DOMContentLoaded', renderKmerCoverage);
