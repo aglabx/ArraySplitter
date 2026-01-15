@@ -2771,6 +2771,135 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
             </p>
         </div>
 
+        <!-- Section 10: Summary - CDR vs Flanking Comparison -->
+        <div class="card" style="background: linear-gradient(135deg, #fdf4ff 0%, #fae8ff 100%); border: 2px solid #d946ef;">
+            <h2 style="color: #86198f;"><span class="step-number" style="background: #d946ef;">10</span> Summary: CDR vs Flanking 716bp Repeat Analysis</h2>
+            <p style="color: #701a75;">Comprehensive comparison of centromeric DNA regions (CDR) and flanking pericentromeric satellite arrays.</p>
+
+            <!-- Pipeline comparison table -->
+            <div style="margin-top: 1.5rem;">
+                <h3 style="font-size: 1rem; color: #86198f; margin-bottom: 1rem;">Pipeline Results Comparison</h3>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                        <thead>
+                            <tr style="background: rgba(217, 70, 239, 0.15);">
+                                <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid #d946ef;">Pipeline Step</th>
+                                <th style="padding: 0.75rem; text-align: center; border-bottom: 2px solid #d946ef;">CDR</th>
+                                <th style="padding: 0.75rem; text-align: center; border-bottom: 2px solid #d946ef;">Flanking</th>
+                                <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid #d946ef;">Observation</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style="padding: 0.6rem; font-weight: 600;">1. Input Arrays</td>
+                                <td style="padding: 0.6rem; text-align: center;">69 arrays<br><span style="font-size: 0.75rem; color: #6b7280;">1.8 Mb</span></td>
+                                <td style="padding: 0.6rem; text-align: center; font-weight: bold; color: #059669;">162 arrays<br><span style="font-size: 0.75rem; color: #6b7280;">14.2 Mb</span></td>
+                                <td style="padding: 0.6rem; color: #6b7280;">Flanking 8x larger</td>
+                            </tr>
+                            <tr style="background: rgba(217, 70, 239, 0.05);">
+                                <td style="padding: 0.6rem; font-weight: 600;">2. Decomposition</td>
+                                <td style="padding: 0.6rem; text-align: center;">2,373 monomers</td>
+                                <td style="padding: 0.6rem; text-align: center; font-weight: bold; color: #059669;">16,857 monomers</td>
+                                <td style="padding: 0.6rem; color: #6b7280;">Same bimodal distribution (717/696bp)</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0.6rem; font-weight: 600;">3. Rotation motif</td>
+                                <td style="padding: 0.6rem; text-align: center; font-family: monospace; font-size: 0.75rem;">CTTCGCCTCTCAGAAG</td>
+                                <td style="padding: 0.6rem; text-align: center; font-family: monospace; font-size: 0.75rem;">CTTCGCCTCTCAGAAG</td>
+                                <td style="padding: 0.6rem; color: #059669; font-weight: bold;">Same motif works!</td>
+                            </tr>
+                            <tr style="background: rgba(217, 70, 239, 0.05);">
+                                <td style="padding: 0.6rem; font-weight: 600;">4. MAFFT (717bp)</td>
+                                <td style="padding: 0.6rem; text-align: center;">92.2% identity<br><span style="font-size: 0.75rem; color: #6b7280;">1,274 seqs</span></td>
+                                <td style="padding: 0.6rem; text-align: center; font-weight: bold; color: #059669;">94.2% identity<br><span style="font-size: 0.75rem; color: #6b7280;">6,511 seqs</span></td>
+                                <td style="padding: 0.6rem; color: #6b7280;">Flanking more conserved</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0.6rem; font-weight: 600;">5. MAFFT (696bp)</td>
+                                <td style="padding: 0.6rem; text-align: center;">93.3% identity<br><span style="font-size: 0.75rem; color: #6b7280;">921 seqs</span></td>
+                                <td style="padding: 0.6rem; text-align: center; font-weight: bold; color: #059669;">93.9% identity<br><span style="font-size: 0.75rem; color: #6b7280;">4,505 seqs</span></td>
+                                <td style="padding: 0.6rem; color: #6b7280;">Similar conservation</td>
+                            </tr>
+                            <tr style="background: rgba(220, 38, 38, 0.1);">
+                                <td style="padding: 0.6rem; font-weight: 600;">6. MSA Refinement</td>
+                                <td style="padding: 0.6rem; text-align: center; color: #dc2626; font-weight: bold;">31-33% removed<br><span style="font-size: 0.75rem;">101/91 indel patterns</span></td>
+                                <td style="padding: 0.6rem; text-align: center; color: #059669; font-weight: bold;">2.7-3.8% removed<br><span style="font-size: 0.75rem;">66/38 indel patterns</span></td>
+                                <td style="padding: 0.6rem; color: #dc2626; font-weight: bold;">CDR 10x more heterogeneous!</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0.6rem; font-weight: 600;">7. Consensus (717bp)</td>
+                                <td style="padding: 0.6rem; text-align: center;">717 bp</td>
+                                <td style="padding: 0.6rem; text-align: center;">717 bp</td>
+                                <td style="padding: 0.6rem; color: #059669; font-weight: bold;">98.88% identical (8 bp diff)</td>
+                            </tr>
+                            <tr style="background: rgba(16, 185, 129, 0.15);">
+                                <td style="padding: 0.6rem; font-weight: 600;">8. Consensus (696bp)</td>
+                                <td style="padding: 0.6rem; text-align: center;">696 bp</td>
+                                <td style="padding: 0.6rem; text-align: center;">696 bp</td>
+                                <td style="padding: 0.6rem; color: #059669; font-weight: bold;">100% IDENTICAL!</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Key findings -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 2rem;">
+                <div style="background: #ecfdf5; padding: 1.25rem; border-radius: 12px; border: 2px solid #10b981;">
+                    <h4 style="color: #065f46; margin-bottom: 0.75rem; font-size: 1rem;">Main Finding</h4>
+                    <p style="color: #047857; font-size: 0.9rem; margin: 0;">
+                        CDR and flanking regions contain the <strong>same 716bp satellite DNA family</strong>.
+                        The 696bp consensus is <strong>100% identical</strong>, and 717bp differs by only <strong>8 nucleotides</strong> (98.88%).
+                    </p>
+                </div>
+                <div style="background: #fef2f2; padding: 1.25rem; border-radius: 12px; border: 2px solid #ef4444;">
+                    <h4 style="color: #991b1b; margin-bottom: 0.75rem; font-size: 1rem;">Key Difference</h4>
+                    <p style="color: #b91c1c; font-size: 0.9rem; margin: 0;">
+                        CDR has <strong>10x higher sequence heterogeneity</strong> than flanking regions
+                        (31-33% vs 2.7-3.8% sequences with rare indels). This suggests active centromere function
+                        drives sequence diversification.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Biological interpretation -->
+            <div style="background: #fffbeb; padding: 1.25rem; border-radius: 12px; margin-top: 1.5rem; border: 2px solid #f59e0b;">
+                <h4 style="color: #92400e; margin-bottom: 0.75rem; font-size: 1rem;">Biological Interpretation</h4>
+                <ul style="color: #78350f; font-size: 0.9rem; margin: 0; padding-left: 1.25rem;">
+                    <li style="margin-bottom: 0.5rem;"><strong>Same repeat family:</strong> Both CDR and flanking arrays derive from the same ancestral 716bp satellite DNA.</li>
+                    <li style="margin-bottom: 0.5rem;"><strong>CDR-specific diversity:</strong> Active centromere regions accumulate more mutations/indels, possibly due to:
+                        <ul style="margin-top: 0.25rem; padding-left: 1rem;">
+                            <li>Kinetochore binding pressure</li>
+                            <li>Higher recombination rates</li>
+                            <li>Centromere drive mechanisms</li>
+                        </ul>
+                    </li>
+                    <li style="margin-bottom: 0.5rem;"><strong>Flanking conservation:</strong> Pericentromeric flanking repeats are under different selective pressure, maintaining higher homogeneity.</li>
+                    <li><strong>Two length variants:</strong> The 21bp length difference (717 vs 696bp) represents a stable deletion variant present in both CDR and flanking regions.</li>
+                </ul>
+            </div>
+
+            <!-- Statistics summary -->
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1.5rem;">
+                <div style="background: white; padding: 1rem; border-radius: 8px; text-align: center; border: 1px solid #e5e7eb;">
+                    <div style="font-size: 2rem; font-weight: 700; color: #2563eb;">231</div>
+                    <div style="font-size: 0.75rem; color: #6b7280;">Total Arrays</div>
+                </div>
+                <div style="background: white; padding: 1rem; border-radius: 8px; text-align: center; border: 1px solid #e5e7eb;">
+                    <div style="font-size: 2rem; font-weight: 700; color: #2563eb;">19,230</div>
+                    <div style="font-size: 0.75rem; color: #6b7280;">Total Monomers</div>
+                </div>
+                <div style="background: white; padding: 1rem; border-radius: 8px; text-align: center; border: 1px solid #e5e7eb;">
+                    <div style="font-size: 2rem; font-weight: 700; color: #059669;">~94%</div>
+                    <div style="font-size: 0.75rem; color: #6b7280;">Avg. Identity</div>
+                </div>
+                <div style="background: white; padding: 1rem; border-radius: 8px; text-align: center; border: 1px solid #e5e7eb;">
+                    <div style="font-size: 2rem; font-weight: 700; color: #059669;">100%</div>
+                    <div style="font-size: 0.75rem; color: #6b7280;">696bp Consensus Match</div>
+                </div>
+            </div>
+        </div>
+
         <script>
         function copyFlankingSeq717(btn) {
             const seq = 'CTTCGCCTCTCAGAAGCCAACCGCTCTCCCCGGCTGCCGGAGGCGAAGAAGCGGCTACTAGGTGCACCGCTGACGTGAACCGCACTTGTAGGCTGCAAAGCGCGGCTTCGGCAGAAAGACGCCGGCAACCGCCGCTTCCCTGCGGACAGCTGCGGAGAGCCGAAGTCTGCGTCTCTAGCGGACTGCATCATAGCGAAAAGCTTTTCCAGCGTGTCTCGCAGGGAGAAAGCTTGCCAGCACAGTGCACGCATCCCGCCCTTGCCCAGAAACATATATTTGCTGAACACTCCAAAAACACTGCTCTTTCCTAGGCAAGCTTCAAACTGCTGTCAGACATCTGTGCTCTCTGTTTTCTGCTGCCCTGCTCGTTGTAGAAGAGTGCACAGCTCCACCTGACATTCAGTGCACAGCGAAGTCAACTGCAAAAAACCAGCAGCTGCTCACTCCCAAACACAAGGCGCTGTCTATGTCCTTGCTTCCCGAGCAATTCAGCACAGCCCTTCTTTTCTGCAGCTGCCATCGAGATCTCTGCAACTCGTAAACTCAGGGTACGAACAAGAATTCTCCAGATTCGTCTGCATCAGGACCAAGTCAAAACGCAGGAAAGTCGTCCTGGAGCACCTGCCAGAAGCATGCCAGCGGTGAATTGAAAGGGCTGGCAGCTGCAGCCACCGTCCTCTAGCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT';
