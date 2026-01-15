@@ -26,9 +26,10 @@ CLASSIFY_TARGET = arraysplitter_classify_c
 MINHASH_TARGET = arraysplitter_minhash_c
 EDIT_DIST_TARGET = arraysplitter_edit_dist_c
 CONSERVED_TARGET = arraysplitter_conserved_c
+KMER_TARGET = kmer_enrichment
 
 # Default target - build all
-all: $(TARGET) $(CLASSIFY_TARGET) $(MINHASH_TARGET) $(EDIT_DIST_TARGET) $(CONSERVED_TARGET)
+all: $(TARGET) $(CLASSIFY_TARGET) $(MINHASH_TARGET) $(EDIT_DIST_TARGET) $(CONSERVED_TARGET) $(KMER_TARGET)
 
 # Link arraysplitter_c
 $(TARGET): $(OBJS)
@@ -58,6 +59,14 @@ $(CONSERVED_TARGET): conserved_main.o
 conserved_main.o: conserved_main.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# Link kmer_enrichment
+$(KMER_TARGET): kmer_enrichment.o
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
+# Compile kmer_enrichment.c
+kmer_enrichment.o: kmer_enrichment.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
 # Compile arraysplitter sources
 %.o: %.c arraysplitter.h
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -72,17 +81,17 @@ minhash_%.o: minhash_%.c minhash.h
 
 # Clean
 clean:
-	rm -f $(OBJS) $(CLASSIFY_OBJS) $(MINHASH_OBJS) edit_dist_main.o conserved_main.o $(TARGET) $(CLASSIFY_TARGET) $(MINHASH_TARGET) $(EDIT_DIST_TARGET) $(CONSERVED_TARGET)
+	rm -f $(OBJS) $(CLASSIFY_OBJS) $(MINHASH_OBJS) edit_dist_main.o conserved_main.o kmer_enrichment.o $(TARGET) $(CLASSIFY_TARGET) $(MINHASH_TARGET) $(EDIT_DIST_TARGET) $(CONSERVED_TARGET) $(KMER_TARGET)
 
 # Install to project bin directory
 install: all
 	mkdir -p ../../bin
-	cp $(TARGET) $(CLASSIFY_TARGET) $(MINHASH_TARGET) $(EDIT_DIST_TARGET) $(CONSERVED_TARGET) ../../bin/
+	cp $(TARGET) $(CLASSIFY_TARGET) $(MINHASH_TARGET) $(EDIT_DIST_TARGET) $(CONSERVED_TARGET) $(KMER_TARGET) ../../bin/
 
 # Install to user bin (requires sudo for /usr/local/bin)
 install-user: all
-	cp $(TARGET) $(CLASSIFY_TARGET) $(MINHASH_TARGET) $(EDIT_DIST_TARGET) $(CONSERVED_TARGET) ~/.local/bin/ 2>/dev/null || \
-	cp $(TARGET) $(CLASSIFY_TARGET) $(MINHASH_TARGET) $(EDIT_DIST_TARGET) $(CONSERVED_TARGET) ~/bin/ 2>/dev/null || \
+	cp $(TARGET) $(CLASSIFY_TARGET) $(MINHASH_TARGET) $(EDIT_DIST_TARGET) $(CONSERVED_TARGET) $(KMER_TARGET) ~/.local/bin/ 2>/dev/null || \
+	cp $(TARGET) $(CLASSIFY_TARGET) $(MINHASH_TARGET) $(EDIT_DIST_TARGET) $(CONSERVED_TARGET) $(KMER_TARGET) ~/bin/ 2>/dev/null || \
 	echo "Install manually to your PATH"
 
 # Debug build
