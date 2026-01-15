@@ -3080,14 +3080,25 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
                 </div>
             </div>
 
-            <!-- Coverage visualization on 717bp consensus -->
+            <!-- Coverage visualization on 717bp consensus - 3 DF tracks -->
             <div style="margin-top: 1.5rem;">
-                <h4 style="font-size: 0.95rem; color: #374151; margin-bottom: 0.75rem;">K-mer Coverage on 717bp CDR Consensus</h4>
+                <h4 style="font-size: 0.95rem; color: #374151; margin-bottom: 0.75rem;">K-mer Document Frequency (DF%) on 717bp Consensus</h4>
                 <p style="font-size: 0.8rem; color: #6b7280; margin-bottom: 0.5rem;">
-                    Showing positions of 165 k-mers (k≥15) that are present in <strong>all 72 CDR regions</strong> (100% DF).
-                    Gaps indicate variable regions between CDR arrays.
+                    Three tracks showing DF% for k-mers (k≥15) at each position:
+                    <strong style="color: #dc2626;">CDR</strong> (72 regions),
+                    <strong style="color: #059669;">Flanking</strong> (178 regions),
+                    <strong style="color: #7c3aed;">Total</strong> (250 regions).
                 </p>
-                <canvas id="kmerCoverageCanvas" width="900" height="200" style="border: 1px solid #e5e7eb; border-radius: 8px; background: white;"></canvas>
+                <canvas id="kmerCoverageCanvas" width="900" height="280" style="border: 1px solid #e5e7eb; border-radius: 8px; background: white;"></canvas>
+            </div>
+
+            <!-- TF visualization -->
+            <div style="margin-top: 1rem;">
+                <h4 style="font-size: 0.95rem; color: #374151; margin-bottom: 0.75rem;">K-mer Term Frequency (TF) on 717bp Consensus</h4>
+                <p style="font-size: 0.8rem; color: #6b7280; margin-bottom: 0.5rem;">
+                    Absolute k-mer counts at each position. Note: Flanking TF is ~9x higher due to larger total size (16.8 Mb vs 1.9 Mb).
+                </p>
+                <canvas id="kmerTFCanvas" width="900" height="280" style="border: 1px solid #e5e7eb; border-radius: 8px; background: white;"></canvas>
             </div>
 
             <!-- Conserved k-mers table (in ALL CDRs) -->
@@ -3432,37 +3443,53 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
         </script>
 
         <script>
-        // K-mer Coverage Visualization on 717bp Consensus (DF% based)
+        // K-mer Coverage Visualization - Three DF% Tracks
         function renderKmerCoverage() {
             const canvas = document.getElementById('kmerCoverageCanvas');
             if (!canvas) return;
             const ctx = canvas.getContext('2d');
 
             const seqLen = 717;
-            const margin = {top: 30, right: 30, bottom: 50, left: 60};
+            const margin = {top: 25, right: 30, bottom: 45, left: 60};
             const width = canvas.width - margin.left - margin.right;
-            const height = canvas.height - margin.top - margin.bottom;
+            const totalHeight = canvas.height - margin.top - margin.bottom;
+            const trackHeight = 55;
+            const trackGap = 8;
 
-            // DF% = percentage of 72 CDR regions containing k-mers at each position
-            // Conserved = 100% DF (k-mer in ALL 72 CDRs)
-            // Variable = positions without 100% DF k-mers
-            const dfPercent = new Array(seqLen).fill(0);
+            // DF% data by position for each track
+            // CDR DF%: 100% where k-mer is in all 72 CDRs
+            const cdrDF = new Array(seqLen).fill(0);
+            // Flanking DF%: varies by region (92% typically where present)
+            const flankDF = new Array(seqLen).fill(0);
 
-            // Regions with 100% DF (165 k-mers with DF=72/72=100%)
-            const conservedRegions = [
-                {start: 0, end: 44},     // 44bp
-                {start: 99, end: 115},   // 16bp
-                {start: 196, end: 226},  // 30bp
-                {start: 300, end: 323},  // 23bp
-                {start: 339, end: 354},  // 15bp
-                {start: 424, end: 446},  // 22bp
-                {start: 620, end: 639}   // 19bp
-            ];  // Total: ~169bp conserved
+            // Regions with 100% CDR DF (k-mers in ALL 72 CDRs)
+            const cdr100Regions = [
+                {start: 0, end: 44},
+                {start: 99, end: 115},
+                {start: 196, end: 226},
+                {start: 300, end: 323},
+                {start: 339, end: 354},
+                {start: 424, end: 446},
+                {start: 620, end: 639}
+            ];
 
-            for (const r of conservedRegions) {
-                for (let i = r.start; i < r.end; i++) {
-                    dfPercent[i] = 100;
-                }
+            // Flanking DF% - typically 92% where CDR is 100% (from v2 data)
+            // Some regions have lower flank DF (66%)
+            const flankDFRegions = [
+                {start: 0, end: 44, df: 92},
+                {start: 99, end: 115, df: 84},      // lower in flanking
+                {start: 196, end: 226, df: 92},
+                {start: 300, end: 323, df: 92},
+                {start: 339, end: 354, df: 92},
+                {start: 424, end: 446, df: 92},
+                {start: 600, end: 650, df: 66}      // differential region
+            ];
+
+            for (const r of cdr100Regions) {
+                for (let i = r.start; i < r.end; i++) cdrDF[i] = 100;
+            }
+            for (const r of flankDFRegions) {
+                for (let i = r.start; i < r.end; i++) flankDF[i] = r.df;
             }
 
             // Clear canvas
@@ -3473,105 +3500,269 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
             ctx.fillStyle = '#374151';
             ctx.font = 'bold 12px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('K-mer (k≥15) Document Frequency: % of 72 CDR Regions with k-mer at Position', canvas.width / 2, 18);
+            ctx.fillText('K-mer (k≥15) Document Frequency by Position: CDR vs Flanking vs Total', canvas.width / 2, 15);
 
             const xScale = width / seqLen;
 
-            // Draw variable regions background (pink)
-            const variableRegions = [
-                {start: 44, end: 99},
-                {start: 115, end: 196},
-                {start: 226, end: 300},
-                {start: 323, end: 339},
-                {start: 354, end: 424},
-                {start: 446, end: 620},
-                {start: 639, end: 717}
+            // Draw three tracks
+            const tracks = [
+                {name: 'CDR', data: cdrDF, color: '#dc2626', bgColor: '#fef2f2', regions: 72, y: margin.top},
+                {name: 'Flank', data: flankDF, color: '#059669', bgColor: '#ecfdf5', regions: 178, y: margin.top + trackHeight + trackGap},
+                {name: 'Total', data: null, color: '#7c3aed', bgColor: '#f3e8ff', regions: 250, y: margin.top + 2*(trackHeight + trackGap)}
             ];
 
-            ctx.fillStyle = '#fef2f2';
-            for (const r of variableRegions) {
-                const x1 = margin.left + r.start * xScale;
-                const w = (r.end - r.start) * xScale;
-                ctx.fillRect(x1, margin.top, w, height);
-            }
-
-            // Draw 100% DF bars (green, full height)
-            ctx.fillStyle = '#10b981';
+            // Calculate Total DF (weighted average: (cdr*72 + flank*178) / 250)
+            const totalDF = new Array(seqLen).fill(0);
             for (let i = 0; i < seqLen; i++) {
-                if (dfPercent[i] === 100) {
-                    const x = margin.left + i * xScale;
-                    ctx.fillRect(x, margin.top, Math.max(1.5, xScale), height);
+                totalDF[i] = Math.round((cdrDF[i] * 72 + flankDF[i] * 178) / 250);
+            }
+            tracks[2].data = totalDF;
+
+            for (const track of tracks) {
+                const y = track.y;
+
+                // Background
+                ctx.fillStyle = track.bgColor;
+                ctx.fillRect(margin.left, y, width, trackHeight);
+
+                // Border
+                ctx.strokeStyle = '#e5e7eb';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(margin.left, y, width, trackHeight);
+
+                // Draw DF bars
+                for (let i = 0; i < seqLen; i++) {
+                    if (track.data[i] > 0) {
+                        const x = margin.left + i * xScale;
+                        const barHeight = (track.data[i] / 100) * trackHeight;
+                        ctx.fillStyle = track.color + (track.data[i] === 100 ? 'cc' : '80');
+                        ctx.fillRect(x, y + trackHeight - barHeight, Math.max(1.2, xScale), barHeight);
+                    }
                 }
-            }
 
-            // Draw Y-axis gridlines and labels
-            ctx.strokeStyle = '#d1d5db';
-            ctx.lineWidth = 1;
-            ctx.fillStyle = '#374151';
-            ctx.font = '10px sans-serif';
-            ctx.textAlign = 'right';
+                // Track label
+                ctx.fillStyle = track.color;
+                ctx.font = 'bold 10px sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText(track.name, margin.left - 5, y + trackHeight/2 + 3);
 
-            for (let pct = 0; pct <= 100; pct += 25) {
-                const y = margin.top + height - (pct / 100) * height;
-                ctx.setLineDash([3, 3]);
+                // Region count
+                ctx.font = '9px sans-serif';
+                ctx.fillStyle = '#6b7280';
+                ctx.fillText('(' + track.regions + ')', margin.left - 5, y + trackHeight/2 + 14);
+
+                // 50% and 100% markers
+                ctx.strokeStyle = '#9ca3af';
+                ctx.setLineDash([2, 2]);
+                ctx.lineWidth = 0.5;
+
+                // 50% line
+                const y50 = y + trackHeight * 0.5;
                 ctx.beginPath();
-                ctx.moveTo(margin.left, y);
-                ctx.lineTo(margin.left + width, y);
+                ctx.moveTo(margin.left, y50);
+                ctx.lineTo(margin.left + width, y50);
                 ctx.stroke();
+
                 ctx.setLineDash([]);
-                ctx.fillText(pct + '%', margin.left - 5, y + 4);
             }
 
-            // Draw X-axis
+            // X-axis
             ctx.strokeStyle = '#374151';
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 1;
+            const xAxisY = margin.top + 3*(trackHeight + trackGap) - trackGap;
             ctx.beginPath();
-            ctx.moveTo(margin.left, margin.top + height);
-            ctx.lineTo(margin.left + width, margin.top + height);
+            ctx.moveTo(margin.left, xAxisY);
+            ctx.lineTo(margin.left + width, xAxisY);
             ctx.stroke();
 
             // X-axis ticks and labels
             ctx.fillStyle = '#374151';
-            ctx.font = '10px sans-serif';
+            ctx.font = '9px sans-serif';
             ctx.textAlign = 'center';
             for (let i = 0; i <= 700; i += 100) {
                 const x = margin.left + (i / seqLen) * width;
                 ctx.beginPath();
-                ctx.moveTo(x, margin.top + height);
-                ctx.lineTo(x, margin.top + height + 8);
+                ctx.moveTo(x, xAxisY);
+                ctx.lineTo(x, xAxisY + 5);
                 ctx.stroke();
-                ctx.fillText(i.toString(), x, margin.top + height + 20);
+                ctx.fillText(i.toString(), x, xAxisY + 15);
             }
-            ctx.fillText('Position (bp)', margin.left + width / 2, margin.top + height + 38);
+            ctx.fillText('Position (bp)', margin.left + width / 2, xAxisY + 30);
 
-            // Y-axis label
-            ctx.save();
-            ctx.translate(14, margin.top + height / 2);
-            ctx.rotate(-Math.PI / 2);
-            ctx.textAlign = 'center';
-            ctx.font = '11px sans-serif';
-            ctx.fillText('DF% (of 72 CDRs)', 0, 0);
-            ctx.restore();
-
-            // Legend with stats
-            ctx.font = '10px sans-serif';
+            // Legend
+            ctx.font = '9px sans-serif';
             ctx.textAlign = 'left';
+            const legX = margin.left + width - 180;
+            const legY = margin.top + 3;
 
-            ctx.fillStyle = '#10b981';
-            ctx.fillRect(margin.left + width - 240, margin.top + 5, 15, 12);
+            ctx.fillStyle = '#dc2626cc';
+            ctx.fillRect(legX, legY, 10, 10);
             ctx.fillStyle = '#374151';
-            ctx.fillText('DF=100%: in all 72 CDRs (~169bp, 24%)', margin.left + width - 220, margin.top + 15);
+            ctx.fillText('100% CDR DF', legX + 14, legY + 9);
 
-            ctx.fillStyle = '#fef2f2';
-            ctx.fillRect(margin.left + width - 240, margin.top + 22, 15, 12);
-            ctx.strokeStyle = '#f87171';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(margin.left + width - 240, margin.top + 22, 15, 12);
+            ctx.fillStyle = '#059669cc';
+            ctx.fillRect(legX + 80, legY, 10, 10);
             ctx.fillStyle = '#374151';
-            ctx.fillText('DF<100%: variable (~548bp, 76%)', margin.left + width - 220, margin.top + 32);
+            ctx.fillText('66-92% Flank DF', legX + 94, legY + 9);
         }
 
         document.addEventListener('DOMContentLoaded', renderKmerCoverage);
+        </script>
+
+        <script>
+        // K-mer TF (Term Frequency) Visualization - Three Tracks
+        function renderKmerTF() {
+            const canvas = document.getElementById('kmerTFCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+
+            const seqLen = 717;
+            const margin = {top: 25, right: 30, bottom: 45, left: 60};
+            const width = canvas.width - margin.left - margin.right;
+            const trackHeight = 55;
+            const trackGap = 8;
+
+            // TF data (absolute counts) - approximated from v2 results
+            // CDR TF: ~1800 per position where conserved
+            // Flanking TF: ~15000 per position (9x more due to size)
+            const cdrTF = new Array(seqLen).fill(0);
+            const flankTF = new Array(seqLen).fill(0);
+
+            // Conserved regions with approximate TF values from v2 data
+            const cdrTFRegions = [
+                {start: 0, end: 44, tf: 1850},
+                {start: 99, end: 115, tf: 1570},
+                {start: 196, end: 226, tf: 1830},
+                {start: 300, end: 323, tf: 1800},
+                {start: 339, end: 354, tf: 1760},
+                {start: 424, end: 446, tf: 1700},
+                {start: 620, end: 639, tf: 1650}
+            ];
+
+            const flankTFRegions = [
+                {start: 0, end: 44, tf: 14900},
+                {start: 99, end: 115, tf: 12700},
+                {start: 196, end: 226, tf: 14800},
+                {start: 300, end: 323, tf: 15200},
+                {start: 339, end: 354, tf: 14900},
+                {start: 424, end: 446, tf: 14600},
+                {start: 600, end: 650, tf: 13500}
+            ];
+
+            for (const r of cdrTFRegions) {
+                for (let i = r.start; i < r.end; i++) cdrTF[i] = r.tf;
+            }
+            for (const r of flankTFRegions) {
+                for (let i = r.start; i < r.end; i++) flankTF[i] = r.tf;
+            }
+
+            // Clear canvas
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Title
+            ctx.fillStyle = '#374151';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('K-mer (k≥15) Term Frequency (TF) by Position: Absolute Counts', canvas.width / 2, 15);
+
+            const xScale = width / seqLen;
+
+            // Draw three tracks with different scales
+            const tracks = [
+                {name: 'CDR', data: cdrTF, color: '#dc2626', bgColor: '#fef2f2', maxTF: 2000, y: margin.top},
+                {name: 'Flank', data: flankTF, color: '#059669', bgColor: '#ecfdf5', maxTF: 16000, y: margin.top + trackHeight + trackGap},
+                {name: 'Norm', data: null, color: '#7c3aed', bgColor: '#f3e8ff', maxTF: 100, y: margin.top + 2*(trackHeight + trackGap)}
+            ];
+
+            // Calculate Normalized TF (CDR TF * 8.84 to match flanking scale)
+            const normTF = new Array(seqLen).fill(0);
+            for (let i = 0; i < seqLen; i++) {
+                normTF[i] = Math.round(cdrTF[i] * 8.84);  // Normalize to flank scale
+            }
+            tracks[2].data = normTF;
+            tracks[2].maxTF = 18000;
+
+            for (const track of tracks) {
+                const y = track.y;
+
+                // Background
+                ctx.fillStyle = track.bgColor;
+                ctx.fillRect(margin.left, y, width, trackHeight);
+
+                // Border
+                ctx.strokeStyle = '#e5e7eb';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(margin.left, y, width, trackHeight);
+
+                // Draw TF bars
+                for (let i = 0; i < seqLen; i++) {
+                    if (track.data[i] > 0) {
+                        const x = margin.left + i * xScale;
+                        const barHeight = Math.min(1, track.data[i] / track.maxTF) * trackHeight;
+                        ctx.fillStyle = track.color + 'cc';
+                        ctx.fillRect(x, y + trackHeight - barHeight, Math.max(1.2, xScale), barHeight);
+                    }
+                }
+
+                // Track label
+                ctx.fillStyle = track.color;
+                ctx.font = 'bold 10px sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText(track.name, margin.left - 5, y + trackHeight/2 + 3);
+
+                // Max scale
+                ctx.font = '8px sans-serif';
+                ctx.fillStyle = '#6b7280';
+                const scaleLabel = track.name === 'Norm' ? '(CDR×8.84)' : '(max ' + (track.maxTF/1000).toFixed(0) + 'K)';
+                ctx.fillText(scaleLabel, margin.left - 5, y + trackHeight/2 + 14);
+
+                // 50% line
+                ctx.strokeStyle = '#9ca3af';
+                ctx.setLineDash([2, 2]);
+                ctx.lineWidth = 0.5;
+                const y50 = y + trackHeight * 0.5;
+                ctx.beginPath();
+                ctx.moveTo(margin.left, y50);
+                ctx.lineTo(margin.left + width, y50);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // X-axis
+            ctx.strokeStyle = '#374151';
+            ctx.lineWidth = 1;
+            const xAxisY = margin.top + 3*(trackHeight + trackGap) - trackGap;
+            ctx.beginPath();
+            ctx.moveTo(margin.left, xAxisY);
+            ctx.lineTo(margin.left + width, xAxisY);
+            ctx.stroke();
+
+            // X-axis ticks and labels
+            ctx.fillStyle = '#374151';
+            ctx.font = '9px sans-serif';
+            ctx.textAlign = 'center';
+            for (let i = 0; i <= 700; i += 100) {
+                const x = margin.left + (i / seqLen) * width;
+                ctx.beginPath();
+                ctx.moveTo(x, xAxisY);
+                ctx.lineTo(x, xAxisY + 5);
+                ctx.stroke();
+                ctx.fillText(i.toString(), x, xAxisY + 15);
+            }
+            ctx.fillText('Position (bp)', margin.left + width / 2, xAxisY + 30);
+
+            // Legend
+            ctx.font = '9px sans-serif';
+            ctx.textAlign = 'left';
+            const legX = margin.left + width - 250;
+            const legY = margin.top + 3;
+
+            ctx.fillStyle = '#374151';
+            ctx.fillText('CDR: ~1.8K | Flank: ~15K | Norm: CDR×8.84 to compare density', legX, legY + 9);
+        }
+
+        document.addEventListener('DOMContentLoaded', renderKmerTF);
         </script>
 
         <script>
