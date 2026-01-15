@@ -2042,6 +2042,122 @@
         }
         </script>
 
+        <!-- Step 8.4: Motif Specificity Analysis -->
+        <div class="card">
+            <h2><span class="step-number">8.4</span> CDR Motif Specificity in Satellite DNA</h2>
+            <p>Analysis of whether consensus-derived motifs are specific to CDR (centromeric) regions or distributed across all satellite DNA.</p>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin: 1.5rem 0;">
+                <!-- Part 1: CENP-B box search -->
+                <div style="background: #fef2f2; padding: 1.25rem; border-radius: 12px; border: 2px solid #fecaca;">
+                    <h4 style="color: #991b1b; margin: 0 0 1rem 0;">CENP-B Box in Satellite DNA</h4>
+                    <p style="font-size: 0.85rem; color: #7f1d1d; margin-bottom: 1rem;">
+                        Searching for canonical CENP-B box (YTTCGTTGGAARCGGGA) across all satellite arrays.
+                    </p>
+
+                    <div style="background: white; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                        <table style="width: 100%; font-size: 0.85rem; border-collapse: collapse;">
+                            <tr style="border-bottom: 2px solid #fecaca;">
+                                <th style="text-align: left; padding: 0.4rem;">Region</th>
+                                <th style="text-align: center; padding: 0.4rem;">Best Match</th>
+                                <th style="text-align: center; padding: 0.4rem;">Arrays</th>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0.4rem; font-weight: 600; color: #166534;">CDR</td>
+                                <td style="text-align: center; padding: 0.4rem; color: #dc2626; font-weight: bold;">No matches ≤10mm</td>
+                                <td style="text-align: center; padding: 0.4rem;">73</td>
+                            </tr>
+                            <tr style="background: #fef9f9;">
+                                <td style="padding: 0.4rem; font-weight: 600; color: #1e40af;">Non-CDR</td>
+                                <td style="text-align: center; padding: 0.4rem; color: #ca8a04;">3 mismatches</td>
+                                <td style="text-align: center; padding: 0.4rem;">356</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <div style="background: #fee2e2; padding: 0.75rem; border-radius: 6px; font-size: 0.8rem;">
+                        <strong style="color: #991b1b;">Conclusion:</strong>
+                        <span style="color: #7f1d1d;">CDR arrays do NOT contain functional CENP-B box. Bird centromeres may use alternative centromere-targeting mechanism.</span>
+                    </div>
+                </div>
+
+                <!-- Part 2: Consensus motifs -->
+                <div style="background: #ecfdf5; padding: 1.25rem; border-radius: 12px; border: 2px solid #86efac;">
+                    <h4 style="color: #166534; margin: 0 0 1rem 0;">Consensus Motifs Specificity</h4>
+                    <p style="font-size: 0.85rem; color: #15803d; margin-bottom: 1rem;">
+                        Testing if motifs from 717/696bp consensus are CDR-specific or found across all satDNA.
+                    </p>
+
+                    <div style="background: white; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                        <table style="width: 100%; font-size: 0.8rem; border-collapse: collapse;">
+                            <tr style="border-bottom: 2px solid #86efac;">
+                                <th style="text-align: left; padding: 0.4rem;">Motif (17bp)</th>
+                                <th style="text-align: center; padding: 0.4rem;">CDR</th>
+                                <th style="text-align: center; padding: 0.4rem;">non-CDR</th>
+                                <th style="text-align: center; padding: 0.4rem;">CDR%</th>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0.4rem; font-family: monospace; font-size: 0.7rem;">CTCGTTGTAGAAGAGTG</td>
+                                <td style="text-align: center; padding: 0.4rem; color: #166534; font-weight: bold;">8,604</td>
+                                <td style="text-align: center; padding: 0.4rem;">2,873</td>
+                                <td style="text-align: center; padding: 0.4rem; color: #166534; font-weight: bold;">75.0%</td>
+                            </tr>
+                            <tr style="background: #f0fdf4;">
+                                <td style="padding: 0.4rem; font-family: monospace; font-size: 0.7rem;">ATTCGTCTGCATCAGGA</td>
+                                <td style="text-align: center; padding: 0.4rem; color: #166534; font-weight: bold;">14,279</td>
+                                <td style="text-align: center; padding: 0.4rem;">3,909</td>
+                                <td style="text-align: center; padding: 0.4rem; color: #166534; font-weight: bold;">78.5%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0.4rem; font-family: monospace; font-size: 0.7rem;">TCTCCCCGGCTGCCGGA</td>
+                                <td style="text-align: center; padding: 0.4rem; color: #166534; font-weight: bold;">14,713</td>
+                                <td style="text-align: center; padding: 0.4rem;">2,661</td>
+                                <td style="text-align: center; padding: 0.4rem; color: #166534; font-weight: bold;">84.7%</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <div style="background: #dcfce7; padding: 0.75rem; border-radius: 6px; font-size: 0.8rem;">
+                        <strong style="color: #166534;">Conclusion:</strong>
+                        <span style="color: #15803d;">Consensus motifs are <strong>3x enriched</strong> in CDR (75-85% of matches in 26.4% of DNA).</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Summary statistics -->
+            <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-top: 1rem;">
+                <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; color: #374151;">Dataset Statistics</h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+                    <div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">Total satDNA</div>
+                        <div style="font-size: 1.1rem; font-weight: bold; color: #374151;">60.0 Mb</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">CDR regions</div>
+                        <div style="font-size: 1.1rem; font-weight: bold; color: #166534;">15.8 Mb (26.4%)</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">Non-CDR regions</div>
+                        <div style="font-size: 1.1rem; font-weight: bold; color: #1e40af;">44.2 Mb (73.6%)</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">Motif enrichment</div>
+                        <div style="font-size: 1.1rem; font-weight: bold; color: #7c3aed;">~3x in CDR</div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #3b82f6;">
+                <strong style="color: #1e40af;">Biological Interpretation:</strong>
+                <ul style="margin: 0.5rem 0 0 1.25rem; color: #1e3a8a; font-size: 0.85rem;">
+                    <li><strong>No CENP-B box:</strong> Unlike mammalian centromeres, zebra finch CDR lacks functional CENP-B binding sites</li>
+                    <li><strong>CDR-specific motifs:</strong> The 17bp motifs from consensus ARE enriched in centromeric regions (~3x)</li>
+                    <li><strong>Alternative mechanism:</strong> Bird centromeres may rely on epigenetic (CENP-A) rather than sequence-specific targeting</li>
+                    <li><strong>Conservation:</strong> These CDR-enriched motifs could be targets for bird-specific centromere proteins</li>
+                </ul>
+            </div>
+        </div>
+
         <script>
         function copySeq717(btn) {
             const seq = document.getElementById('seq717').textContent;
