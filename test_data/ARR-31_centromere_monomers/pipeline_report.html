@@ -1368,6 +1368,311 @@
             </div>
         </div>
 
+        <!-- Step 8.2: Dotplot -->
+        <div class="card">
+            <h2><span class="step-number">8.2</span> Dotplot: 717bp vs 696bp</h2>
+            <p>Self-similarity dotplot comparing the two consensus sequences. Dots indicate matching k-mers.</p>
+
+            <div style="display: flex; gap: 1rem; align-items: center; margin: 1rem 0; flex-wrap: wrap;">
+                <label style="font-size: 0.9rem; color: #374151;">
+                    K-mer size:
+                    <select id="dotplotKmer" onchange="renderDotplot()" style="padding: 0.3rem 0.5rem; border: 1px solid #d1d5db; border-radius: 4px;">
+                        <option value="5">5 (more sensitive)</option>
+                        <option value="7" selected>7 (balanced)</option>
+                        <option value="9">9 (more specific)</option>
+                        <option value="11">11 (high specificity)</option>
+                    </select>
+                </label>
+                <label style="font-size: 0.9rem; color: #374151;">
+                    <input type="checkbox" id="dotplotDiagonal" onchange="renderDotplot()" checked>
+                    Show diagonal guide
+                </label>
+                <label style="font-size: 0.9rem; color: #374151;">
+                    <input type="checkbox" id="dotplotInverse" onchange="renderDotplot()">
+                    Show reverse complement matches
+                </label>
+            </div>
+
+            <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.5rem;">
+                <!-- Y-axis label -->
+                <div style="writing-mode: vertical-rl; transform: rotate(180deg); text-align: center; font-size: 0.85rem; color: #1e40af; font-weight: 600; padding: 0.5rem;">
+                    696bp consensus
+                </div>
+
+                <!-- Dotplot canvas container -->
+                <div>
+                    <canvas id="dotplotCanvas" width="600" height="580" style="border: 1px solid #e5e7eb; border-radius: 8px; background: white;"></canvas>
+                    <!-- X-axis label -->
+                    <div style="text-align: center; font-size: 0.85rem; color: #166534; font-weight: 600; margin-top: 0.5rem;">
+                        717bp consensus
+                    </div>
+                </div>
+            </div>
+
+            <div id="dotplotStats" style="margin-top: 1rem; padding: 1rem; background: #f8fafc; border-radius: 8px; font-size: 0.85rem;">
+                <!-- Stats will be populated by JS -->
+            </div>
+
+            <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #3b82f6;">
+                <strong style="color: #1e40af;">How to read this dotplot:</strong>
+                <ul style="margin: 0.5rem 0 0 1.25rem; color: #1e3a8a; font-size: 0.85rem;">
+                    <li><strong>Main diagonal:</strong> Shows overall sequence alignment (dots along diagonal = high similarity)</li>
+                    <li><strong>Off-diagonal dots:</strong> Indicate internal repeats or duplicated regions</li>
+                    <li><strong>Gaps in diagonal:</strong> Correspond to insertions/deletions between sequences</li>
+                    <li><strong>Parallel lines:</strong> Suggest tandem repeats or duplications</li>
+                </ul>
+            </div>
+        </div>
+
+        <script>
+        // Dotplot sequences
+        const seq717 = "CTTCGCCTCTCAGAAGCCAACCGCTCTCCCCGGCTGCCGGAGGCGAAGAAGCGGCTACTAGGTGCACCGCTGACGTGAACCGCACTTGTAGGCTGCAAAGCGCGGCTTCGGCAGAAAGACGCCGGCAACCGCCGCTTCCCTGCGGACAGCTGCGGAGAGCCGAAGTCTGCGTCTCTAGCGGACTGCATCATAGCGAAAAGCTTTTCCAGCGTGTCTCGCAGGGAGAAAGCTTGCCAGCACAGTGCACGCATCCCGCCCTTGCCCAGAAACATATATTTGCTGAACACTCCAAAAACACTGCTCTTTCCTAGGCAAGCTTCAAACTGCTGTCAGACGTCCGTGCTCTCTGTTTTCTGCTGCCCTGCTCGTTGTAGAAGAGTGCACAGCTCACCCTGGCATTCAGTGCACAGCGAAGTCAACTGCAAAAAACCAGCAGCTGCTCACTCCCAAACACAAGGCGCTGTCTATGTCCTTGCTTCCCGAGCAACTCAGCACAGCCCTTCTTTTCTGCAGCTGCCATCGAGATCTCTGCAACTCGGAAGCTCAGGGTACGAACAAGAATTCTCCAGATTCGTCTGCATCAGGACCAAGTCAAAACGCAGGAAAGTCGTCCTGGAGCACCTGCCAGAAGCATGCCAGCGGTGAATTGAAAGGGCTGGCAGCTGCAGCCACCGTCCTCTAGCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT";
+        const seq696 = "CTTCGCCTCTCAGAAGCCAACCGCTCTCCCCGGCTGCCGGAGGCGAAGAAGCGGCTACTAGGTGCACCGCTGACGTGAACCGCACTTGTAGGCTGCAAAGCGCGGCTTCGGCAGAAAGACGCCGGCAACCGCCGCTTCCCTGCGGACAGCTGCGGAGAGCCGAAGTCTGCGTCTCTAGCGGACTGCATCATAGCGAAAAGCTTTTCCAGCGTGTCTCGCAGGGAGAAAGCTTGCCAGCACAGTGCACGCATCCCGCCCTTGCCCAGAAACATATATTTGCTGAACACTCCAAAAACACTGCTCTTTCCTAGGCAAGCTTCAAACTGCTGTCAGACATCTGTGCTCTCTGTTTTCTGCTGCCCTGCTCGTTGTAGAAGAGTGCACAGCTCCACCTGACATTCAGTGCACAGCGAAGTCAACTGCAAAAAACCAGCAGCTGCTCACTCCCAAACACAAGGCGCTGTCTATGTCCTTGCTTCCCGAGCAACTCAGCGCAGCCCTTCTTCTCTGCATCTCGGAAGCTCAGGGCACGAACAAGAATTCTCCAGATTCGTCTGCATCAGGACCAAGTCAAAACGCAGGAAAGTCGTCCTGGAGCACCTGCCAGAAGCATGCCAGCGGTGAATTGAAAGGGCTGGCAGCTGCAGCCACCGTCCTCTAGCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT";
+
+        function reverseComplement(seq) {
+            const comp = {'A':'T', 'T':'A', 'G':'C', 'C':'G', 'N':'N'};
+            return seq.split('').reverse().map(b => comp[b] || b).join('');
+        }
+
+        function getKmers(seq, k) {
+            const kmers = new Map();
+            for (let i = 0; i <= seq.length - k; i++) {
+                const kmer = seq.substring(i, i + k);
+                if (!kmers.has(kmer)) kmers.set(kmer, []);
+                kmers.get(kmer).push(i);
+            }
+            return kmers;
+        }
+
+        function renderDotplot() {
+            const canvas = document.getElementById('dotplotCanvas');
+            const ctx = canvas.getContext('2d');
+            const k = parseInt(document.getElementById('dotplotKmer').value);
+            const showDiagonal = document.getElementById('dotplotDiagonal').checked;
+            const showInverse = document.getElementById('dotplotInverse').checked;
+
+            // Canvas setup
+            const margin = { top: 30, right: 30, bottom: 30, left: 50 };
+            const width = canvas.width - margin.left - margin.right;
+            const height = canvas.height - margin.top - margin.bottom;
+
+            // Clear canvas
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Scale factors
+            const xScale = width / seq717.length;
+            const yScale = height / seq696.length;
+
+            // Get k-mers from seq717 (x-axis)
+            const kmers717 = getKmers(seq717, k);
+
+            // Also get reverse complement k-mers if needed
+            const kmers717rc = showInverse ? getKmers(reverseComplement(seq717), k) : null;
+
+            // Find matches
+            const forwardMatches = [];
+            const reverseMatches = [];
+
+            for (let j = 0; j <= seq696.length - k; j++) {
+                const kmer = seq696.substring(j, j + k);
+
+                // Forward matches
+                if (kmers717.has(kmer)) {
+                    for (const i of kmers717.get(kmer)) {
+                        forwardMatches.push({ x: i, y: j });
+                    }
+                }
+
+                // Reverse complement matches
+                if (showInverse && kmers717rc.has(kmer)) {
+                    for (const i of kmers717rc.get(kmer)) {
+                        reverseMatches.push({ x: seq717.length - i - k, y: j });
+                    }
+                }
+            }
+
+            // Draw grid lines
+            ctx.strokeStyle = '#f0f0f0';
+            ctx.lineWidth = 0.5;
+            for (let i = 0; i <= 700; i += 100) {
+                // Vertical
+                const x = margin.left + i * xScale;
+                ctx.beginPath();
+                ctx.moveTo(x, margin.top);
+                ctx.lineTo(x, margin.top + height);
+                ctx.stroke();
+
+                // Horizontal
+                const y = margin.top + i * yScale;
+                ctx.beginPath();
+                ctx.moveTo(margin.left, y);
+                ctx.lineTo(margin.left + width, y);
+                ctx.stroke();
+            }
+
+            // Draw diagonal guide
+            if (showDiagonal) {
+                ctx.strokeStyle = '#e5e7eb';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.moveTo(margin.left, margin.top);
+                ctx.lineTo(margin.left + Math.min(width, height * seq717.length / seq696.length),
+                          margin.top + Math.min(height, width * seq696.length / seq717.length));
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // Draw forward matches (blue/green)
+            ctx.fillStyle = '#166534';
+            for (const match of forwardMatches) {
+                const x = margin.left + match.x * xScale;
+                const y = margin.top + match.y * yScale;
+                ctx.fillRect(x, y, Math.max(2, xScale), Math.max(2, yScale));
+            }
+
+            // Draw reverse matches (red)
+            if (showInverse) {
+                ctx.fillStyle = '#dc2626';
+                for (const match of reverseMatches) {
+                    const x = margin.left + match.x * xScale;
+                    const y = margin.top + match.y * yScale;
+                    ctx.fillRect(x, y, Math.max(2, xScale), Math.max(2, yScale));
+                }
+            }
+
+            // Draw axes
+            ctx.strokeStyle = '#374151';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(margin.left, margin.top);
+            ctx.lineTo(margin.left, margin.top + height);
+            ctx.lineTo(margin.left + width, margin.top + height);
+            ctx.stroke();
+
+            // Draw tick marks and labels
+            ctx.fillStyle = '#374151';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center';
+
+            // X-axis ticks
+            for (let i = 0; i <= 700; i += 100) {
+                const x = margin.left + i * xScale;
+                ctx.beginPath();
+                ctx.moveTo(x, margin.top + height);
+                ctx.lineTo(x, margin.top + height + 5);
+                ctx.stroke();
+                ctx.fillText(i.toString(), x, margin.top + height + 15);
+            }
+
+            // Y-axis ticks
+            ctx.textAlign = 'right';
+            for (let i = 0; i <= 700; i += 100) {
+                const y = margin.top + i * yScale;
+                ctx.beginPath();
+                ctx.moveTo(margin.left, y);
+                ctx.lineTo(margin.left - 5, y);
+                ctx.stroke();
+                ctx.fillText(i.toString(), margin.left - 8, y + 3);
+            }
+
+            // Highlight difference regions
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([3, 3]);
+
+            // Region around position 336-340 (SNP cluster 1)
+            const r1x = margin.left + 336 * xScale;
+            const r1y = margin.top + 336 * yScale;
+            ctx.strokeRect(r1x - 10, r1y - 10, 30, 30);
+
+            // Region around position 390-400 (SNP cluster 2)
+            const r2x = margin.left + 390 * xScale;
+            const r2y = margin.top + 390 * yScale;
+            ctx.strokeRect(r2x - 10, r2y - 10, 30, 30);
+
+            // Region around position 504-528 (21bp indel)
+            const r3x = margin.left + 504 * xScale;
+            const r3y = margin.top + 504 * yScale;
+            ctx.strokeRect(r3x - 5, r3y - 5, 50, 40);
+
+            ctx.setLineDash([]);
+
+            // Add legend
+            ctx.font = '11px sans-serif';
+            ctx.textAlign = 'left';
+
+            // Forward match legend
+            ctx.fillStyle = '#166534';
+            ctx.fillRect(margin.left + width - 120, margin.top + 10, 12, 12);
+            ctx.fillStyle = '#374151';
+            ctx.fillText('Forward match', margin.left + width - 105, margin.top + 20);
+
+            if (showInverse) {
+                ctx.fillStyle = '#dc2626';
+                ctx.fillRect(margin.left + width - 120, margin.top + 28, 12, 12);
+                ctx.fillStyle = '#374151';
+                ctx.fillText('Rev. complement', margin.left + width - 105, margin.top + 38);
+            }
+
+            // Highlight region legend
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([3, 3]);
+            ctx.strokeRect(margin.left + width - 120, margin.top + (showInverse ? 48 : 30), 12, 12);
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#374151';
+            ctx.fillText('Diff. regions', margin.left + width - 105, margin.top + (showInverse ? 58 : 40));
+
+            // Update stats
+            const statsEl = document.getElementById('dotplotStats');
+            const uniqueKmers717 = kmers717.size;
+            const uniqueKmers696 = getKmers(seq696, k).size;
+            const sharedKmers = [...kmers717.keys()].filter(kmer => seq696.includes(kmer)).length;
+
+            statsEl.innerHTML = `
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+                    <div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">K-mer size</div>
+                        <div style="font-size: 1.25rem; font-weight: bold; color: #374151;">${k}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">Forward matches</div>
+                        <div style="font-size: 1.25rem; font-weight: bold; color: #166534;">${forwardMatches.length.toLocaleString()}</div>
+                    </div>
+                    ${showInverse ? `
+                    <div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">Reverse matches</div>
+                        <div style="font-size: 1.25rem; font-weight: bold; color: #dc2626;">${reverseMatches.length.toLocaleString()}</div>
+                    </div>` : ''}
+                    <div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">Unique ${k}-mers (717bp)</div>
+                        <div style="font-size: 1.25rem; font-weight: bold; color: #166534;">${uniqueKmers717}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">Unique ${k}-mers (696bp)</div>
+                        <div style="font-size: 1.25rem; font-weight: bold; color: #1e40af;">${uniqueKmers696}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">Shared ${k}-mers</div>
+                        <div style="font-size: 1.25rem; font-weight: bold; color: #7c3aed;">${sharedKmers}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Render dotplot on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            renderDotplot();
+        });
+
+        // Also try to render immediately in case DOMContentLoaded already fired
+        if (document.readyState !== 'loading') {
+            renderDotplot();
+        }
+        </script>
+
         <script>
         function copySeq717(btn) {
             const seq = document.getElementById('seq717').textContent;
