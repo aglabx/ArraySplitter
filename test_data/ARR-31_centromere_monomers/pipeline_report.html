@@ -2903,11 +2903,52 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
         <!-- Section 10.1: Mutation Map Visualization -->
         <div class="card">
             <h2><span class="step-number" style="background: #d946ef;">10.1</span> CDR vs Flanking 717bp Mutation Map</h2>
-            <p>Visual comparison of the 8 nucleotide differences between CDR and Flanking 717bp consensus sequences.</p>
+            <p>Visual comparison of the 8 nucleotide differences between CDR and Flanking 717bp consensus sequences, with predicted CENP-B box locations highlighted.</p>
 
             <!-- Mutation map canvas -->
             <div style="margin-top: 1rem;">
-                <canvas id="mutationMapCanvas" width="900" height="200" style="border: 1px solid #e5e7eb; border-radius: 8px; background: white;"></canvas>
+                <canvas id="mutationMapCanvas" width="900" height="260" style="border: 1px solid #e5e7eb; border-radius: 8px; background: white;"></canvas>
+            </div>
+
+            <!-- Predicted CENP-B boxes table -->
+            <div style="margin-top: 1.5rem;">
+                <h4 style="font-size: 0.95rem; color: #374151; margin-bottom: 0.75rem;">Predicted CENP-B Boxes (717bp)</h4>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                        <thead>
+                            <tr style="background: #f3f4f6;">
+                                <th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #d1d5db;">Position</th>
+                                <th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #d1d5db;">Mismatches</th>
+                                <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #d1d5db;">Sequence</th>
+                                <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #d1d5db;">Consensus</th>
+                                <th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #d1d5db;">Contains Mutation</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style="padding: 0.5rem; text-align: center; font-weight: bold;">25-41</td>
+                                <td style="padding: 0.5rem; text-align: center;"><span style="background: #fef3c7; color: #92400e; padding: 2px 6px; border-radius: 4px;">7</span></td>
+                                <td style="padding: 0.5rem; font-family: monospace; font-size: 0.75rem;">TCTCCCCGGCTGCCGGA</td>
+                                <td style="padding: 0.5rem; font-family: monospace; font-size: 0.75rem; color: #6b7280;">TTTCGTTGGAAGCGGGA</td>
+                                <td style="padding: 0.5rem; text-align: center; color: #6b7280;">-</td>
+                            </tr>
+                            <tr style="background: #f9fafb;">
+                                <td style="padding: 0.5rem; text-align: center; font-weight: bold;">365-381</td>
+                                <td style="padding: 0.5rem; text-align: center;"><span style="background: #dbeafe; color: #1e40af; padding: 2px 6px; border-radius: 4px;">6</span></td>
+                                <td style="padding: 0.5rem; font-family: monospace; font-size: 0.75rem;">CTCGTTGTAGAAGAGTG</td>
+                                <td style="padding: 0.5rem; font-family: monospace; font-size: 0.75rem; color: #6b7280;">CTTCGTTGGAAGCGGGA</td>
+                                <td style="padding: 0.5rem; text-align: center;"><span style="color: #7c3aed; font-weight: bold;">Yes (pos 396)</span></td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0.5rem; text-align: center; font-weight: bold;">570-586</td>
+                                <td style="padding: 0.5rem; text-align: center;"><span style="background: #d1fae5; color: #065f46; padding: 2px 6px; border-radius: 4px;">6</span></td>
+                                <td style="padding: 0.5rem; font-family: monospace; font-size: 0.75rem;">ATTCGTCTGCATCAGGA</td>
+                                <td style="padding: 0.5rem; font-family: monospace; font-size: 0.75rem; color: #6b7280;">CTTCGTTGGAAACGGGA</td>
+                                <td style="padding: 0.5rem; text-align: center; color: #6b7280;">-</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             <!-- Mutation details table -->
@@ -3003,8 +3044,13 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
             </div>
 
             <div style="background: #ecfdf5; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #10b981;">
-                <strong style="color: #065f46;">Observation:</strong>
-                <span style="color: #047857;">All 8 mutations are clustered in two regions: positions 336-396 (5 mutations in 60bp) and positions 488-542 (3 mutations in 54bp). This clustering suggests these regions may be under different selective pressure or represent distinct evolutionary events.</span>
+                <strong style="color: #065f46;">Observations:</strong>
+                <ul style="margin: 0.5rem 0 0 1.5rem; color: #047857;">
+                    <li>All 8 mutations cluster in two regions: positions 336-396 (5 mutations) and 488-542 (3 mutations).</li>
+                    <li><strong>Mutation cluster 1 overlaps with CENP-B box at 365-381</strong> - position 396 (G→A) is immediately adjacent to this predicted box.</li>
+                    <li>Three predicted CENP-B boxes have 6-7 mismatches each, suggesting degenerate CENP-B binding sites.</li>
+                    <li>The mutation at position 396 could affect CENP-B protein binding in flanking arrays vs CDR arrays.</li>
+                </ul>
             </div>
         </div>
 
@@ -3013,10 +3059,6 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
         function renderMutationMap() {
             const canvas = document.getElementById('mutationMapCanvas');
             const ctx = canvas.getContext('2d');
-
-            // Consensus sequences
-            const cdrSeq = 'CTTCGCCTCTCAGAAGCCAACCGCTCTCCCCGGCTGCCGGAGGCGAAGAAGCGGCTACTAGGTGCACCGCTGACGTGAACCGCACTTGTAGGCTGCAAAGCGCGGCTTCGGCAGAAAGACGCCGGCAACCGCCGCTTCCCTGCGGACAGCTGCGGAGAGCCGAAGTCTGCGTCTCTAGCGGACTGCATCATAGCGAAAAGCTTTTCCAGCGTGTCTCGCAGGGAGAAAGCTTGCCAGCACAGTGCACGCATCCCGCCCTTGCCCAGAAACATATATTTGCTGAACACTCCAAAAACACTGCTCTTTCCTAGGCAAGCTTCAAACTGCTGTCAGACGTCCGTGCTCTCTGTTTTCTGCTGCCCTGCTCGTTGTAGAAGAGTGCACAGCTCACCCTGGCATTCAGTGCACAGCGAAGTCAACTGCAAAAAACCAGCAGCTGCTCACTCCCAAACACAAGGCGCTGTCTATGTCCTTGCTTCCCGAGCAACTCAGCACAGCCCTTCTTTTCTGCAGCTGCCATCGAGATCTCTGCAACTCGGAAGCTCAGGGTACGAACAAGAATTCTCCAGATTCGTCTGCATCAGGACCAAGTCAAAACGCAGGAAAGTCGTCCTGGAGCACCTGCCAGAAGCATGCCAGCGGTGAATTGAAAGGGCTGGCAGCTGCAGCCACCGTCCTCTAGCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT';
-            const flankingSeq = 'CTTCGCCTCTCAGAAGCCAACCGCTCTCCCCGGCTGCCGGAGGCGAAGAAGCGGCTACTAGGTGCACCGCTGACGTGAACCGCACTTGTAGGCTGCAAAGCGCGGCTTCGGCAGAAAGACGCCGGCAACCGCCGCTTCCCTGCGGACAGCTGCGGAGAGCCGAAGTCTGCGTCTCTAGCGGACTGCATCATAGCGAAAAGCTTTTCCAGCGTGTCTCGCAGGGAGAAAGCTTGCCAGCACAGTGCACGCATCCCGCCCTTGCCCAGAAACATATATTTGCTGAACACTCCAAAAACACTGCTCTTTCCTAGGCAAGCTTCAAACTGCTGTCAGACATCTGTGCTCTCTGTTTTCTGCTGCCCTGCTCGTTGTAGAAGAGTGCACAGCTCCACCTGACATTCAGTGCACAGCGAAGTCAACTGCAAAAAACCAGCAGCTGCTCACTCCCAAACACAAGGCGCTGTCTATGTCCTTGCTTCCCGAGCAATTCAGCACAGCCCTTCTTTTCTGCAGCTGCCATCGAGATCTCTGCAACTCGTAAACTCAGGGTACGAACAAGAATTCTCCAGATTCGTCTGCATCAGGACCAAGTCAAAACGCAGGAAAGTCGTCCTGGAGCACCTGCCAGAAGCATGCCAGCGGTGAATTGAAAGGGCTGGCAGCTGCAGCCACCGTCCTCTAGCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT';
 
             // Mutation positions (0-indexed)
             const mutations = [
@@ -3030,8 +3072,15 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
                 {pos: 541, cdr: 'G', flank: 'A'}
             ];
 
+            // Predicted CENP-B boxes (1-indexed positions from user data)
+            const cenpBoxes = [
+                {start: 25, end: 41, mm: 7, seq: 'TCTCCCCGGCTGCCGGA', color: '#f59e0b'},
+                {start: 365, end: 381, mm: 6, seq: 'CTCGTTGTAGAAGAGTG', color: '#3b82f6'},
+                {start: 570, end: 586, mm: 6, seq: 'ATTCGTCTGCATCAGGA', color: '#10b981'}
+            ];
+
             const seqLen = 717;
-            const margin = {top: 30, right: 30, bottom: 50, left: 80};
+            const margin = {top: 30, right: 30, bottom: 100, left: 80};
             const width = canvas.width - margin.left - margin.right;
             const height = canvas.height - margin.top - margin.bottom;
             const rowHeight = height / 2 - 5;
@@ -3044,30 +3093,47 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
             ctx.fillStyle = '#374151';
             ctx.font = 'bold 13px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('717bp Consensus Comparison: CDR vs Flanking', canvas.width / 2, 18);
+            ctx.fillText('717bp Consensus: Mutations & Predicted CENP-B Boxes', canvas.width / 2, 18);
 
             // Draw sequence bars
             const xScale = width / seqLen;
 
-            // CDR sequence bar
+            // Draw CENP-B boxes first (background)
+            for (const box of cenpBoxes) {
+                const x1 = margin.left + (box.start - 1) * xScale;
+                const boxWidth = (box.end - box.start + 1) * xScale;
+
+                // Draw on both bars
+                ctx.fillStyle = box.color + '30'; // 30 = ~19% opacity
+                ctx.fillRect(x1, margin.top, boxWidth, rowHeight);
+                ctx.fillRect(x1, margin.top + rowHeight + 10, boxWidth, rowHeight);
+
+                // Border
+                ctx.strokeStyle = box.color;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x1, margin.top, boxWidth, rowHeight);
+                ctx.strokeRect(x1, margin.top + rowHeight + 10, boxWidth, rowHeight);
+            }
+
+            // CDR sequence bar (outline)
             ctx.fillStyle = '#dc2626';
             ctx.font = 'bold 11px sans-serif';
             ctx.textAlign = 'right';
             ctx.fillText('CDR', margin.left - 10, margin.top + rowHeight / 2 + 4);
 
-            ctx.fillStyle = '#fecaca';
+            ctx.fillStyle = '#fecaca40';
             ctx.fillRect(margin.left, margin.top, width, rowHeight);
             ctx.strokeStyle = '#dc2626';
             ctx.lineWidth = 2;
             ctx.strokeRect(margin.left, margin.top, width, rowHeight);
 
-            // Flanking sequence bar
+            // Flanking sequence bar (outline)
             ctx.fillStyle = '#059669';
             ctx.font = 'bold 11px sans-serif';
             ctx.textAlign = 'right';
             ctx.fillText('Flanking', margin.left - 10, margin.top + rowHeight + 10 + rowHeight / 2 + 4);
 
-            ctx.fillStyle = '#d1fae5';
+            ctx.fillStyle = '#d1fae540';
             ctx.fillRect(margin.left, margin.top + rowHeight + 10, width, rowHeight);
             ctx.strokeStyle = '#059669';
             ctx.lineWidth = 2;
@@ -3135,19 +3201,44 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
             ctx.font = '11px sans-serif';
             ctx.fillText('Position (bp)', margin.left + width / 2, margin.top + height + 40);
 
-            // Draw mutation cluster regions
-            ctx.fillStyle = 'rgba(124, 58, 237, 0.1)';
-            ctx.fillRect(margin.left + 330 * xScale, margin.top - 15, 70 * xScale, height + 20);
-            ctx.fillRect(margin.left + 480 * xScale, margin.top - 15, 70 * xScale, height + 20);
+            // Legend
+            const legendY = margin.top + height + 55;
+            ctx.font = 'bold 10px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#374151';
+            ctx.fillText('Legend:', margin.left, legendY);
 
-            // Cluster labels
+            // Mutation legend
             ctx.fillStyle = '#7c3aed';
-            ctx.font = '9px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText('Cluster 1', margin.left + 365 * xScale, margin.top + height + 38);
-            ctx.fillText('(5 mut)', margin.left + 365 * xScale, margin.top + height + 48);
-            ctx.fillText('Cluster 2', margin.left + 515 * xScale, margin.top + height + 38);
-            ctx.fillText('(3 mut)', margin.left + 515 * xScale, margin.top + height + 48);
+            ctx.beginPath();
+            ctx.arc(margin.left + 60, legendY - 3, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#374151';
+            ctx.font = '10px sans-serif';
+            ctx.fillText('Mutation (8 total)', margin.left + 70, legendY);
+
+            // CENP-B box legends
+            let legendX = margin.left + 180;
+            ctx.fillText('CENP-B boxes:', legendX, legendY);
+            legendX += 85;
+
+            for (const box of cenpBoxes) {
+                ctx.fillStyle = box.color;
+                ctx.fillRect(legendX, legendY - 8, 14, 10);
+                ctx.strokeStyle = box.color;
+                ctx.lineWidth = 1;
+                ctx.strokeRect(legendX, legendY - 8, 14, 10);
+                ctx.fillStyle = '#374151';
+                ctx.fillText(`${box.start}-${box.end} (${box.mm}mm)`, legendX + 18, legendY);
+                legendX += 100;
+            }
+
+            // Second legend row - sequences
+            const legendY2 = legendY + 18;
+            ctx.font = '9px monospace';
+            ctx.fillStyle = '#6b7280';
+            ctx.textAlign = 'left';
+            ctx.fillText('CENP-B consensus: CTTCGTTGGAAGCGGGA / CTTCGTTGGAAACGGGA', margin.left + 60, legendY2);
         }
 
         // Render on page load
