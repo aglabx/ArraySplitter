@@ -1673,6 +1673,375 @@
         }
         </script>
 
+        <!-- Step 8.3: CENP-B Box Analysis -->
+        <div class="card">
+            <h2><span class="step-number">8.3</span> CENP-B Box Motif Analysis</h2>
+            <p>Edit distance (ED) heatmap showing similarity to the CENP-B box motif across both consensus sequences.</p>
+
+            <div style="background: #fef3c7; padding: 1rem; border-radius: 8px; margin: 1rem 0; border-left: 4px solid #f59e0b;">
+                <strong style="color: #92400e;">CENP-B Box Motif (Bird variant):</strong>
+                <div style="font-family: monospace; font-size: 1.1rem; margin-top: 0.5rem; letter-spacing: 2px;">
+                    <span style="color: #7c3aed;">Y</span>TTCGTTGGAA<span style="color: #7c3aed;">R</span>CGGGA
+                </div>
+                <div style="font-size: 0.8rem; color: #78716c; margin-top: 0.5rem;">
+                    <span style="color: #7c3aed;">Y</span> = C or T (pyrimidine),
+                    <span style="color: #7c3aed;">R</span> = A or G (purine) |
+                    Length: 17 bp
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 1rem; align-items: center; margin: 1rem 0; flex-wrap: wrap;">
+                <label style="font-size: 0.9rem; color: #374151;">
+                    Color scale max ED:
+                    <select id="cenpbMaxED" onchange="renderCenpbHeatmap()" style="padding: 0.3rem 0.5rem; border: 1px solid #d1d5db; border-radius: 4px;">
+                        <option value="8">8 (strict)</option>
+                        <option value="10" selected>10 (balanced)</option>
+                        <option value="12">12 (relaxed)</option>
+                        <option value="17">17 (full range)</option>
+                    </select>
+                </label>
+                <label style="font-size: 0.9rem; color: #374151;">
+                    <input type="checkbox" id="cenpbShowBest" onchange="renderCenpbHeatmap()" checked>
+                    Mark best matches
+                </label>
+            </div>
+
+            <!-- Heatmap container -->
+            <div style="overflow-x: auto;">
+                <canvas id="cenpbCanvas" width="900" height="280" style="border: 1px solid #e5e7eb; border-radius: 8px; background: white;"></canvas>
+            </div>
+
+            <div id="cenpbStats" style="margin-top: 1rem; padding: 1rem; background: #f8fafc; border-radius: 8px; font-size: 0.85rem;">
+                <!-- Stats will be populated by JS -->
+            </div>
+
+            <!-- Best matches table -->
+            <div style="margin-top: 1rem;">
+                <h4 style="font-size: 0.95rem; color: #374151; margin-bottom: 0.75rem;">Top CENP-B Box Matches</h4>
+                <div id="cenpbMatchesTable" style="overflow-x: auto;">
+                    <!-- Table will be populated by JS -->
+                </div>
+            </div>
+
+            <div style="background: #ecfdf5; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #10b981;">
+                <strong style="color: #065f46;">Interpretation:</strong>
+                <ul style="margin: 0.5rem 0 0 1.25rem; color: #047857; font-size: 0.85rem;">
+                    <li><strong>ED = 0:</strong> Perfect match to CENP-B box</li>
+                    <li><strong>ED ≤ 3:</strong> Strong similarity (likely functional)</li>
+                    <li><strong>ED 4-6:</strong> Moderate similarity (possible degenerate site)</li>
+                    <li><strong>ED > 6:</strong> Weak or no similarity</li>
+                    <li>CENP-B box typically occurs once per ~170bp monomer in human centromeres</li>
+                </ul>
+            </div>
+        </div>
+
+        <script>
+        // CENP-B Box Analysis
+        const CENPB_BOX = "YTTCGTTGGAARCGGGA";  // Y=C/T, R=A/G
+
+        // Expand degenerate bases to all possibilities
+        function expandDegenerateBases(motif) {
+            const codes = {
+                'Y': ['C', 'T'],
+                'R': ['A', 'G'],
+                'M': ['A', 'C'],
+                'K': ['G', 'T'],
+                'S': ['G', 'C'],
+                'W': ['A', 'T'],
+                'H': ['A', 'C', 'T'],
+                'B': ['G', 'T', 'C'],
+                'V': ['G', 'A', 'C'],
+                'D': ['G', 'A', 'T'],
+                'N': ['A', 'T', 'G', 'C']
+            };
+
+            let sequences = [''];
+            for (const base of motif) {
+                const options = codes[base] || [base];
+                const newSeqs = [];
+                for (const seq of sequences) {
+                    for (const opt of options) {
+                        newSeqs.push(seq + opt);
+                    }
+                }
+                sequences = newSeqs;
+            }
+            return sequences;
+        }
+
+        // Calculate edit distance between two strings
+        function editDistance(s1, s2) {
+            const m = s1.length, n = s2.length;
+            const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+            for (let i = 0; i <= m; i++) dp[i][0] = i;
+            for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+            for (let i = 1; i <= m; i++) {
+                for (let j = 1; j <= n; j++) {
+                    if (s1[i-1] === s2[j-1]) {
+                        dp[i][j] = dp[i-1][j-1];
+                    } else {
+                        dp[i][j] = 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+                    }
+                }
+            }
+            return dp[m][n];
+        }
+
+        // Calculate minimum ED considering degenerate bases
+        function minEditDistanceToCenpb(subseq, cenpbVariants) {
+            let minED = Infinity;
+            for (const variant of cenpbVariants) {
+                const ed = editDistance(subseq, variant);
+                if (ed < minED) minED = ed;
+            }
+            return minED;
+        }
+
+        // Calculate ED profile for a sequence
+        function calculateEDProfile(seq, cenpbVariants, windowSize) {
+            const profile = [];
+            for (let i = 0; i <= seq.length - windowSize; i++) {
+                const subseq = seq.substring(i, i + windowSize);
+                const ed = minEditDistanceToCenpb(subseq, cenpbVariants);
+                profile.push({ pos: i, ed: ed, subseq: subseq });
+            }
+            return profile;
+        }
+
+        function renderCenpbHeatmap() {
+            const canvas = document.getElementById('cenpbCanvas');
+            const ctx = canvas.getContext('2d');
+            const maxED = parseInt(document.getElementById('cenpbMaxED').value);
+            const showBest = document.getElementById('cenpbShowBest').checked;
+
+            const windowSize = CENPB_BOX.length;  // 17
+            const cenpbVariants = expandDegenerateBases(CENPB_BOX);
+
+            // Calculate ED profiles
+            const profile717 = calculateEDProfile(seq717, cenpbVariants, windowSize);
+            const profile696 = calculateEDProfile(seq696, cenpbVariants, windowSize);
+
+            // Canvas setup
+            const margin = { top: 40, right: 80, bottom: 50, left: 60 };
+            const width = canvas.width - margin.left - margin.right;
+            const height = canvas.height - margin.top - margin.bottom;
+            const rowHeight = height / 2 - 10;
+
+            // Clear canvas
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Color scale function (green = low ED, red = high ED)
+            function getColor(ed) {
+                const ratio = Math.min(ed / maxED, 1);
+                if (ratio < 0.3) {
+                    // Green to yellow
+                    const r = Math.round(255 * (ratio / 0.3));
+                    return `rgb(${r}, 200, 50)`;
+                } else if (ratio < 0.6) {
+                    // Yellow to orange
+                    const g = Math.round(200 - 100 * ((ratio - 0.3) / 0.3));
+                    return `rgb(255, ${g}, 50)`;
+                } else {
+                    // Orange to red
+                    const g = Math.round(100 - 100 * ((ratio - 0.6) / 0.4));
+                    return `rgb(255, ${Math.max(0, g)}, 50)`;
+                }
+            }
+
+            // Draw heatmap for 717bp
+            const xScale717 = width / profile717.length;
+            ctx.fillStyle = '#166534';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText('717bp', margin.left - 10, margin.top + rowHeight / 2 + 4);
+
+            for (let i = 0; i < profile717.length; i++) {
+                const x = margin.left + i * xScale717;
+                const ed = profile717[i].ed;
+                ctx.fillStyle = getColor(ed);
+                ctx.fillRect(x, margin.top, Math.max(2, xScale717 + 0.5), rowHeight);
+            }
+
+            // Draw heatmap for 696bp
+            const xScale696 = width / profile696.length;
+            ctx.fillStyle = '#1e40af';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText('696bp', margin.left - 10, margin.top + rowHeight + 20 + rowHeight / 2 + 4);
+
+            for (let i = 0; i < profile696.length; i++) {
+                const x = margin.left + i * xScale696;
+                const ed = profile696[i].ed;
+                ctx.fillStyle = getColor(ed);
+                ctx.fillRect(x, margin.top + rowHeight + 20, Math.max(2, xScale696 + 0.5), rowHeight);
+            }
+
+            // Find and mark best matches
+            const best717 = [...profile717].sort((a, b) => a.ed - b.ed).slice(0, 3);
+            const best696 = [...profile696].sort((a, b) => a.ed - b.ed).slice(0, 3);
+
+            if (showBest) {
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 2;
+
+                // Mark best 717bp matches
+                for (const match of best717) {
+                    const x = margin.left + match.pos * xScale717;
+                    ctx.strokeRect(x - 1, margin.top - 2, windowSize * xScale717 + 2, rowHeight + 4);
+                }
+
+                // Mark best 696bp matches
+                for (const match of best696) {
+                    const x = margin.left + match.pos * xScale696;
+                    ctx.strokeRect(x - 1, margin.top + rowHeight + 18, windowSize * xScale696 + 2, rowHeight + 4);
+                }
+            }
+
+            // Draw axes
+            ctx.strokeStyle = '#374151';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(margin.left, margin.top + height + 10);
+            ctx.lineTo(margin.left + width, margin.top + height + 10);
+            ctx.stroke();
+
+            // X-axis ticks
+            ctx.fillStyle = '#374151';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center';
+            for (let i = 0; i <= 700; i += 100) {
+                const x717 = margin.left + (i / seq717.length) * width;
+                ctx.beginPath();
+                ctx.moveTo(x717, margin.top + height + 10);
+                ctx.lineTo(x717, margin.top + height + 15);
+                ctx.stroke();
+                ctx.fillText(i.toString(), x717, margin.top + height + 25);
+            }
+
+            ctx.font = '11px sans-serif';
+            ctx.fillText('Position (bp)', margin.left + width / 2, margin.top + height + 40);
+
+            // Draw color legend
+            const legendX = margin.left + width + 10;
+            const legendY = margin.top;
+            const legendHeight = height;
+            const legendWidth = 15;
+
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#374151';
+            ctx.fillText('ED', legendX + legendWidth + 5, legendY + 4);
+
+            for (let i = 0; i <= maxED; i++) {
+                const y = legendY + (i / maxED) * legendHeight;
+                ctx.fillStyle = getColor(i);
+                ctx.fillRect(legendX, y, legendWidth, legendHeight / maxED + 1);
+            }
+
+            // Legend labels
+            ctx.fillStyle = '#374151';
+            ctx.textAlign = 'left';
+            ctx.fillText('0', legendX + legendWidth + 5, legendY + 14);
+            ctx.fillText(Math.round(maxED / 2).toString(), legendX + legendWidth + 5, legendY + legendHeight / 2 + 4);
+            ctx.fillText(maxED.toString(), legendX + legendWidth + 5, legendY + legendHeight + 4);
+
+            // Update stats
+            const statsEl = document.getElementById('cenpbStats');
+            const minED717 = Math.min(...profile717.map(p => p.ed));
+            const minED696 = Math.min(...profile696.map(p => p.ed));
+            const avgED717 = (profile717.reduce((s, p) => s + p.ed, 0) / profile717.length).toFixed(1);
+            const avgED696 = (profile696.reduce((s, p) => s + p.ed, 0) / profile696.length).toFixed(1);
+
+            statsEl.innerHTML = `
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+                    <div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">CENP-B Box Length</div>
+                        <div style="font-size: 1.25rem; font-weight: bold; color: #374151;">${windowSize} bp</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">Min ED (717bp)</div>
+                        <div style="font-size: 1.25rem; font-weight: bold; color: #166534;">${minED717}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">Min ED (696bp)</div>
+                        <div style="font-size: 1.25rem; font-weight: bold; color: #1e40af;">${minED696}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">Avg ED (717bp)</div>
+                        <div style="font-size: 1.25rem; font-weight: bold; color: #166534;">${avgED717}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">Avg ED (696bp)</div>
+                        <div style="font-size: 1.25rem; font-weight: bold; color: #1e40af;">${avgED696}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">Variants checked</div>
+                        <div style="font-size: 1.25rem; font-weight: bold; color: #7c3aed;">${cenpbVariants.length}</div>
+                    </div>
+                </div>
+            `;
+
+            // Build matches table
+            const tableEl = document.getElementById('cenpbMatchesTable');
+            const allMatches = [
+                ...best717.map(m => ({ ...m, seq: '717bp', seqRef: seq717 })),
+                ...best696.map(m => ({ ...m, seq: '696bp', seqRef: seq696 }))
+            ].sort((a, b) => a.ed - b.ed);
+
+            let tableHTML = `
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                    <tr style="background: #f1f5f9;">
+                        <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #cbd5e1;">Sequence</th>
+                        <th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #cbd5e1;">Position</th>
+                        <th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #cbd5e1;">ED</th>
+                        <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #cbd5e1;">Matched Region</th>
+                        <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #cbd5e1;">Alignment</th>
+                    </tr>
+            `;
+
+            for (const match of allMatches) {
+                const color = match.seq === '717bp' ? '#166534' : '#1e40af';
+                const bgColor = match.ed <= 3 ? '#ecfdf5' : (match.ed <= 6 ? '#fefce8' : '#ffffff');
+
+                // Create alignment display
+                const bestVariant = cenpbVariants.reduce((best, v) =>
+                    editDistance(match.subseq, v) < editDistance(match.subseq, best) ? v : best
+                );
+
+                let alignmentHTML = '';
+                for (let i = 0; i < match.subseq.length; i++) {
+                    const isMatch = match.subseq[i] === bestVariant[i];
+                    alignmentHTML += `<span style="color: ${isMatch ? '#166534' : '#dc2626'}; font-weight: ${isMatch ? 'normal' : 'bold'};">${match.subseq[i]}</span>`;
+                }
+
+                tableHTML += `
+                    <tr style="background: ${bgColor};">
+                        <td style="padding: 0.4rem; color: ${color}; font-weight: 600;">${match.seq}</td>
+                        <td style="padding: 0.4rem; text-align: center;">${match.pos + 1}-${match.pos + windowSize}</td>
+                        <td style="padding: 0.4rem; text-align: center; font-weight: bold; color: ${match.ed <= 3 ? '#166534' : (match.ed <= 6 ? '#ca8a04' : '#dc2626')};">${match.ed}</td>
+                        <td style="padding: 0.4rem; font-family: monospace; font-size: 0.8rem;">${alignmentHTML}</td>
+                        <td style="padding: 0.4rem; font-family: monospace; font-size: 0.75rem; color: #6b7280;">${bestVariant}</td>
+                    </tr>
+                `;
+            }
+
+            tableHTML += '</table>';
+            tableEl.innerHTML = tableHTML;
+        }
+
+        // Render CENP-B heatmap on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            renderCenpbHeatmap();
+        });
+
+        if (document.readyState !== 'loading') {
+            renderCenpbHeatmap();
+        }
+        </script>
+
         <script>
         function copySeq717(btn) {
             const seq = document.getElementById('seq717').textContent;
