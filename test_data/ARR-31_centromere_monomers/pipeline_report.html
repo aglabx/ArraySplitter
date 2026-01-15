@@ -2190,6 +2190,450 @@
             </div>
         </div>
 
+        <!-- ========================================== -->
+        <!-- SECTION 9: FLANKING REPEATS ANALYSIS -->
+        <!-- ========================================== -->
+
+        <div style="margin-top: 3rem; padding-top: 2rem; border-top: 3px solid #0369a1;">
+            <h2 style="color: #0369a1; font-size: 1.5rem; margin-bottom: 0.5rem;">Section 9: Flanking 716bp Repeat Analysis</h2>
+            <p style="color: #64748b; margin-bottom: 1.5rem;">Same repeat family analysis for non-CDR (flanking) regions - comparing consensus with CDR.</p>
+        </div>
+
+        <!-- Step 9.1: Decomposition -->
+        <div class="card">
+            <h2><span class="step-number">9.1</span> Decomposition of Flanking Repeats</h2>
+            <p>Decomposing flanking 716bp repeat arrays into monomers using ArraySplitter.</p>
+
+            <div class="stats-grid" style="margin: 1.5rem 0;">
+                <div class="stat-card">
+                    <div class="value">162</div>
+                    <div class="label">Input Arrays</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value">20,507</div>
+                    <div class="label">Total Monomers</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value">16,857</div>
+                    <div class="label">690-720bp Monomers</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value">14.2 Mb</div>
+                    <div class="label">Total Sequence Data</div>
+                </div>
+            </div>
+
+            <h4 style="margin: 1.5rem 0 0.75rem 0; color: #374151;">Monomer Length Distribution (690-720bp range)</h4>
+            <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; overflow-x: auto;">
+                <table style="width: 100%; font-size: 0.8rem; border-collapse: collapse;">
+                    <tr style="border-bottom: 2px solid #e2e8f0;">
+                        <th style="text-align: left; padding: 0.5rem;">Length</th>
+                        <th style="text-align: right; padding: 0.5rem;">Count</th>
+                        <th style="text-align: left; padding: 0.5rem; width: 60%;">Distribution</th>
+                    </tr>
+                    <tr style="background: #ecfdf5;">
+                        <td style="padding: 0.4rem; font-weight: 600;">696 bp</td>
+                        <td style="text-align: right; padding: 0.4rem; color: #166534; font-weight: bold;">4,505</td>
+                        <td style="padding: 0.4rem;">
+                            <div style="background: #86efac; height: 20px; width: 26.7%; border-radius: 4px;"></div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0.4rem;">697 bp</td>
+                        <td style="text-align: right; padding: 0.4rem;">916</td>
+                        <td style="padding: 0.4rem;">
+                            <div style="background: #bfdbfe; height: 20px; width: 5.4%; border-radius: 4px;"></div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0.4rem;">715 bp</td>
+                        <td style="text-align: right; padding: 0.4rem;">223</td>
+                        <td style="padding: 0.4rem;">
+                            <div style="background: #bfdbfe; height: 20px; width: 1.3%; border-radius: 4px;"></div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0.4rem;">716 bp</td>
+                        <td style="text-align: right; padding: 0.4rem;">2,474</td>
+                        <td style="padding: 0.4rem;">
+                            <div style="background: #bfdbfe; height: 20px; width: 14.7%; border-radius: 4px;"></div>
+                        </td>
+                    </tr>
+                    <tr style="background: #ecfdf5;">
+                        <td style="padding: 0.4rem; font-weight: 600;">717 bp</td>
+                        <td style="text-align: right; padding: 0.4rem; color: #166534; font-weight: bold;">6,511</td>
+                        <td style="padding: 0.4rem;">
+                            <div style="background: #86efac; height: 20px; width: 38.6%; border-radius: 4px;"></div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0.4rem;">718 bp</td>
+                        <td style="text-align: right; padding: 0.4rem;">594</td>
+                        <td style="padding: 0.4rem;">
+                            <div style="background: #bfdbfe; height: 20px; width: 3.5%; border-radius: 4px;"></div>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+
+            <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #3b82f6;">
+                <strong style="color: #1e40af;">Key Observation:</strong>
+                <span style="color: #1e3a8a;">Same bimodal distribution as CDR: <strong>696bp</strong> and <strong>717bp</strong> peaks confirm identical repeat family.</span>
+            </div>
+
+            <div style="margin-top: 1rem; font-size: 0.8rem; color: #6b7280;">
+                <strong>Files generated:</strong><br>
+                <code>zf_flanking.decomposed.fasta</code> - decomposed arrays<br>
+                <code>zf_flanking.monomers.tsv</code> - monomer details table<br>
+                <code>zf_flanking.monomers.fasta</code> - extracted monomers (690-720bp)
+            </div>
+        </div>
+
+        <!-- Step 9.2: Monomer Refinement -->
+        <div class="card">
+            <h2><span class="step-number">9.2</span> Monomer Refinement</h2>
+            <p>Post-processing to fix merged and fragmented monomers using approximate cut sequence matching.</p>
+
+            <pre style="background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.8rem;"><code>arraysplitter refine -i zf_flanking.monomers.tsv -o zf_flanking.refined.monomers.tsv -v</code></pre>
+
+            <h4 style="margin-top: 1.5rem; font-size: 1rem; color: #374151;">Refinement Results</h4>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
+                <div style="background: #ecfdf5; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.75rem; font-weight: 700; color: #059669;">20,745 → 21,372</div>
+                    <div style="font-size: 0.875rem; color: #065f46;">Rows (input → output)</div>
+                </div>
+                <div style="background: #fee2e2; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.75rem; font-weight: 700; color: #dc2626;">226 → 985</div>
+                    <div style="font-size: 0.875rem; color: #991b1b;">Split merged monomers</div>
+                </div>
+                <div style="background: #fef3c7; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.75rem; font-weight: 700; color: #d97706;">132</div>
+                    <div style="font-size: 0.875rem; color: #92400e;">Merged short fragments</div>
+                </div>
+            </div>
+
+            <p style="margin-top: 1rem; font-size: 0.875rem; color: #64748b;">
+                <strong>Detected cut sequence:</strong> <code style="background: #f1f5f9; padding: 0.2rem 0.5rem; border-radius: 4px;">CAGTGCACGCATCCCG</code><br>
+                <strong>Algorithm:</strong> Searches for approximate matches (≤3 mismatches) in merged monomers to find splitting points.
+                Short neighboring fragments are merged if their combined length matches expected range.
+            </p>
+
+            <div style="margin-top: 1rem; font-size: 0.8rem; color: #6b7280;">
+                <strong>Files generated:</strong><br>
+                <code>zf_flanking.refined.monomers.tsv</code> - refined monomer table<br>
+                <code>zf_flanking.refined.monomers.fasta</code> - refined monomers (16,857 sequences, 690-720bp)
+            </div>
+        </div>
+
+        <!-- Step 9.3: Monomer Rotation -->
+        <div class="card">
+            <h2><span class="step-number">9.3</span> Monomer Rotation</h2>
+            <p>Rotating all monomers to start with the same motif as CDR consensus for direct comparison.</p>
+
+            <pre style="background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.8rem;"><code># Custom rotation script with approximate matching (ED ≤ 5)
+python rotate_monomers.py \
+    zf_flanking.refined.monomers.fasta \
+    zf_flanking.rotated.fasta \
+    CTTCGCCTCTCAGAAG 5</code></pre>
+
+            <div style="background: #f8fafc; padding: 1.25rem; border-radius: 12px; border: 1px solid #e2e8f0; margin: 1rem 0;">
+                <h4 style="margin: 0 0 0.75rem 0; color: #334155;">Rotation Motif (from CDR consensus)</h4>
+                <code style="font-size: 1.1rem; background: #0369a1; color: white; padding: 0.5rem 1rem; border-radius: 6px; display: inline-block;">CTTCGCCTCTCAGAAG</code>
+                <p style="margin: 0.75rem 0 0 0; font-size: 0.85rem; color: #64748b;">
+                    Same 16-mer used for CDR rotation - allows direct sequence comparison between CDR and flanking.
+                </p>
+            </div>
+
+            <h4 style="margin: 1.5rem 0 0.75rem 0; color: #374151;">Rotation Results</h4>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+                <div style="background: #ecfdf5; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.75rem; font-weight: 700; color: #059669;">16,857</div>
+                    <div style="font-size: 0.8rem; color: #065f46;">Total rotated</div>
+                </div>
+                <div style="background: #dbeafe; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.75rem; font-weight: 700; color: #2563eb;">14,124</div>
+                    <div style="font-size: 0.8rem; color: #1e40af;">Exact match (ED=0)</div>
+                </div>
+                <div style="background: #fef3c7; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.75rem; font-weight: 700; color: #d97706;">2,733</div>
+                    <div style="font-size: 0.8rem; color: #92400e;">With mismatches (ED 1-4)</div>
+                </div>
+                <div style="background: #f3e8ff; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.75rem; font-weight: 700; color: #7c3aed;">16,855 / 2</div>
+                    <div style="font-size: 0.8rem; color: #6b21a8;">Forward / Reverse</div>
+                </div>
+            </div>
+
+            <h4 style="margin: 1.5rem 0 0.75rem 0; color: #374151;">Edit Distance Distribution</h4>
+            <table style="width: 100%; font-size: 0.85rem; border-collapse: collapse;">
+                <tr style="border-bottom: 2px solid #e2e8f0;">
+                    <th style="text-align: left; padding: 0.5rem;">Edit Distance</th>
+                    <th style="text-align: right; padding: 0.5rem;">Count</th>
+                    <th style="text-align: right; padding: 0.5rem;">Percentage</th>
+                </tr>
+                <tr style="background: #ecfdf5;">
+                    <td style="padding: 0.4rem;"><strong>ED = 0</strong> (exact)</td>
+                    <td style="text-align: right; padding: 0.4rem; font-weight: bold;">14,124</td>
+                    <td style="text-align: right; padding: 0.4rem; color: #059669;">83.8%</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.4rem;">ED = 1</td>
+                    <td style="text-align: right; padding: 0.4rem;">2,304</td>
+                    <td style="text-align: right; padding: 0.4rem;">13.7%</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.4rem;">ED = 2</td>
+                    <td style="text-align: right; padding: 0.4rem;">397</td>
+                    <td style="text-align: right; padding: 0.4rem;">2.4%</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.4rem;">ED = 3-4</td>
+                    <td style="text-align: right; padding: 0.4rem;">32</td>
+                    <td style="text-align: right; padding: 0.4rem;">0.2%</td>
+                </tr>
+            </table>
+
+            <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #3b82f6;">
+                <strong style="color: #1e40af;">Key Finding:</strong>
+                <span style="color: #1e3a8a;"><strong>83.8%</strong> exact motif match confirms flanking repeats share the same rotation anchor as CDR.</span>
+            </div>
+
+            <div style="margin-top: 1rem; font-size: 0.8rem; color: #6b7280;">
+                <strong>File generated:</strong> <code>zf_flanking.rotated.fasta</code> - rotated monomers ready for alignment
+            </div>
+        </div>
+
+        <!-- Step 9.4: MAFFT Alignment -->
+        <div class="card">
+            <h2><span class="step-number">9.4</span> Multiple Sequence Alignment (MAFFT)</h2>
+            <p>Aligned monomers using MAFFT v7.490 with <code class="inline-code">--auto --thread 100</code> on server.</p>
+
+            <pre style="background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.8rem;"><code># On server with 100 threads
+mafft --auto --thread 100 zf_flanking.msa_717.fasta > zf_flanking.msa_717.aligned.fasta
+mafft --auto --thread 100 zf_flanking.msa_696.fasta > zf_flanking.msa_696.aligned.fasta</code></pre>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1rem;">
+                <!-- 717bp group -->
+                <div style="background: #f0fdf4; padding: 1.25rem; border-radius: 12px; border: 2px solid #86efac;">
+                    <h3 style="font-size: 1.1rem; color: #166534; margin-bottom: 1rem;">717 bp Group (Flanking)</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                        <div>
+                            <div style="font-size: 0.75rem; color: #15803d;">Sequences</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">6,511</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #15803d;">Alignment length</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">837 bp</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #15803d;">Pairwise identity</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">94.2%</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #15803d;">Conserved (>90%)</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">93.5%</div>
+                        </div>
+                    </div>
+                    <p style="margin-top: 1rem; font-size: 0.8rem; color: #15803d;">
+                        Output: <code class="inline-code">zf_flanking.msa_717.aligned.fasta</code>
+                    </p>
+                </div>
+
+                <!-- 696bp group -->
+                <div style="background: #eff6ff; padding: 1.25rem; border-radius: 12px; border: 2px solid #93c5fd;">
+                    <h3 style="font-size: 1.1rem; color: #1e40af; margin-bottom: 1rem;">696 bp Group (Flanking)</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                        <div>
+                            <div style="font-size: 0.75rem; color: #1d4ed8;">Sequences</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #1e40af;">4,505</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #1d4ed8;">Alignment length</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #1e40af;">902 bp</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #1d4ed8;">Pairwise identity</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #1e40af;">93.9%</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #1d4ed8;">Conserved (>90%)</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #1e40af;">94.6%</div>
+                        </div>
+                    </div>
+                    <p style="margin-top: 1rem; font-size: 0.8rem; color: #1d4ed8;">
+                        Output: <code class="inline-code">zf_flanking.msa_696.aligned.fasta</code>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Comparison with CDR -->
+            <div style="background: #fef3c7; padding: 1rem; border-radius: 8px; margin-top: 1.5rem; border-left: 4px solid #f59e0b;">
+                <strong style="color: #92400e;">Comparison with CDR:</strong>
+                <table style="width: 100%; margin-top: 0.75rem; font-size: 0.85rem; border-collapse: collapse;">
+                    <tr style="border-bottom: 2px solid #fcd34d;">
+                        <th style="text-align: left; padding: 0.4rem;">Metric</th>
+                        <th style="text-align: center; padding: 0.4rem;">CDR 717bp</th>
+                        <th style="text-align: center; padding: 0.4rem;">Flanking 717bp</th>
+                        <th style="text-align: center; padding: 0.4rem;">CDR 696bp</th>
+                        <th style="text-align: center; padding: 0.4rem;">Flanking 696bp</th>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0.4rem;">Sequences</td>
+                        <td style="text-align: center; padding: 0.4rem;">1,274</td>
+                        <td style="text-align: center; padding: 0.4rem; font-weight: bold; color: #166534;">6,511</td>
+                        <td style="text-align: center; padding: 0.4rem;">921</td>
+                        <td style="text-align: center; padding: 0.4rem; font-weight: bold; color: #1e40af;">4,505</td>
+                    </tr>
+                    <tr style="background: #fefce8;">
+                        <td style="padding: 0.4rem;">Pairwise identity</td>
+                        <td style="text-align: center; padding: 0.4rem;">92.2%</td>
+                        <td style="text-align: center; padding: 0.4rem; font-weight: bold;">94.2%</td>
+                        <td style="text-align: center; padding: 0.4rem;">93.3%</td>
+                        <td style="text-align: center; padding: 0.4rem; font-weight: bold;">93.9%</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0.4rem;">Conserved (>90%)</td>
+                        <td style="text-align: center; padding: 0.4rem;">90.5%</td>
+                        <td style="text-align: center; padding: 0.4rem; font-weight: bold;">93.5%</td>
+                        <td style="text-align: center; padding: 0.4rem;">93.0%</td>
+                        <td style="text-align: center; padding: 0.4rem; font-weight: bold;">94.6%</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div style="background: #ecfdf5; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #10b981;">
+                <strong style="color: #065f46;">Key observation:</strong>
+                <span style="color: #047857;">Flanking repeats show <strong>higher conservation</strong> than CDR (94% vs 92-93%), suggesting CDR may have more sequence diversity.</span>
+            </div>
+        </div>
+
+        <!-- Step 9.5: MSA Refinement -->
+        <div class="card">
+            <h2><span class="step-number">9.5</span> MSA Refinement (Remove Rare Indels)</h2>
+            <p>Identified and removed sequences containing rare indels (frequency &lt;5%) to improve alignment quality.</p>
+
+            <pre style="background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.8rem;"><code>arraysplitter msa_refine -i zf_flanking.msa_717.aligned.fasta -o zf_flanking.msa_717_refined -v
+arraysplitter msa_refine -i zf_flanking.msa_696.aligned.fasta -o zf_flanking.msa_696_refined -v</code></pre>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1rem;">
+                <!-- 717bp group refinement -->
+                <div style="background: #f0fdf4; padding: 1.25rem; border-radius: 12px; border: 2px solid #86efac;">
+                    <h3 style="font-size: 1.1rem; color: #166534; margin-bottom: 1rem;">717 bp Group Refinement</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                        <div>
+                            <div style="font-size: 0.75rem; color: #15803d;">Input sequences</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">6,511</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #15803d;">Clean sequences</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #059669;">6,263</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #15803d;">Removed</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #dc2626;">248 (3.8%)</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #15803d;">Gap columns removed</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">120</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid #86efac;">
+                        <div style="font-size: 0.75rem; color: #15803d; margin-bottom: 0.25rem;">Indel patterns</div>
+                        <div style="font-size: 0.9rem; color: #166534;">
+                            <strong>66</strong> total, <strong>42</strong> rare (&lt;5%)
+                        </div>
+                    </div>
+                    <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #86efac;">
+                        <div style="font-size: 0.75rem; color: #15803d;">Final alignment</div>
+                        <div style="font-size: 0.9rem; color: #166534;">
+                            717 bp, 93.7% identity, 0% gaps
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 696bp group refinement -->
+                <div style="background: #eff6ff; padding: 1.25rem; border-radius: 12px; border: 2px solid #93c5fd;">
+                    <h3 style="font-size: 1.1rem; color: #1e40af; margin-bottom: 1rem;">696 bp Group Refinement</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                        <div>
+                            <div style="font-size: 0.75rem; color: #1d4ed8;">Input sequences</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #1e40af;">4,505</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #1d4ed8;">Clean sequences</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #059669;">4,385</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #1d4ed8;">Removed</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #dc2626;">120 (2.7%)</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #1d4ed8;">Gap columns removed</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #1e40af;">206</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid #93c5fd;">
+                        <div style="font-size: 0.75rem; color: #1d4ed8; margin-bottom: 0.25rem;">Indel patterns</div>
+                        <div style="font-size: 0.9rem; color: #1e40af;">
+                            <strong>38</strong> total, <strong>24</strong> rare (&lt;5%)
+                        </div>
+                    </div>
+                    <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #93c5fd;">
+                        <div style="font-size: 0.75rem; color: #1d4ed8;">Final alignment</div>
+                        <div style="font-size: 0.9rem; color: #1e40af;">
+                            696 bp, 93.8% identity, 0% gaps
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Comparison with CDR -->
+            <div style="background: #fef3c7; padding: 1rem; border-radius: 8px; margin-top: 1.5rem; border-left: 4px solid #f59e0b;">
+                <strong style="color: #92400e;">Comparison with CDR MSA Refinement:</strong>
+                <table style="width: 100%; margin-top: 0.75rem; font-size: 0.85rem; border-collapse: collapse;">
+                    <tr style="border-bottom: 2px solid #fcd34d;">
+                        <th style="text-align: left; padding: 0.4rem;">Metric</th>
+                        <th style="text-align: center; padding: 0.4rem;">CDR 717bp</th>
+                        <th style="text-align: center; padding: 0.4rem;">Flanking 717bp</th>
+                        <th style="text-align: center; padding: 0.4rem;">CDR 696bp</th>
+                        <th style="text-align: center; padding: 0.4rem;">Flanking 696bp</th>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0.4rem;">Sequences removed</td>
+                        <td style="text-align: center; padding: 0.4rem; color: #dc2626;">425 (33.4%)</td>
+                        <td style="text-align: center; padding: 0.4rem; font-weight: bold; color: #059669;">248 (3.8%)</td>
+                        <td style="text-align: center; padding: 0.4rem; color: #dc2626;">285 (31.0%)</td>
+                        <td style="text-align: center; padding: 0.4rem; font-weight: bold; color: #059669;">120 (2.7%)</td>
+                    </tr>
+                    <tr style="background: #fefce8;">
+                        <td style="padding: 0.4rem;">Indel patterns</td>
+                        <td style="text-align: center; padding: 0.4rem;">101 (79 rare)</td>
+                        <td style="text-align: center; padding: 0.4rem; font-weight: bold;">66 (42 rare)</td>
+                        <td style="text-align: center; padding: 0.4rem;">91 (68 rare)</td>
+                        <td style="text-align: center; padding: 0.4rem; font-weight: bold;">38 (24 rare)</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0.4rem;">Clean sequences</td>
+                        <td style="text-align: center; padding: 0.4rem;">849</td>
+                        <td style="text-align: center; padding: 0.4rem; font-weight: bold;">6,263</td>
+                        <td style="text-align: center; padding: 0.4rem;">636</td>
+                        <td style="text-align: center; padding: 0.4rem; font-weight: bold;">4,385</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div style="background: #ecfdf5; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #10b981;">
+                <strong style="color: #065f46;">Key finding:</strong>
+                <span style="color: #047857;">Flanking sequences are <strong>much more homogeneous</strong> than CDR - only 2.7-3.8% removed vs 31-33% in CDR. This supports the hypothesis that CDR regions accumulate more diversity.</span>
+            </div>
+
+            <p style="margin-top: 1rem; font-size: 0.85rem; color: #6b7280;">
+                Output files:<br>
+                717bp: <code class="inline-code">zf_flanking.msa_717_refined.clean.fasta</code>, <code class="inline-code">*.removed.fasta</code>, <code class="inline-code">*.indel_stats.tsv</code><br>
+                696bp: <code class="inline-code">zf_flanking.msa_696_refined.clean.fasta</code>, <code class="inline-code">*.removed.fasta</code>, <code class="inline-code">*.indel_stats.tsv</code>
+            </p>
+        </div>
+
         <script>
         function copySeq717(btn) {
             const seq = document.getElementById('seq717').textContent;
@@ -2870,7 +3314,13 @@ python -m ArraySplitter.monomer_rotation -i input.fa -o output.fa -k CTTCGCCTCTC
             <pre><code>mafft --auto --thread 100 zf_cdr.msa_717_hq.fasta 2>/dev/null > zf_cdr.msa_717_hq.aligned.fasta
 mafft --auto --thread 100 zf_cdr.msa_696_hq.fasta 2>/dev/null > zf_cdr.msa_696_hq.aligned.fasta</code></pre>
 
-            <h3 style="font-size: 0.875rem; color: var(--text-muted); margin-top: 1rem;">5. Generate consensus (next step)</h3>
+            <h3 style="font-size: 0.875rem; color: var(--text-muted); margin-top: 1rem;">5. MSA Refinement (Remove Rare Indels)</h3>
+            <pre><code># Remove sequences with rare indels (&lt;5% frequency)
+arraysplitter msa_refine -i aligned.fasta -o refined_output -v
+
+# Output files: *.clean.fasta, *.removed.fasta, *.indel_stats.tsv</code></pre>
+
+            <h3 style="font-size: 0.875rem; color: var(--text-muted); margin-top: 1rem;">6. Generate consensus (next step)</h3>
             <pre><code># Using EMBOSS cons tool
 cons -sequence zf_cdr.msa_717_hq.aligned.fasta -outseq consensus_717.fasta
 cons -sequence zf_cdr.msa_696_hq.aligned.fasta -outseq consensus_696.fasta</code></pre>

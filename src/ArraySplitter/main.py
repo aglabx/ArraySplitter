@@ -31,6 +31,12 @@ Examples:
   # Extract unique monomers
   arraysplitter extract -i decomposed.fa -o monomers
 
+  # Refine decomposition (split merged, join fragments)
+  arraysplitter refine -i decomposed.fa -o refined.fa
+
+  # Refine MSA by removing sequences with rare indels
+  arraysplitter msa_refine -i aligned.fa -o cleaned
+
 For help on specific commands:
   arraysplitter <command> -h
 """
@@ -122,7 +128,51 @@ For help on specific commands:
         type=int,
         default=1
     )
-    
+
+    # Refine command
+    parser_refine = subparsers.add_parser(
+        'refine',
+        help='Refine decomposition: split merged monomers, join fragments'
+    )
+    parser_refine.add_argument("-i", "--input", help="Input .monomers.tsv file", required=True)
+    parser_refine.add_argument("-o", "--output", help="Output .monomers.tsv file (refined)", required=True)
+    parser_refine.add_argument(
+        "-l", "--length",
+        help="Expected monomer length (auto-detected if not specified)",
+        type=int,
+        default=None
+    )
+    parser_refine.add_argument(
+        "-m", "--mismatches",
+        help="Maximum mismatches for cut sequence matching (default: 3)",
+        type=int,
+        default=3
+    )
+    parser_refine.add_argument(
+        "-v", "--verbose",
+        help="Verbose output",
+        action="store_true"
+    )
+
+    # MSA Refine command
+    parser_msa_refine = subparsers.add_parser(
+        'msa_refine',
+        help='Remove sequences with rare indels from MSA'
+    )
+    parser_msa_refine.add_argument("-i", "--input", help="Input aligned FASTA file", required=True)
+    parser_msa_refine.add_argument("-o", "--output", help="Output prefix", required=True)
+    parser_msa_refine.add_argument(
+        "-f", "--min-freq",
+        help="Minimum indel frequency threshold (0-1, default: 0.05 = 5%%)",
+        type=float,
+        default=0.05
+    )
+    parser_msa_refine.add_argument(
+        "-v", "--verbose",
+        help="Verbose output",
+        action="store_true"
+    )
+
     # Parse arguments
     args = parser.parse_args()
     
@@ -178,9 +228,50 @@ For help on specific commands:
     
     elif args.command == 'extract':
         from .extract import main as extract_main
-        
+
         extract_main(args.fasta, args.output, min_tf=args.min)
-    
+
+    elif args.command == 'refine':
+        from .refine import main as refine_main
+        import os
+
+        if not os.path.isfile(args.input):
+            print(f"Error: Input file {args.input} not found")
+            sys.exit(1)
+
+        refine_main(
+            input_tsv=args.input,
+            output_tsv=args.output,
+            expected_length=args.length,
+            max_mismatches=args.mismatches,
+            verbose=args.verbose
+        )
+
+    elif args.command == 'msa_refine':
+        from .msa_refine import refine_msa
+        import os
+
+        if not os.path.isfile(args.input):
+            print(f"Error: Input file {args.input} not found")
+            sys.exit(1)
+
+        output_clean = f"{args.output}.clean.fasta"
+        output_removed = f"{args.output}.removed.fasta"
+        output_stats = f"{args.output}.indel_stats.tsv"
+
+        stats = refine_msa(
+            input_fasta=args.input,
+            output_clean=output_clean,
+            output_removed=output_removed,
+            output_stats=output_stats,
+            min_freq=args.min_freq,
+            verbose=args.verbose
+        )
+
+        print(f"\nRefinement complete:")
+        print(f"  Total: {stats['total']} -> Clean: {stats['clean']}, Removed: {stats['removed']}")
+        print(f"  Indels: {stats['total_indels']} total, {stats['rare_indels']} rare (< {stats['min_freq']*100:.1f}%)")
+
     else:
         print(f"Error: Unknown command '{args.command}'")
         parser.print_help()
