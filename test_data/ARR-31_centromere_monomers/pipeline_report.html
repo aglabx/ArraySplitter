@@ -1,0 +1,2063 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARR-31: Centromere Monomer Extraction Pipeline</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --secondary: #64748b;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 3rem 0;
+            margin-bottom: 2rem;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        header .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        header .badge {
+            display: inline-block;
+            background: rgba(255,255,255,0.2);
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            margin-top: 1rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid var(--border);
+        }
+
+        .card h2 {
+            font-size: 1.25rem;
+            color: var(--primary);
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card h2 .step-number {
+            background: var(--primary);
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .stat-box {
+            background: var(--bg);
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-box .value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .stat-box .label {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+
+        pre {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 0.875rem;
+            margin: 1rem 0;
+        }
+
+        code {
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+        }
+
+        .inline-code {
+            background: var(--bg);
+            padding: 0.125rem 0.375rem;
+            border-radius: 4px;
+            font-size: 0.875rem;
+            color: var(--primary);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            background: var(--bg);
+            font-weight: 600;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            text-transform: uppercase;
+        }
+
+        .progress-bar {
+            background: var(--bg);
+            height: 24px;
+            border-radius: 12px;
+            overflow: hidden;
+            margin: 0.5rem 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary) 0%, var(--success) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 0.5rem;
+            color: white;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .length-dist {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-top: 1rem;
+        }
+
+        .length-bar {
+            flex: 1;
+            min-width: 80px;
+            text-align: center;
+        }
+
+        .length-bar .bar {
+            background: var(--primary);
+            border-radius: 4px 4px 0 0;
+            transition: height 0.3s;
+        }
+
+        .length-bar .label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
+        .file-list {
+            list-style: none;
+        }
+
+        .file-list li {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            background: var(--bg);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+        }
+
+        .file-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--primary);
+            color: white;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 0.75rem;
+        }
+
+        .file-info .name {
+            font-weight: 600;
+        }
+
+        .file-info .desc {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+
+        .next-steps {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            border: 1px solid #f59e0b;
+        }
+
+        .next-steps h2 {
+            color: #92400e;
+        }
+
+        .next-steps ul {
+            list-style: none;
+        }
+
+        .next-steps li {
+            padding: 0.5rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+
+        .next-steps li::before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: #92400e;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        .chromosome-chart {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+            margin-top: 1rem;
+        }
+
+        .chr-box {
+            padding: 0.25rem 0.5rem;
+            background: var(--primary);
+            color: white;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            opacity: 0.8;
+        }
+
+        .chr-box:hover {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Centromere Monomer Extraction Pipeline</h1>
+            <p class="subtitle">Zebra Finch (Taeniopygia guttata) Centromeric DNA Regions Analysis</p>
+            <span class="badge">ARR-31 | ArraySplitter v1.3.0</span>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- CDR Detection Summary -->
+        <div class="card" style="background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border: 1px solid #10b981;">
+            <h2 style="color: #065f46;">CDR Detection Summary</h2>
+            <p>Centromeric DNA Regions (CDR) were detected in the following chromosomes across both haplotypes:</p>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1.5rem;">
+                <div>
+                    <h3 style="font-size: 1rem; color: #065f46; margin-bottom: 0.75rem;">Maternal (MAT) - 35 of 40 chromosomes with CDR</h3>
+                    <div class="chromosome-chart">
+                        <span class="chr-box" style="background: #059669;">chr1</span>
+                        <span class="chr-box" style="background: #059669;">chr1A</span>
+                        <span class="chr-box" style="background: #059669;">chr2</span>
+                        <span class="chr-box" style="background: #059669;">chr3</span>
+                        <span class="chr-box" style="background: #059669;">chr4</span>
+                        <span class="chr-box" style="background: #059669;">chr4A</span>
+                        <span class="chr-box" style="background: #cbd5e1; color: #64748b;">chr5</span>
+                        <span class="chr-box" style="background: #059669;">chr6</span>
+                        <span class="chr-box" style="background: #059669;">chr7</span>
+                        <span class="chr-box" style="background: #059669;">chr8</span>
+                        <span class="chr-box" style="background: #059669;">chr9</span>
+                        <span class="chr-box" style="background: #cbd5e1; color: #64748b;">chr10</span>
+                        <span class="chr-box" style="background: #059669;">chr11</span>
+                        <span class="chr-box" style="background: #059669;">chr12</span>
+                        <span class="chr-box" style="background: #059669;">chr13</span>
+                        <span class="chr-box" style="background: #059669;">chr14</span>
+                        <span class="chr-box" style="background: #cbd5e1; color: #64748b;">chr15</span>
+                        <span class="chr-box" style="background: #059669;">chr16</span>
+                        <span class="chr-box" style="background: #cbd5e1; color: #64748b;">chr17</span>
+                        <span class="chr-box" style="background: #059669;">chr18</span>
+                        <span class="chr-box" style="background: #cbd5e1; color: #64748b;">chr19</span>
+                        <span class="chr-box" style="background: #059669;">chr20</span>
+                        <span class="chr-box" style="background: #059669;">chr21</span>
+                        <span class="chr-box" style="background: #059669;">chr22</span>
+                        <span class="chr-box" style="background: #059669;">chr23</span>
+                        <span class="chr-box" style="background: #059669;">chr24</span>
+                        <span class="chr-box" style="background: #059669;">chr25</span>
+                        <span class="chr-box" style="background: #059669;">chr26</span>
+                        <span class="chr-box" style="background: #059669;">chr27</span>
+                        <span class="chr-box" style="background: #059669;">chr28</span>
+                        <span class="chr-box" style="background: #059669;">chr29</span>
+                        <span class="chr-box" style="background: #059669;">chr30</span>
+                        <span class="chr-box" style="background: #059669;">chr31</span>
+                        <span class="chr-box" style="background: #059669;">chr32</span>
+                        <span class="chr-box" style="background: #059669;">chr33</span>
+                        <span class="chr-box" style="background: #059669;">chr34</span>
+                        <span class="chr-box" style="background: #059669;">chr35</span>
+                        <span class="chr-box" style="background: #059669;">chr36</span>
+                        <span class="chr-box" style="background: #059669;">chr37</span>
+                        <span class="chr-box" style="background: #be185d;">chrW</span>
+                    </div>
+                </div>
+                <div>
+                    <h3 style="font-size: 1rem; color: #065f46; margin-bottom: 0.75rem;">Paternal (PAT) - 34 of 40 chromosomes with CDR</h3>
+                    <div class="chromosome-chart">
+                        <span class="chr-box" style="background: #cbd5e1; color: #64748b;">chr1</span>
+                        <span class="chr-box" style="background: #2563eb;">chr1A</span>
+                        <span class="chr-box" style="background: #2563eb;">chr2</span>
+                        <span class="chr-box" style="background: #2563eb;">chr3</span>
+                        <span class="chr-box" style="background: #2563eb;">chr4</span>
+                        <span class="chr-box" style="background: #2563eb;">chr4A</span>
+                        <span class="chr-box" style="background: #cbd5e1; color: #64748b;">chr5</span>
+                        <span class="chr-box" style="background: #2563eb;">chr6</span>
+                        <span class="chr-box" style="background: #2563eb;">chr7</span>
+                        <span class="chr-box" style="background: #2563eb;">chr8</span>
+                        <span class="chr-box" style="background: #2563eb;">chr9</span>
+                        <span class="chr-box" style="background: #cbd5e1; color: #64748b;">chr10</span>
+                        <span class="chr-box" style="background: #2563eb;">chr11</span>
+                        <span class="chr-box" style="background: #2563eb;">chr12</span>
+                        <span class="chr-box" style="background: #2563eb;">chr13</span>
+                        <span class="chr-box" style="background: #2563eb;">chr14</span>
+                        <span class="chr-box" style="background: #cbd5e1; color: #64748b;">chr15</span>
+                        <span class="chr-box" style="background: #2563eb;">chr16</span>
+                        <span class="chr-box" style="background: #cbd5e1; color: #64748b;">chr17</span>
+                        <span class="chr-box" style="background: #2563eb;">chr18</span>
+                        <span class="chr-box" style="background: #cbd5e1; color: #64748b;">chr19</span>
+                        <span class="chr-box" style="background: #2563eb;">chr20</span>
+                        <span class="chr-box" style="background: #2563eb;">chr21</span>
+                        <span class="chr-box" style="background: #2563eb;">chr22</span>
+                        <span class="chr-box" style="background: #2563eb;">chr23</span>
+                        <span class="chr-box" style="background: #2563eb;">chr24</span>
+                        <span class="chr-box" style="background: #2563eb;">chr25</span>
+                        <span class="chr-box" style="background: #2563eb;">chr26</span>
+                        <span class="chr-box" style="background: #2563eb;">chr27</span>
+                        <span class="chr-box" style="background: #2563eb;">chr28</span>
+                        <span class="chr-box" style="background: #2563eb;">chr29</span>
+                        <span class="chr-box" style="background: #2563eb;">chr30</span>
+                        <span class="chr-box" style="background: #2563eb;">chr31</span>
+                        <span class="chr-box" style="background: #2563eb;">chr32</span>
+                        <span class="chr-box" style="background: #2563eb;">chr33</span>
+                        <span class="chr-box" style="background: #2563eb;">chr34</span>
+                        <span class="chr-box" style="background: #2563eb;">chr35</span>
+                        <span class="chr-box" style="background: #2563eb;">chr36</span>
+                        <span class="chr-box" style="background: #2563eb;">chr37</span>
+                        <span class="chr-box" style="background: #be185d;">chrZ</span>
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(255,255,255,0.7); border-radius: 8px;">
+                <p style="font-size: 0.875rem; margin: 0;">
+                    <strong>Key observations:</strong><br>
+                    &bull; <strong>chr1</strong> has CDR only in MAT (missing in PAT)<br>
+                    &bull; <strong>chrW</strong> (female sex chromosome) - present only in MAT<br>
+                    &bull; <strong>chrZ</strong> (male sex chromosome) - present only in PAT<br>
+                    &bull; <strong>chr5, chr10, chr15, chr17, chr19</strong> - no CDR detected in either haplotype
+                </p>
+            </div>
+        </div>
+
+        <!-- Overview -->
+        <div class="card">
+            <h2>Pipeline Overview</h2>
+            <p>This pipeline extracts and aligns monomers from centromeric satellite DNA arrays for phylogenetic analysis.
+            The workflow uses ArraySplitter to decompose tandem repeat arrays into individual monomer units,
+            then rotates them to a common starting position for multiple sequence alignment.</p>
+
+            <div class="stats-grid" style="margin-top: 1.5rem;">
+                <div class="stat-box">
+                    <div class="value">69</div>
+                    <div class="label">Input Arrays</div>
+                </div>
+                <div class="stat-box">
+                    <div class="value">2,373</div>
+                    <div class="label">Monomers Extracted</div>
+                </div>
+                <div class="stat-box">
+                    <div class="value">~717 bp</div>
+                    <div class="label">Modal Monomer Length</div>
+                </div>
+                <div class="stat-box">
+                    <div class="value">1.8 MB</div>
+                    <div class="label">Total Sequence Data</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 1: Input -->
+        <div class="card">
+            <h2><span class="step-number">1</span> Input Data</h2>
+            <p>Centromeric DNA regions (CDR) from Zebra Finch T2T genome assembly.</p>
+
+            <table>
+                <tr>
+                    <th>Parameter</th>
+                    <th>Value</th>
+                </tr>
+                <tr>
+                    <td>Input File</td>
+                    <td><code class="inline-code">716.cdr.fasta</code></td>
+                </tr>
+                <tr>
+                    <td>Source</td>
+                    <td>VGP (Vertebrate Genomes Project)</td>
+                </tr>
+                <tr>
+                    <td>Total Sequences</td>
+                    <td>69 centromeric arrays</td>
+                </tr>
+                <tr>
+                    <td>Haplotypes</td>
+                    <td>Maternal (mat) and Paternal (pat)</td>
+                </tr>
+            </table>
+
+            <p style="margin-top: 1rem; color: var(--text-muted); font-size: 0.875rem;">
+                Chromosomes covered: chr1, chr1A, chr3, chr4, chr4A, chr6, chr9, chr11-14, chr16, chr18, chr20-35, chrZ
+            </p>
+        </div>
+
+        <!-- Step 2: Decomposition -->
+        <div class="card">
+            <h2><span class="step-number">2</span> Array Decomposition</h2>
+            <p>ArraySplitter automatically discovers optimal cut sequences using frequency-based suffix tree analysis.</p>
+
+            <pre><code>arraysplitter split -i 716.cdr.fasta -o zf_cdr -v</code></pre>
+
+            <h3 style="margin-top: 1.5rem; font-size: 1rem; color: var(--text);">Fragment Types</h3>
+            <table>
+                <tr>
+                    <th>Type</th>
+                    <th>Count</th>
+                    <th>Description</th>
+                </tr>
+                <tr>
+                    <td>MONOMER</td>
+                    <td><strong>2,373</strong></td>
+                    <td>Complete monomer units</td>
+                </tr>
+                <tr>
+                    <td>LEFT_FLANK</td>
+                    <td>64</td>
+                    <td>Partial monomers at array start</td>
+                </tr>
+                <tr>
+                    <td>RIGHT_FLANK</td>
+                    <td>49</td>
+                    <td>Partial monomers at array end</td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- Step 3: Length Distribution -->
+        <div class="card">
+            <h2><span class="step-number">3</span> Monomer Length Distribution</h2>
+            <p>Two main monomer length classes detected, suggesting potential HOR (Higher Order Repeat) structure.</p>
+
+            <h3 style="margin-top: 1.5rem; font-size: 1rem; color: var(--text);">Primary Length Classes</h3>
+            <table>
+                <tr>
+                    <th>Length (bp)</th>
+                    <th>Count</th>
+                    <th>Frequency</th>
+                </tr>
+                <tr>
+                    <td><strong>717</strong></td>
+                    <td>721</td>
+                    <td>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 30%;">30.4%</div>
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>696</strong></td>
+                    <td>546</td>
+                    <td>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 23%;">23.0%</div>
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td>716</td>
+                    <td>297</td>
+                    <td>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 12.5%;">12.5%</div>
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td>718</td>
+                    <td>98</td>
+                    <td>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 4%;">4.1%</div>
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td>695</td>
+                    <td>97</td>
+                    <td>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 4%;">4.1%</div>
+                        </div>
+                    </td>
+                </tr>
+            </table>
+
+            <h3 style="margin-top: 1.5rem; font-size: 1rem; color: var(--text);">Outlier Categories (requires refinement)</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-top: 1rem;">
+                <div style="background: #ecfdf5; padding: 1rem; border-radius: 8px; border-left: 4px solid #10b981;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #059669;">2,094</div>
+                    <div style="font-size: 0.875rem; color: #065f46;">Normal (690-720 bp)</div>
+                    <div style="font-size: 0.75rem; color: #6b7280;">88.2% - ready for alignment</div>
+                </div>
+                <div style="background: #fef3c7; padding: 1rem; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #d97706;">110</div>
+                    <div style="font-size: 0.875rem; color: #92400e;">Half-monomers (~300-400 bp)</div>
+                    <div style="font-size: 0.75rem; color: #6b7280;">Need to merge with neighbors</div>
+                </div>
+                <div style="background: #fee2e2; padding: 1rem; border-radius: 8px; border-left: 4px solid #ef4444;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #dc2626;">37</div>
+                    <div style="font-size: 0.875rem; color: #991b1b;">Doubled (~1400 bp)</div>
+                    <div style="font-size: 0.75rem; color: #6b7280;">2x monomer, needs splitting</div>
+                </div>
+                <div style="background: #fee2e2; padding: 1rem; border-radius: 8px; border-left: 4px solid #ef4444;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #dc2626;">20</div>
+                    <div style="font-size: 0.875rem; color: #991b1b;">Tripled (~2100 bp)</div>
+                    <div style="font-size: 0.75rem; color: #6b7280;">3x monomer, needs splitting</div>
+                </div>
+                <div style="background: #fae8ff; padding: 1rem; border-radius: 8px; border-left: 4px solid #a855f7;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #9333ea;">24</div>
+                    <div style="font-size: 0.875rem; color: #6b21a8;">Very long (>2500 bp)</div>
+                    <div style="font-size: 0.75rem; color: #6b7280;">4+ monomers merged</div>
+                </div>
+                <div style="background: #e0e7ff; padding: 1rem; border-radius: 8px; border-left: 4px solid #6366f1;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #4f46e5;">48</div>
+                    <div style="font-size: 0.875rem; color: #3730a3;">Other variants</div>
+                    <div style="font-size: 0.75rem; color: #6b7280;">~670bp, ~740bp classes</div>
+                </div>
+            </div>
+
+            <p style="margin-top: 1.5rem; font-size: 0.875rem; color: var(--text-muted);">
+                <strong>Note:</strong> The ~717bp monomer length is characteristic for avian centromeric satellites.
+                Unlike human alpha-satellite (~171bp), bird centromeres have longer repeat units as expected.
+                <br><br>
+                <strong>Refinement needed:</strong> 279 monomers (11.8%) require post-processing to split merged monomers
+                or join fragmented ones before multiple sequence alignment.
+            </p>
+        </div>
+
+        <!-- Step 4: Output Files -->
+        <div class="card">
+            <h2><span class="step-number">4</span> Output Files</h2>
+
+            <ul class="file-list">
+                <li>
+                    <div class="file-icon">FA</div>
+                    <div class="file-info">
+                        <div class="name">zf_cdr.decomposed.fasta</div>
+                        <div class="desc">Decomposed monomers in FASTA format (1.8 MB)</div>
+                    </div>
+                </li>
+                <li>
+                    <div class="file-icon">TSV</div>
+                    <div class="file-info">
+                        <div class="name">zf_cdr.monomers.tsv</div>
+                        <div class="desc">Detailed table with monomer metadata (1.9 MB)</div>
+                    </div>
+                </li>
+                <li>
+                    <div class="file-icon">TXT</div>
+                    <div class="file-info">
+                        <div class="name">zf_cdr.lengths</div>
+                        <div class="desc">Simple length file for quick analysis (17 KB)</div>
+                    </div>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Step 5: Refinement -->
+        <div class="card" style="border-left: 4px solid #10b981;">
+            <h2><span class="step-number">5</span> Monomer Refinement</h2>
+            <p>Post-processing step to fix merged and fragmented monomers using approximate cut sequence matching.</p>
+
+            <pre><code>arraysplitter refine -i zf_cdr.monomers.tsv -o zf_cdr.refined.monomers.tsv -v</code></pre>
+
+            <h3 style="margin-top: 1.5rem; font-size: 1rem; color: var(--text);">Refinement Results</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
+                <div style="background: #ecfdf5; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 2rem; font-weight: 700; color: #059669;">2,486 → 2,720</div>
+                    <div style="font-size: 0.875rem; color: #065f46;">Rows (input → output)</div>
+                </div>
+                <div style="background: #fee2e2; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 2rem; font-weight: 700; color: #dc2626;">92 → 328</div>
+                    <div style="font-size: 0.875rem; color: #991b1b;">Split merged monomers</div>
+                </div>
+                <div style="background: #fef3c7; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 2rem; font-weight: 700; color: #d97706;">2</div>
+                    <div style="font-size: 0.875rem; color: #92400e;">Merged short fragments</div>
+                </div>
+            </div>
+
+            <h3 style="margin-top: 1.5rem; font-size: 1rem; color: var(--text);">Length Distribution After Refinement</h3>
+            <table>
+                <tr>
+                    <th>Length (bp)</th>
+                    <th>Before</th>
+                    <th>After</th>
+                    <th>Change</th>
+                </tr>
+                <tr>
+                    <td><strong>717</strong></td>
+                    <td>721</td>
+                    <td>737</td>
+                    <td style="color: #059669;">+16</td>
+                </tr>
+                <tr>
+                    <td><strong>696</strong></td>
+                    <td>546</td>
+                    <td>566</td>
+                    <td style="color: #059669;">+20</td>
+                </tr>
+                <tr>
+                    <td><strong>716</strong></td>
+                    <td>297</td>
+                    <td>313</td>
+                    <td style="color: #059669;">+16</td>
+                </tr>
+                <tr>
+                    <td><strong>718</strong></td>
+                    <td>98</td>
+                    <td>116</td>
+                    <td style="color: #059669;">+18</td>
+                </tr>
+                <tr>
+                    <td><strong>695</strong></td>
+                    <td>97</td>
+                    <td>119</td>
+                    <td style="color: #059669;">+22</td>
+                </tr>
+            </table>
+
+            <p style="margin-top: 1rem; font-size: 0.875rem; color: var(--text-muted);">
+                <strong>Algorithm:</strong> Detects cut sequence from majority of monomers (<code class="inline-code">AGTGCACAGCGAAGTC</code>),
+                then searches for approximate matches (≤3 mismatches) in merged monomers to find splitting points.
+                Short neighboring fragments from the same array are merged if their combined length matches expected range.
+            </p>
+        </div>
+
+        <!-- Step 6: Rotation -->
+        <div class="card">
+            <h2><span class="step-number">6</span>Monomer Rotation</h2>
+
+            <!-- Method description -->
+            <div style="background: #f8fafc; padding: 1.25rem; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 1.5rem;">
+                <h3 style="font-size: 1rem; color: #334155; margin-bottom: 0.75rem;">Method: Finding Optimal Rotation K-mer</h3>
+                <ol style="margin: 0; padding-left: 1.5rem; color: #475569; font-size: 0.9rem;">
+                    <li style="margin-bottom: 0.5rem;"><strong>K-mer selection:</strong> Find k-mer that appears <em>exactly once</em> in maximum number of monomers</li>
+                    <li style="margin-bottom: 0.5rem;"><strong>Sequence doubling:</strong> Search in <code class="inline-code">seq+seq</code> to handle cases where k-mer spans tandem boundary</li>
+                    <li style="margin-bottom: 0.5rem;"><strong>Approximate matching:</strong> Allow up to 5 mismatches (edit distance) to handle point mutations</li>
+                    <li><strong>Strand normalization:</strong> Check both forward and reverse complement, use best match</li>
+                </ol>
+                <p style="margin: 0.75rem 0 0 0; font-size: 0.85rem; color: #64748b;">
+                    <strong>Optimal k-mer found:</strong> <code class="inline-code">CTTCGCCTCTCAGAAG</code> (16-mer, unique in 82.7% of monomers)
+                </p>
+            </div>
+
+            <!-- Rotation results -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+                <div style="background: #ecfdf5; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.75rem; font-weight: 700; color: #059669;">2,065</div>
+                    <div style="font-size: 0.8rem; color: #065f46;">Perfect match (ED=0)</div>
+                </div>
+                <div style="background: #dbeafe; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.75rem; font-weight: 700; color: #2563eb;">381</div>
+                    <div style="font-size: 0.8rem; color: #1e40af;">Minor mutations (ED=1-2)</div>
+                </div>
+                <div style="background: #fef3c7; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.75rem; font-weight: 700; color: #d97706;">77</div>
+                    <div style="font-size: 0.8rem; color: #92400e;">Major mutations (ED=3-4)</div>
+                </div>
+                <div style="background: #fee2e2; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.75rem; font-weight: 700; color: #dc2626;">84</div>
+                    <div style="font-size: 0.8rem; color: #991b1b;">Poor match (ED≥5)</div>
+                </div>
+            </div>
+
+            <h3 style="font-size: 1rem; color: var(--text); margin-bottom: 1rem;">Quality Classification for MSA</h3>
+            <table>
+                <tr>
+                    <th>Category</th>
+                    <th>ED Range</th>
+                    <th>717bp</th>
+                    <th>696bp</th>
+                    <th>Status</th>
+                </tr>
+                <tr>
+                    <td><strong>High Quality (HQ)</strong></td>
+                    <td>0-2</td>
+                    <td>1,274</td>
+                    <td>921</td>
+                    <td style="color: #16a34a;">Included in MSA</td>
+                </tr>
+                <tr>
+                    <td>Moderate</td>
+                    <td>3-4</td>
+                    <td colspan="2" style="text-align: center;">52</td>
+                    <td style="color: #d97706;">Available separately</td>
+                </tr>
+                <tr>
+                    <td>Excluded</td>
+                    <td>≥5 or wrong length</td>
+                    <td colspan="2" style="text-align: center;">334</td>
+                    <td style="color: #dc2626;">Fragments, poor rotation</td>
+                </tr>
+            </table>
+
+            <p style="margin-top: 1rem; font-size: 0.85rem; color: var(--text-muted);">
+                <strong>Files:</strong> <code class="inline-code">zf_cdr.msa_717_hq.fasta</code>, <code class="inline-code">zf_cdr.msa_696_hq.fasta</code>,
+                <code class="inline-code">zf_cdr.excluded.fasta</code>
+            </p>
+        </div>
+
+        <!-- Step 7: Multiple Sequence Alignment -->
+        <div class="card">
+            <h2><span class="step-number">7</span>Multiple Sequence Alignment (MAFFT)</h2>
+            <p>Aligned high-quality monomers (ED≤2) using MAFFT v7.490 with <code class="inline-code">--auto --thread 100</code>.</p>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1rem;">
+                <!-- 717bp group -->
+                <div style="background: #f0fdf4; padding: 1.25rem; border-radius: 12px; border: 2px solid #86efac;">
+                    <h3 style="font-size: 1.1rem; color: #166534; margin-bottom: 1rem;">717 bp Group (HQ)</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                        <div>
+                            <div style="font-size: 0.75rem; color: #15803d;">Sequences</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">1,274</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #15803d;">Alignment length</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">782 bp</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #15803d;">Pairwise identity</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">92.2%</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #15803d;">Conserved (>90%)</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">90.5%</div>
+                        </div>
+                    </div>
+                    <p style="margin-top: 1rem; font-size: 0.8rem; color: #15803d;">
+                        Output: <code class="inline-code">zf_cdr.msa_717_hq.aligned.fasta</code>
+                    </p>
+                </div>
+
+                <!-- 696bp group -->
+                <div style="background: #eff6ff; padding: 1.25rem; border-radius: 12px; border: 2px solid #93c5fd;">
+                    <h3 style="font-size: 1.1rem; color: #1e40af; margin-bottom: 1rem;">696 bp Group (HQ)</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                        <div>
+                            <div style="font-size: 0.75rem; color: #1d4ed8;">Sequences</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #1e40af;">921</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #1d4ed8;">Alignment length</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #1e40af;">743 bp</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #1d4ed8;">Pairwise identity</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #1e40af;">93.3%</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #1d4ed8;">Conserved (>90%)</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #1e40af;">93.0%</div>
+                        </div>
+                    </div>
+                    <p style="margin-top: 1rem; font-size: 0.8rem; color: #1d4ed8;">
+                        Output: <code class="inline-code">zf_cdr.msa_696_hq.aligned.fasta</code>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Improvement note -->
+            <div style="background: #ecfdf5; padding: 1rem; border-radius: 8px; margin-top: 1.5rem; border-left: 4px solid #10b981;">
+                <strong style="color: #065f46;">Improvement from proper rotation:</strong>
+                <ul style="margin: 0.5rem 0 0 1.25rem; color: #047857;">
+                    <li>717bp: alignment reduced from 1,474 bp to <strong>782 bp</strong> (overhead: 65 bp instead of 757 bp)</li>
+                    <li>696bp: alignment reduced from 1,305 bp to <strong>743 bp</strong> (overhead: 47 bp instead of 609 bp)</li>
+                    <li>Gap percentage: ~8% (was ~50% before proper rotation)</li>
+                </ul>
+            </div>
+
+            <div style="background: #fef9c3; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #facc15;">
+                <strong style="color: #854d0e;">Key observations:</strong>
+                <ul style="margin: 0.5rem 0 0 1.25rem; color: #713f12;">
+                    <li>The 696bp group shows higher conservation (93.3%) than 717bp (92.2%)</li>
+                    <li>Both groups show high sequence identity, indicating strong functional constraint</li>
+                    <li>Remaining overhead (~50-65 bp) due to natural indel variation in centromeric repeats</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Step 7.1: MSA Refinement -->
+        <div class="card">
+            <h2><span class="step-number">7.1</span> MSA Refinement (Remove Rare Indels)</h2>
+            <p>Identified and removed sequences containing rare indels (frequency &lt;5%) to improve alignment quality.</p>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1rem;">
+                <!-- 717bp group refinement -->
+                <div style="background: #fef3c7; padding: 1.25rem; border-radius: 12px; border: 2px solid #fcd34d;">
+                    <h3 style="font-size: 1.1rem; color: #92400e; margin-bottom: 1rem;">717 bp Group Refinement</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                        <div>
+                            <div style="font-size: 0.75rem; color: #b45309;">Input sequences</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #92400e;">1,274</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #b45309;">Clean sequences</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">849</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #b45309;">Removed</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #dc2626;">425 (33.4%)</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #b45309;">Gap columns removed</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #92400e;">50</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid #fcd34d;">
+                        <div style="font-size: 0.75rem; color: #b45309; margin-bottom: 0.25rem;">Indel patterns</div>
+                        <div style="font-size: 0.9rem; color: #92400e;">
+                            <strong>101</strong> total, <strong>79</strong> rare (&lt;5%)
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 696bp group refinement -->
+                <div style="background: #e0e7ff; padding: 1.25rem; border-radius: 12px; border: 2px solid #a5b4fc;">
+                    <h3 style="font-size: 1.1rem; color: #3730a3; margin-bottom: 1rem;">696 bp Group Refinement</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                        <div>
+                            <div style="font-size: 0.75rem; color: #4f46e5;">Input sequences</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #3730a3;">921</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #4f46e5;">Clean sequences</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">636</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #4f46e5;">Removed</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #dc2626;">285 (31.0%)</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #4f46e5;">Gap columns removed</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #3730a3;">30</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid #a5b4fc;">
+                        <div style="font-size: 0.75rem; color: #4f46e5; margin-bottom: 0.25rem;">Indel patterns</div>
+                        <div style="font-size: 0.9rem; color: #3730a3;"><strong>91</strong> total, <strong>68</strong> rare (&lt;5%)</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top rare indels table for 717bp -->
+            <div style="margin-top: 1.5rem;">
+                <h4 style="font-size: 0.95rem; color: #374151; margin-bottom: 0.75rem;">Top Rare Indels (717 bp group)</h4>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                        <thead>
+                            <tr style="background: #f3f4f6;">
+                                <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #d1d5db;">Position</th>
+                                <th style="padding: 0.5rem; text-align: right; border-bottom: 2px solid #d1d5db;">Length</th>
+                                <th style="padding: 0.5rem; text-align: right; border-bottom: 2px solid #d1d5db;">Count</th>
+                                <th style="padding: 0.5rem; text-align: right; border-bottom: 2px solid #d1d5db;">Frequency</th>
+                                <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #d1d5db;">Example chromosomes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td style="padding: 0.4rem;">644-667</td><td style="padding: 0.4rem; text-align: right;">23 bp</td><td style="padding: 0.4rem; text-align: right;">44</td><td style="padding: 0.4rem; text-align: right; color: #dc2626;">3.45%</td><td style="padding: 0.4rem;">chr25_pat</td></tr>
+                            <tr style="background: #f9fafb;"><td style="padding: 0.4rem;">597-598</td><td style="padding: 0.4rem; text-align: right;">1 bp</td><td style="padding: 0.4rem; text-align: right;">30</td><td style="padding: 0.4rem; text-align: right; color: #dc2626;">2.35%</td><td style="padding: 0.4rem;">chr20_mat</td></tr>
+                            <tr><td style="padding: 0.4rem;">620-621</td><td style="padding: 0.4rem; text-align: right;">1 bp</td><td style="padding: 0.4rem; text-align: right;">28</td><td style="padding: 0.4rem; text-align: right; color: #dc2626;">2.20%</td><td style="padding: 0.4rem;">chr20_mat</td></tr>
+                            <tr style="background: #f9fafb;"><td style="padding: 0.4rem;">337-338</td><td style="padding: 0.4rem; text-align: right;">1 bp</td><td style="padding: 0.4rem; text-align: right;">27</td><td style="padding: 0.4rem; text-align: right; color: #dc2626;">2.12%</td><td style="padding: 0.4rem;">chr1A_mat</td></tr>
+                            <tr><td style="padding: 0.4rem;">534-539</td><td style="padding: 0.4rem; text-align: right;">5 bp</td><td style="padding: 0.4rem; text-align: right;">27</td><td style="padding: 0.4rem; text-align: right; color: #dc2626;">2.12%</td><td style="padding: 0.4rem;">chr21_mat</td></tr>
+                            <tr style="background: #f9fafb;"><td style="padding: 0.4rem;">412-437</td><td style="padding: 0.4rem; text-align: right;">25 bp</td><td style="padding: 0.4rem; text-align: right;">16</td><td style="padding: 0.4rem; text-align: right; color: #dc2626;">1.26%</td><td style="padding: 0.4rem;">chr21_pat</td></tr>
+                            <tr><td style="padding: 0.4rem;">543-564</td><td style="padding: 0.4rem; text-align: right;">21 bp</td><td style="padding: 0.4rem; text-align: right;">14</td><td style="padding: 0.4rem; text-align: right; color: #dc2626;">1.10%</td><td style="padding: 0.4rem;">chr21_pat</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Top rare indels table for 696bp -->
+            <div style="margin-top: 1.5rem;">
+                <h4 style="font-size: 0.95rem; color: #374151; margin-bottom: 0.75rem;">Top Rare Indels (696 bp group)</h4>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                        <thead>
+                            <tr style="background: #f3f4f6;">
+                                <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #d1d5db;">Position</th>
+                                <th style="padding: 0.5rem; text-align: right; border-bottom: 2px solid #d1d5db;">Length</th>
+                                <th style="padding: 0.5rem; text-align: right; border-bottom: 2px solid #d1d5db;">Count</th>
+                                <th style="padding: 0.5rem; text-align: right; border-bottom: 2px solid #d1d5db;">Frequency</th>
+                                <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #d1d5db;">Example chromosomes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td style="padding: 0.4rem;">520-523</td><td style="padding: 0.4rem; text-align: right;">3 bp</td><td style="padding: 0.4rem; text-align: right;">29</td><td style="padding: 0.4rem; text-align: right; color: #dc2626;">3.15%</td><td style="padding: 0.4rem;">chr12_mat</td></tr>
+                            <tr style="background: #f9fafb;"><td style="padding: 0.4rem;">120-121</td><td style="padding: 0.4rem; text-align: right;">1 bp</td><td style="padding: 0.4rem; text-align: right;">24</td><td style="padding: 0.4rem; text-align: right; color: #dc2626;">2.61%</td><td style="padding: 0.4rem;">chr1_mat</td></tr>
+                            <tr><td style="padding: 0.4rem;">595-596</td><td style="padding: 0.4rem; text-align: right;">1 bp</td><td style="padding: 0.4rem; text-align: right;">23</td><td style="padding: 0.4rem; text-align: right; color: #dc2626;">2.50%</td><td style="padding: 0.4rem;">chr21_mat, chr22_mat</td></tr>
+                            <tr style="background: #f9fafb;"><td style="padding: 0.4rem;">369-370</td><td style="padding: 0.4rem; text-align: right;">1 bp</td><td style="padding: 0.4rem; text-align: right;">22</td><td style="padding: 0.4rem; text-align: right; color: #dc2626;">2.39%</td><td style="padding: 0.4rem;">chr21_mat</td></tr>
+                            <tr><td style="padding: 0.4rem;">391-417</td><td style="padding: 0.4rem; text-align: right;">26 bp</td><td style="padding: 0.4rem; text-align: right;">18</td><td style="padding: 0.4rem; text-align: right; color: #dc2626;">1.95%</td><td style="padding: 0.4rem;">chr20_mat, chr27_mat</td></tr>
+                            <tr style="background: #f9fafb;"><td style="padding: 0.4rem;">478-482</td><td style="padding: 0.4rem; text-align: right;">4 bp</td><td style="padding: 0.4rem; text-align: right;">18</td><td style="padding: 0.4rem; text-align: right; color: #dc2626;">1.95%</td><td style="padding: 0.4rem;">chr21_mat, chr21_pat</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div style="background: #fef3c7; padding: 1rem; border-radius: 8px; margin-top: 1.5rem; border-left: 4px solid #f59e0b;">
+                <strong style="color: #92400e;">Note:</strong>
+                <span style="color: #78350f;">Removed sequences are saved to <code class="inline-code">*.removed.fasta</code> for further analysis. Most rare indels are chromosome-specific variants, possibly representing local rearrangements.</span>
+            </div>
+
+            <p style="margin-top: 1rem; font-size: 0.85rem; color: #6b7280;">
+                Output files:<br>
+                717bp: <code class="inline-code">zf_cdr.msa_717_hq_refined.clean.fasta</code>, <code class="inline-code">*.removed.fasta</code>, <code class="inline-code">*.indel_stats.tsv</code><br>
+                696bp: <code class="inline-code">zf_cdr.msa_696_hq_refined.clean.fasta</code>, <code class="inline-code">*.removed.fasta</code>, <code class="inline-code">*.indel_stats.tsv</code>
+            </p>
+        </div>
+
+        <!-- Step 7.1.1: Chromosome Specificity of Indels -->
+        <div class="card">
+            <h2><span class="step-number">7.1.1</span> Chromosome Specificity of Indels</h2>
+            <p>Analysis of whether indels are specific to particular chromosomes or distributed across the genome.</p>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1rem;">
+                <!-- 717bp summary -->
+                <div style="background: #fef3c7; padding: 1.25rem; border-radius: 12px; border: 2px solid #fcd34d;">
+                    <h3 style="font-size: 1.1rem; color: #92400e; margin-bottom: 1rem;">717 bp Group</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                        <div>
+                            <div style="font-size: 0.75rem; color: #b45309;">Chromosomes</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #92400e;">64</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #b45309;">Indels analyzed</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #92400e;">69</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #b45309;">Chr-specific</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #dc2626;">10 (14.5%)</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #b45309;">Conserved (>90%)</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">22</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 696bp summary -->
+                <div style="background: #e0e7ff; padding: 1.25rem; border-radius: 12px; border: 2px solid #a5b4fc;">
+                    <h3 style="font-size: 1.1rem; color: #3730a3; margin-bottom: 1rem;">696 bp Group</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                        <div>
+                            <div style="font-size: 0.75rem; color: #4f46e5;">Chromosomes</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #3730a3;">61</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #4f46e5;">Indels analyzed</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #3730a3;">55</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #4f46e5;">Chr-specific</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #dc2626;">4 (7.3%)</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #4f46e5;">Conserved (>90%)</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #166534;">23</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chromosome-specific indels table (717bp) -->
+            <div style="margin-top: 1.5rem;">
+                <h4 style="font-size: 0.95rem; color: #374151; margin-bottom: 0.75rem;">Chromosome-Specific Indels (717 bp group)</h4>
+                <p style="font-size: 0.8rem; color: #6b7280; margin-bottom: 0.5rem;">Criteria: >80% of occurrences from top 2 chromosomes AND top chromosome has >50% of its sequences with indel</p>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                        <thead>
+                            <tr style="background: #fef3c7;">
+                                <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #fcd34d;">Position</th>
+                                <th style="padding: 0.5rem; text-align: right; border-bottom: 2px solid #fcd34d;">Length</th>
+                                <th style="padding: 0.5rem; text-align: right; border-bottom: 2px solid #fcd34d;">Count</th>
+                                <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #fcd34d;">Chromosome distribution</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td style="padding: 0.4rem;">597-598</td><td style="padding: 0.4rem; text-align: right;">1 bp</td><td style="padding: 0.4rem; text-align: right;">30</td><td style="padding: 0.4rem;"><strong style="color:#dc2626;">chr20_pat</strong> (19/22=86%), chr20_mat (11/20=55%)</td></tr>
+                            <tr style="background: #fffbeb;"><td style="padding: 0.4rem;">620-621</td><td style="padding: 0.4rem; text-align: right;">1 bp</td><td style="padding: 0.4rem; text-align: right;">28</td><td style="padding: 0.4rem;"><strong style="color:#dc2626;">chr20_pat</strong> (17/22=77%), chr20_mat (11/20=55%)</td></tr>
+                            <tr><td style="padding: 0.4rem;">337-338</td><td style="padding: 0.4rem; text-align: right;">1 bp</td><td style="padding: 0.4rem; text-align: right;">27</td><td style="padding: 0.4rem;"><strong style="color:#dc2626;">chr1A_pat</strong> (19/30=63%), chr1A_mat (8/35=23%)</td></tr>
+                            <tr style="background: #fffbeb;"><td style="padding: 0.4rem;">144-146</td><td style="padding: 0.4rem; text-align: right;">2 bp</td><td style="padding: 0.4rem; text-align: right;">26</td><td style="padding: 0.4rem;"><strong style="color:#dc2626;">chr25_mat</strong> (20/30=67%), chr36_pat (6/23=26%)</td></tr>
+                            <tr><td style="padding: 0.4rem;">118-119</td><td style="padding: 0.4rem; text-align: right;">1 bp</td><td style="padding: 0.4rem; text-align: right;">22</td><td style="padding: 0.4rem;"><strong style="color:#dc2626;">chr1_mat</strong> (11/14=79%), chr4_mat (8/22=36%)</td></tr>
+                            <tr style="background: #fffbeb;"><td style="padding: 0.4rem;">499-503</td><td style="padding: 0.4rem; text-align: right;">4 bp</td><td style="padding: 0.4rem; text-align: right;">20</td><td style="padding: 0.4rem;"><strong style="color:#dc2626;">chr20_pat</strong> (15/22=68%), chr20_mat (5/20=25%)</td></tr>
+                            <tr><td style="padding: 0.4rem;">298-299</td><td style="padding: 0.4rem; text-align: right;">1 bp</td><td style="padding: 0.4rem; text-align: right;">19</td><td style="padding: 0.4rem;"><strong style="color:#dc2626;">chr25_mat</strong> (17/30=57%), chr36_pat (2/23=9%)</td></tr>
+                            <tr style="background: #fffbeb;"><td style="padding: 0.4rem;">353-355</td><td style="padding: 0.4rem; text-align: right;">2 bp</td><td style="padding: 0.4rem; text-align: right;">13</td><td style="padding: 0.4rem;"><strong style="color:#dc2626;">chr30_mat</strong> (13/23=57%) - only chr!</td></tr>
+                            <tr><td style="padding: 0.4rem;">203-204</td><td style="padding: 0.4rem; text-align: right;">1 bp</td><td style="padding: 0.4rem; text-align: right;">12</td><td style="padding: 0.4rem;"><strong style="color:#dc2626;">chr18_pat</strong> (10/13=77%), chr18_mat (2/14=14%)</td></tr>
+                            <tr style="background: #fffbeb;"><td style="padding: 0.4rem;">367-368</td><td style="padding: 0.4rem; text-align: right;">1 bp</td><td style="padding: 0.4rem; text-align: right;">9</td><td style="padding: 0.4rem;"><strong style="color:#dc2626;">chr22_mat</strong> (6/11=55%), chr21_pat (3/7=43%)</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Chromosome-specific indels table (696bp) -->
+            <div style="margin-top: 1.5rem;">
+                <h4 style="font-size: 0.95rem; color: #374151; margin-bottom: 0.75rem;">Chromosome-Specific Indels (696 bp group)</h4>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                        <thead>
+                            <tr style="background: #e0e7ff;">
+                                <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #a5b4fc;">Position</th>
+                                <th style="padding: 0.5rem; text-align: right; border-bottom: 2px solid #a5b4fc;">Length</th>
+                                <th style="padding: 0.5rem; text-align: right; border-bottom: 2px solid #a5b4fc;">Count</th>
+                                <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #a5b4fc;">Chromosome distribution</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td style="padding: 0.4rem;">120-121</td><td style="padding: 0.4rem; text-align: right;">1 bp</td><td style="padding: 0.4rem; text-align: right;">24</td><td style="padding: 0.4rem;"><strong style="color:#dc2626;">chr4_mat</strong> (14/16=88%), chr1_mat (9/17=53%)</td></tr>
+                            <tr style="background: #eef2ff;"><td style="padding: 0.4rem;">432-434</td><td style="padding: 0.4rem; text-align: right;">2 bp</td><td style="padding: 0.4rem; text-align: right;">12</td><td style="padding: 0.4rem;"><strong style="color:#dc2626;">chr4_mat</strong> (11/16=69%), chr4_pat (1/8=12%)</td></tr>
+                            <tr><td style="padding: 0.4rem;">144-146</td><td style="padding: 0.4rem; text-align: right;">2 bp</td><td style="padding: 0.4rem; text-align: right;">9</td><td style="padding: 0.4rem;"><strong style="color:#dc2626;">chr36_pat</strong> (7/12=58%), chr25_mat (2/5=40%)</td></tr>
+                            <tr style="background: #eef2ff;"><td style="padding: 0.4rem;">690-696</td><td style="padding: 0.4rem; text-align: right;">6 bp</td><td style="padding: 0.4rem; text-align: right;">5</td><td style="padding: 0.4rem;"><strong style="color:#dc2626;">chr23_pat</strong> (2/2=100%), chr23_mat (3/11=27%)</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Key findings -->
+            <div style="background: #ecfdf5; padding: 1rem; border-radius: 8px; margin-top: 1.5rem; border-left: 4px solid #10b981;">
+                <strong style="color: #065f46;">Key Findings:</strong>
+                <ul style="margin: 0.5rem 0 0 1.25rem; color: #047857;">
+                    <li><strong>Most indels are NOT chromosome-specific</strong> - they are either conserved (present in >90% sequences across all chromosomes) or sporadically distributed</li>
+                    <li><strong>chr20</strong> shows the most chromosome-specific variation (3 indels at positions 499, 597, 620)</li>
+                    <li><strong>chr25_mat</strong> and <strong>chr30_mat</strong> have unique indel signatures</li>
+                    <li>Paternal/maternal haplotypes sometimes differ in indel frequency (e.g., chr1A_pat vs chr1A_mat)</li>
+                </ul>
+            </div>
+
+            <div style="background: #fef9c3; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #facc15;">
+                <strong style="color: #854d0e;">Interpretation:</strong>
+                <span style="color: #713f12;">Chromosome-specific indels likely represent local rearrangements or lineage-specific mutations that occurred after the divergence of centromeric arrays on different chromosomes. The low percentage (7-14%) suggests strong purifying selection maintains centromere structure.</span>
+            </div>
+
+            <p style="margin-top: 1rem; font-size: 0.85rem; color: #6b7280;">
+                Output files: <code class="inline-code">zf_cdr.msa_717_hq.chr_specificity.tsv</code>, <code class="inline-code">zf_cdr.msa_696_hq.chr_specificity.tsv</code>
+            </p>
+        </div>
+
+        <!-- Step 7.2: Realignment - ready to run -->
+        <div class="card" style="border: 2px solid #10b981; background: #f0fdf4;">
+            <h2><span class="step-number">7.2</span> MSA Realignment</h2>
+            <p style="color: #166534;">Ready to realign cleaned sequences with MAFFT.</p>
+            <div style="padding: 1.5rem; text-align: center;">
+                <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">✅</div>
+                <p style="color: #166534;"><strong>Refinement complete.</strong> Run MAFFT on clean sequences:</p>
+                <div style="background: #ecfdf5; padding: 1rem; border-radius: 8px; margin-top: 1rem; font-family: monospace; font-size: 0.85rem; text-align: left;">
+                    <code>mafft --auto zf_cdr.msa_717_hq_refined.clean.fasta > zf_cdr.msa_717_refined.aligned.fasta</code><br>
+                    <code>mafft --auto zf_cdr.msa_696_hq_refined.clean.fasta > zf_cdr.msa_696_refined.aligned.fasta</code>
+                </div>
+            </div>
+        </div>
+
+        <!-- Interactive MSA Viewer with Sequence Logo -->
+        <div class="card">
+            <h2><span class="step-number">8</span> Interactive MSA Viewer</h2>
+            <p>Load aligned FASTA files to visualize MSA with colored nucleotides and sequence logo.</p>
+
+            <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                <label style="font-weight: 600;">Load MSA file:</label>
+                <input type="file" id="msaFileInput" accept=".fasta,.fa,.fna,.aln,.txt"
+                       style="padding: 0.5rem; border: 2px dashed #ccc; border-radius: 8px; background: #fafafa; cursor: pointer;">
+                <div id="msaStats" style="background: #e8f4fd; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.85rem; color: #1e3a5f;">No file loaded</div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                <label style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; cursor: pointer;">
+                    <input type="checkbox" id="msaShowNames" checked> Show names
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.85rem;">
+                    <input type="number" id="msaMaxSeqs" value="200" min="10" max="5000" style="width: 60px;"> Max sequences
+                </label>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <button onclick="msaZoom(-1)" style="padding: 0.25rem 0.75rem; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">−</button>
+                    <span id="msaZoomLevel" style="font-size: 0.85rem; min-width: 50px; text-align: center;">100%</span>
+                    <button onclick="msaZoom(1)" style="padding: 0.25rem 0.75rem; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">+</button>
+                </div>
+                <label style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; cursor: pointer;">
+                    <input type="checkbox" id="msaSyncScroll" checked> Sync scroll
+                </label>
+            </div>
+
+            <div style="background: #f8fafc; padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.85rem;">
+                <strong>Legend:</strong>
+                <span style="background: #22c55e; color: white; padding: 0.125rem 0.5rem; border-radius: 3px; margin-left: 0.5rem;">A</span>
+                <span style="background: #3b82f6; color: white; padding: 0.125rem 0.5rem; border-radius: 3px; margin-left: 0.25rem;">T</span>
+                <span style="background: #f59e0b; color: white; padding: 0.125rem 0.5rem; border-radius: 3px; margin-left: 0.25rem;">G</span>
+                <span style="background: #ef4444; color: white; padding: 0.125rem 0.5rem; border-radius: 3px; margin-left: 0.25rem;">C</span>
+                <span style="background: #cbd5e1; color: #475569; padding: 0.125rem 0.5rem; border-radius: 3px; margin-left: 0.25rem;">-</span>
+            </div>
+
+            <!-- MSA Display -->
+            <div id="msaScrollContainer" style="overflow: auto; max-height: 400px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 1rem;">
+                <div id="msaEmptyState" style="text-align: center; padding: 3rem; color: #666;">
+                    <div style="font-size: 3rem; opacity: 0.3; margin-bottom: 1rem;">📄</div>
+                    <p>Load an aligned FASTA file to visualize</p>
+                    <p style="font-size: 0.8rem; color: #999;">Recommended files: zf_cdr.msa_717_hq.aligned.fasta or zf_cdr.msa_696_hq.aligned.fasta</p>
+                </div>
+                <div id="msaContent" style="display: none; font-family: 'Monaco', 'Menlo', monospace; font-size: 11px; padding: 0.5rem;"></div>
+            </div>
+
+            <!-- Sequence Logo & Consensus -->
+            <div id="logoSection" style="display: none; background: #f0fdf4; border-radius: 8px; padding: 1rem; border: 1px solid #86efac;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                    <h3 style="margin: 0; font-size: 1rem; color: #166534;">Sequence Logo & Consensus (Full Alignment)</h3>
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <span id="logoStatsInfo" style="font-size: 0.8rem; color: #166534;"></span>
+                        <button onclick="copyConsensus(this)" style="padding: 0.4rem 0.8rem; background: #166534; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 500;">📋 Copy Consensus</button>
+                    </div>
+                </div>
+                <div id="logoScrollContainer" style="overflow-x: auto;">
+                    <div id="logoContent" style="font-family: 'Monaco', 'Menlo', monospace;"></div>
+                </div>
+            </div>
+
+            <!-- Filtered Consensus (rare indels removed) -->
+            <div id="filteredLogoSection" style="display: none; background: #fef3c7; border-radius: 8px; padding: 1rem; border: 1px solid #fcd34d; margin-top: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                    <h3 style="margin: 0; font-size: 1rem; color: #92400e;">Filtered Consensus (Rare Indels Removed)</h3>
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <span id="filteredStatsInfo" style="font-size: 0.8rem; color: #92400e;"></span>
+                        <button onclick="copyFilteredConsensus(this)" style="padding: 0.4rem 0.8rem; background: #92400e; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 500;">📋 Copy Filtered</button>
+                    </div>
+                </div>
+                <p style="font-size: 0.8rem; color: #b45309; margin-bottom: 0.75rem;">Positions where consensus support &lt;5% are removed (mostly gap-only columns from rare indels)</p>
+                <div id="filteredLogoScrollContainer" style="overflow-x: auto;">
+                    <div id="filteredLogoContent" style="font-family: 'Monaco', 'Menlo', monospace;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 8.1: Final Consensus Sequences -->
+        <div class="card">
+            <h2><span class="step-number">8.1</span> Final Consensus Sequences</h2>
+            <p>Filtered consensus sequences for both monomer groups (rare indels removed, support ≥5%).</p>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1rem;">
+                <!-- 717bp consensus -->
+                <div style="background: #f0fdf4; padding: 1.25rem; border-radius: 12px; border: 2px solid #86efac;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                        <h3 style="font-size: 1.1rem; color: #166534; margin: 0;">717 bp Consensus</h3>
+                        <button onclick="copySeq717(this)" style="padding: 0.3rem 0.6rem; background: #166534; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">📋 Copy</button>
+                    </div>
+                    <div style="background: white; padding: 0.75rem; border-radius: 6px; font-family: monospace; font-size: 0.7rem; word-break: break-all; line-height: 1.4; max-height: 150px; overflow-y: auto;">
+                        <span style="color: #166534; font-weight: 600;">&gt;ZF_CDR_717bp_consensus</span><br>
+                        <span id="seq717">CTTCGCCTCTCAGAAGCCAACCGCTCTCCCCGGCTGCCGGAGGCGAAGAAGCGGCTACTAGGTGCACCGCTGACGTGAACCGCACTTGTAGGCTGCAAAGCGCGGCTTCGGCAGAAAGACGCCGGCAACCGCCGCTTCCCTGCGGACAGCTGCGGAGAGCCGAAGTCTGCGTCTCTAGCGGACTGCATCATAGCGAAAAGCTTTTCCAGCGTGTCTCGCAGGGAGAAAGCTTGCCAGCACAGTGCACGCATCCCGCCCTTGCCCAGAAACATATATTTGCTGAACACTCCAAAAACACTGCTCTTTCCTAGGCAAGCTTCAAACTGCTGTCAGACGTCCGTGCTCTCTGTTTTCTGCTGCCCTGCTCGTTGTAGAAGAGTGCACAGCTCACCCTGGCATTCAGTGCACAGCGAAGTCAACTGCAAAAAACCAGCAGCTGCTCACTCCCAAACACAAGGCGCTGTCTATGTCCTTGCTTCCCGAGCAACTCAGCACAGCCCTTCTTTTCTGCAGCTGCCATCGAGATCTCTGCAACTCGGAAGCTCAGGGTACGAACAAGAATTCTCCAGATTCGTCTGCATCAGGACCAAGTCAAAACGCAGGAAAGTCGTCCTGGAGCACCTGCCAGAAGCATGCCAGCGGTGAATTGAAAGGGCTGGCAGCTGCAGCCACCGTCCTCTAGCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</span>
+                    </div>
+                    <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #15803d;">Length: <strong>717 bp</strong></div>
+                </div>
+
+                <!-- 696bp consensus -->
+                <div style="background: #eff6ff; padding: 1.25rem; border-radius: 12px; border: 2px solid #93c5fd;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                        <h3 style="font-size: 1.1rem; color: #1e40af; margin: 0;">696 bp Consensus</h3>
+                        <button onclick="copySeq696(this)" style="padding: 0.3rem 0.6rem; background: #1e40af; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">📋 Copy</button>
+                    </div>
+                    <div style="background: white; padding: 0.75rem; border-radius: 6px; font-family: monospace; font-size: 0.7rem; word-break: break-all; line-height: 1.4; max-height: 150px; overflow-y: auto;">
+                        <span style="color: #1e40af; font-weight: 600;">&gt;ZF_CDR_696bp_consensus</span><br>
+                        <span id="seq696">CTTCGCCTCTCAGAAGCCAACCGCTCTCCCCGGCTGCCGGAGGCGAAGAAGCGGCTACTAGGTGCACCGCTGACGTGAACCGCACTTGTAGGCTGCAAAGCGCGGCTTCGGCAGAAAGACGCCGGCAACCGCCGCTTCCCTGCGGACAGCTGCGGAGAGCCGAAGTCTGCGTCTCTAGCGGACTGCATCATAGCGAAAAGCTTTTCCAGCGTGTCTCGCAGGGAGAAAGCTTGCCAGCACAGTGCACGCATCCCGCCCTTGCCCAGAAACATATATTTGCTGAACACTCCAAAAACACTGCTCTTTCCTAGGCAAGCTTCAAACTGCTGTCAGACATCTGTGCTCTCTGTTTTCTGCTGCCCTGCTCGTTGTAGAAGAGTGCACAGCTCCACCTGACATTCAGTGCACAGCGAAGTCAACTGCAAAAAACCAGCAGCTGCTCACTCCCAAACACAAGGCGCTGTCTATGTCCTTGCTTCCCGAGCAACTCAGCGCAGCCCTTCTTCTCTGCATCTCGGAAGCTCAGGGCACGAACAAGAATTCTCCAGATTCGTCTGCATCAGGACCAAGTCAAAACGCAGGAAAGTCGTCCTGGAGCACCTGCCAGAAGCATGCCAGCGGTGAATTGAAAGGGCTGGCAGCTGCAGCCACCGTCCTCTAGCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</span>
+                    </div>
+                    <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #1d4ed8;">Length: <strong>696 bp</strong></div>
+                </div>
+            </div>
+
+            <!-- Pairwise alignment -->
+            <div style="margin-top: 1.5rem;">
+                <h4 style="font-size: 0.95rem; color: #374151; margin-bottom: 0.75rem;">Pairwise Alignment (717 vs 696)</h4>
+                <p style="font-size: 0.8rem; color: #6b7280; margin-bottom: 0.75rem;">Differences between the two consensus sequences highlighted</p>
+                <div style="background: #1f2937; padding: 1rem; border-radius: 8px; overflow-x: auto;">
+                    <pre style="margin: 0; font-family: 'Monaco', 'Menlo', monospace; font-size: 0.75rem; line-height: 1.6; color: #e5e7eb;">
+<span style="color: #9ca3af;">717:</span> CTTCGCCTCTCAGAAGCCAACCGCTCTCCCCGGCTGCCGGAGGCGAAGAAGCGGCTACTAGGTGCACCGCTGACGTGAACCGCAC
+<span style="color: #9ca3af;">696:</span> CTTCGCCTCTCAGAAGCCAACCGCTCTCCCCGGCTGCCGGAGGCGAAGAAGCGGCTACTAGGTGCACCGCTGACGTGAACCGCAC
+<span style="color: #9ca3af;">    </span> ******************************************************************************************
+
+<span style="color: #9ca3af;">717:</span> TTGTAGGCTGCAAAGCGCGGCTTCGGCAGAAAGACGCCGGCAACCGCCGCTTCCCTGCGGACAGCTGCGGAGAGCCGAAGTCTGC
+<span style="color: #9ca3af;">696:</span> TTGTAGGCTGCAAAGCGCGGCTTCGGCAGAAAGACGCCGGCAACCGCCGCTTCCCTGCGGACAGCTGCGGAGAGCCGAAGTCTGC
+<span style="color: #9ca3af;">    </span> ******************************************************************************************
+
+<span style="color: #9ca3af;">717:</span> GTCTCTAGCGGACTGCATCATAGCGAAAAGCTTTTCCAGCGTGTCTCGCAGGGAGAAAGCTTGCCAGCACAGTGCACGCATCCCG
+<span style="color: #9ca3af;">696:</span> GTCTCTAGCGGACTGCATCATAGCGAAAAGCTTTTCCAGCGTGTCTCGCAGGGAGAAAGCTTGCCAGCACAGTGCACGCATCCCG
+<span style="color: #9ca3af;">    </span> ******************************************************************************************
+
+<span style="color: #9ca3af;">717:</span> CCCTTGCCCAGAAACATATATTTGCTGAACACTCCAAAAACACTGCTCTTTCCTAGGCAAGCTTCAAACTGCTGTCAGAC<span style="color: #fbbf24; font-weight: bold;">GTCCG</span>
+<span style="color: #9ca3af;">696:</span> CCCTTGCCCAGAAACATATATTTGCTGAACACTCCAAAAACACTGCTCTTTCCTAGGCAAGCTTCAAACTGCTGTCAGAC<span style="color: #fbbf24; font-weight: bold;">ATCTG</span>
+<span style="color: #9ca3af;">    </span> ********************************************************************************<span style="color: #fbbf24;">*    </span>
+
+<span style="color: #9ca3af;">717:</span> TGCTCTCTGTTTTCTGCTGCCCTGCTCGTTGTAGAAGAGTGCACAGCTC<span style="color: #fbbf24; font-weight: bold;">ACC</span>CT<span style="color: #fbbf24; font-weight: bold;">GGC</span>ATTCAGTGCACAGCGAAGTCAACTGCAAA
+<span style="color: #9ca3af;">696:</span> TGCTCTCTGTTTTCTGCTGCCCTGCTCGTTGTAGAAGAGTGCACAGCTC<span style="color: #fbbf24; font-weight: bold;">CAC</span>CT<span style="color: #fbbf24; font-weight: bold;">GAC</span>ATTCAGTGCACAGCGAAGTCAACTGCAAA
+<span style="color: #9ca3af;">    </span> **************************************************<span style="color: #fbbf24;"> * </span>**<span style="color: #fbbf24;"> * </span>****************************
+
+<span style="color: #9ca3af;">717:</span> AAACCAGCAGCTGCTCACTCCCAAACACAAGGCGCTGTCTATGTCCTTGCTTCCCGAGCAACTCAGC<span style="color: #fbbf24; font-weight: bold;">A</span>CAGCCCTTCTT<span style="color: #fbbf24; font-weight: bold;">T</span>TCTGC
+<span style="color: #9ca3af;">696:</span> AAACCAGCAGCTGCTCACTCCCAAACACAAGGCGCTGTCTATGTCCTTGCTTCCCGAGCAACTCAGC<span style="color: #fbbf24; font-weight: bold;">G</span>CAGCCCTTCTT<span style="color: #fbbf24; font-weight: bold;">C</span>TCTGC
+<span style="color: #9ca3af;">    </span> *******************************************************************<span style="color: #fbbf24;"> </span>***********<span style="color: #fbbf24;"> </span>****
+
+<span style="color: #9ca3af;">717:</span> <span style="color: #fbbf24; font-weight: bold;">AGC</span>T<span style="color: #fbbf24; font-weight: bold;">GCCAT</span>CGAGA<span style="color: #fbbf24; font-weight: bold;">TCTC</span>TGCAACT<span style="color: #fbbf24; font-weight: bold;">C</span>G<span style="color: #fbbf24; font-weight: bold;">---</span>GAAGCTCAGGG<span style="color: #fbbf24; font-weight: bold;">TACG</span>AACAAGAATTCTCCAGATTCGTCTGCATCAGG
+<span style="color: #9ca3af;">696:</span> <span style="color: #fbbf24; font-weight: bold;">ATC</span>T<span style="color: #fbbf24; font-weight: bold;">CGGAA</span>CGAGA<span style="color: #fbbf24; font-weight: bold;">----</span>TGCAACT<span style="color: #fbbf24; font-weight: bold;">-</span>G<span style="color: #fbbf24; font-weight: bold;">AAG</span>GAAGCTCAGGG<span style="color: #fbbf24; font-weight: bold;">CACG</span>AACAAGAATTCTCCAGATTCGTCTGCATCAGG
+<span style="color: #9ca3af;">    </span> <span style="color: #fbbf24;">*  </span>*<span style="color: #fbbf24;">     </span>****<span style="color: #fbbf24;">    </span>******<span style="color: #fbbf24;"> </span>*<span style="color: #fbbf24;">   </span>***********<span style="color: #fbbf24;">*   </span>********************************
+
+<span style="color: #9ca3af;">717:</span> ACCAAGTCAAAACGCAGGAAAGTCGTCCTGGAGCACCTGCCAGAAGCATGCCAGCGGTGAATTGAAAGGGCTGGCAGCTGCAGCC
+<span style="color: #9ca3af;">696:</span> ACCAAGTCAAAACGCAGGAAAGTCGTCCTGGAGCACCTGCCAGAAGCATGCCAGCGGTGAATTGAAAGGGCTGGCAGCTGCAGCC
+<span style="color: #9ca3af;">    </span> ******************************************************************************************
+
+<span style="color: #9ca3af;">717:</span> ACCGTCCTCTAGCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT
+<span style="color: #9ca3af;">696:</span> ACCGTCCTCTAGCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT
+<span style="color: #9ca3af;">    </span> ***********************************************
+</pre>
+                </div>
+                <div style="background: #fef9c3; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #facc15;">
+                    <strong style="color: #854d0e;">Summary: Alignment Statistics</strong>
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin: 0.75rem 0;">
+                        <div style="text-align: center; padding: 0.5rem; background: white; border-radius: 6px;">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #166534;">96.1%</div>
+                            <div style="font-size: 0.75rem; color: #713f12;">Sequence Identity</div>
+                        </div>
+                        <div style="text-align: center; padding: 0.5rem; background: white; border-radius: 6px;">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #1e40af;">7</div>
+                            <div style="font-size: 0.75rem; color: #713f12;">SNPs</div>
+                        </div>
+                        <div style="text-align: center; padding: 0.5rem; background: white; border-radius: 6px;">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #dc2626;">21 bp</div>
+                            <div style="font-size: 0.75rem; color: #713f12;">Indel Length</div>
+                        </div>
+                        <div style="text-align: center; padding: 0.5rem; background: white; border-radius: 6px;">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #7c3aed;">689</div>
+                            <div style="font-size: 0.75rem; color: #713f12;">Matching bp</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="background: #fef3c7; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #f59e0b;">
+                    <strong style="color: #92400e;">Key Differences (7 SNPs + 21bp Indel):</strong>
+                    <table style="width: 100%; margin-top: 0.75rem; font-size: 0.85rem; border-collapse: collapse;">
+                        <tr style="background: #fef9c3;">
+                            <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #f59e0b;">Region</th>
+                            <th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #f59e0b;">Position</th>
+                            <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #f59e0b;">717bp</th>
+                            <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #f59e0b;">696bp</th>
+                            <th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #f59e0b;">Type</th>
+                        </tr>
+                        <tr>
+                            <td style="padding: 0.4rem;">1</td>
+                            <td style="padding: 0.4rem; text-align: center;">336-339</td>
+                            <td style="padding: 0.4rem; font-family: monospace; color: #166534;"><strong>G</strong>TCC<strong>G</strong>T</td>
+                            <td style="padding: 0.4rem; font-family: monospace; color: #1e40af;"><strong>A</strong>TCT<strong>G</strong>T</td>
+                            <td style="padding: 0.4rem;">2 SNPs (G→A, C→T)</td>
+                        </tr>
+                        <tr style="background: #fffbeb;">
+                            <td style="padding: 0.4rem;">2</td>
+                            <td style="padding: 0.4rem; text-align: center;">390-396</td>
+                            <td style="padding: 0.4rem; font-family: monospace; color: #166534;">C<strong>A</strong>CC<strong>CTG</strong>GC</td>
+                            <td style="padding: 0.4rem; font-family: monospace; color: #1e40af;">C<strong>C</strong>AC<strong>CTG</strong>AC</td>
+                            <td style="padding: 0.4rem;">3 SNPs (A→C, G→A, C→A)</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 0.4rem;">3</td>
+                            <td style="padding: 0.4rem; text-align: center;">494</td>
+                            <td style="padding: 0.4rem; font-family: monospace; color: #166534;"><strong>A</strong>CAGC</td>
+                            <td style="padding: 0.4rem; font-family: monospace; color: #1e40af;"><strong>G</strong>CAGC</td>
+                            <td style="padding: 0.4rem;">1 SNP (A→G)</td>
+                        </tr>
+                        <tr style="background: #fee2e2;">
+                            <td style="padding: 0.4rem;">4</td>
+                            <td style="padding: 0.4rem; text-align: center;">504-528</td>
+                            <td style="padding: 0.4rem; font-family: monospace; color: #166534; font-size: 0.75rem;">TT<strong>TCTGCAGCTGCCATCGAGATCTC</strong>TGCA</td>
+                            <td style="padding: 0.4rem; font-family: monospace; color: #1e40af;">C-<strong>TCTGC</strong>----<strong>ATC</strong>-------<strong>TCG</strong>GAA</td>
+                            <td style="padding: 0.4rem; color: #dc2626; font-weight: bold;">21bp INDEL</td>
+                        </tr>
+                        <tr style="background: #fffbeb;">
+                            <td style="padding: 0.4rem;">5</td>
+                            <td style="padding: 0.4rem; text-align: center;">550</td>
+                            <td style="padding: 0.4rem; font-family: monospace; color: #166534;">GGG<strong>T</strong>ACG</td>
+                            <td style="padding: 0.4rem; font-family: monospace; color: #1e40af;">GGG<strong>C</strong>ACG</td>
+                            <td style="padding: 0.4rem;">1 SNP (T→C)</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div style="background: #ecfdf5; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #10b981;">
+                    <strong style="color: #065f46;">Biological Interpretation:</strong>
+                    <ul style="margin: 0.5rem 0 0 1.25rem; color: #047857; font-size: 0.85rem;">
+                        <li>The two consensus sequences represent <strong>distinct HOR (Higher Order Repeat) variants</strong></li>
+                        <li>The 21bp indel corresponds to a <strong>complete sub-unit deletion/duplication event</strong></li>
+                        <li>SNP clusters at positions 336-340 and 390-396 may indicate <strong>recombination boundaries</strong></li>
+                        <li>Both variants maintain the same overall structure (identical 335bp at 5'-end, identical 186bp at 3'-end)</li>
+                        <li>The variable region (positions 336-550) likely represents the <strong>most dynamic part</strong> of the centromeric repeat</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        function copySeq717(btn) {
+            const seq = document.getElementById('seq717').textContent;
+            navigator.clipboard.writeText('>ZF_CDR_717bp_consensus\n' + seq).then(() => {
+                btn.textContent = '✓';
+                setTimeout(() => { btn.textContent = '📋 Copy'; }, 1500);
+            });
+        }
+        function copySeq696(btn) {
+            const seq = document.getElementById('seq696').textContent;
+            navigator.clipboard.writeText('>ZF_CDR_696bp_consensus\n' + seq).then(() => {
+                btn.textContent = '✓';
+                setTimeout(() => { btn.textContent = '📋 Copy'; }, 1500);
+            });
+        }
+        </script>
+
+        <script>
+        // MSA Viewer with file loading and sequence logo
+        let msaSequences = [];
+        let msaPositionStats = [];
+        let msaFilteredStats = [];  // Filtered stats (positions with support >= 5%)
+        let msaCurrentZoom = 100;
+
+        const msaFileInput = document.getElementById('msaFileInput');
+        const msaContentEl = document.getElementById('msaContent');
+        const msaEmptyState = document.getElementById('msaEmptyState');
+        const msaStatsEl = document.getElementById('msaStats');
+        const logoSection = document.getElementById('logoSection');
+        const logoContentEl = document.getElementById('logoContent');
+        const msaScrollContainer = document.getElementById('msaScrollContainer');
+        const logoScrollContainer = document.getElementById('logoScrollContainer');
+        const filteredLogoSection = document.getElementById('filteredLogoSection');
+        const filteredLogoContentEl = document.getElementById('filteredLogoContent');
+
+        msaFileInput.addEventListener('change', handleMsaFile);
+        document.getElementById('msaShowNames').addEventListener('change', renderMsa);
+        document.getElementById('msaMaxSeqs').addEventListener('change', renderMsa);
+        document.getElementById('msaSyncScroll').addEventListener('change', setupMsaSyncScroll);
+        setupMsaSyncScroll();
+
+        function setupMsaSyncScroll() {
+            const sync = document.getElementById('msaSyncScroll').checked;
+            if (sync) {
+                msaScrollContainer.addEventListener('scroll', syncMsaFromMain);
+                logoScrollContainer.addEventListener('scroll', syncMsaFromLogo);
+            } else {
+                msaScrollContainer.removeEventListener('scroll', syncMsaFromMain);
+                logoScrollContainer.removeEventListener('scroll', syncMsaFromLogo);
+            }
+        }
+
+        let msaScrolling = false;
+        function syncMsaFromMain() {
+            if (msaScrolling) return;
+            msaScrolling = true;
+            logoScrollContainer.scrollLeft = msaScrollContainer.scrollLeft;
+            setTimeout(() => msaScrolling = false, 10);
+        }
+        function syncMsaFromLogo() {
+            if (msaScrolling) return;
+            msaScrolling = true;
+            msaScrollContainer.scrollLeft = logoScrollContainer.scrollLeft;
+            setTimeout(() => msaScrolling = false, 10);
+        }
+
+        function handleMsaFile(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            msaContentEl.innerHTML = '<div style="text-align:center;padding:2rem;color:#666;">Loading...</div>';
+            msaContentEl.style.display = 'block';
+            msaEmptyState.style.display = 'none';
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const content = e.target.result;
+                msaSequences = parseMsaFasta(content);
+
+                if (msaSequences.length === 0) {
+                    msaStatsEl.textContent = 'Error: No sequences found';
+                    msaContentEl.innerHTML = '<div style="text-align:center;padding:2rem;color:#666;">No valid sequences found</div>';
+                    logoSection.style.display = 'none';
+                    return;
+                }
+
+                const alignLen = msaSequences[0].seq.length;
+                msaStatsEl.textContent = `${msaSequences.length} sequences, ${alignLen} bp`;
+
+                // Calculate stats using ALL sequences
+                msaPositionStats = calculateMsaPositionStats(msaSequences);
+
+                // Calculate filtered stats (only positions with consensus support >= 5%)
+                msaFilteredStats = msaPositionStats.filter(s => s.freqs[s.consensus] >= 0.05);
+
+                renderMsa();
+                renderMsaLogo();
+                renderFilteredLogo();
+                logoSection.style.display = 'block';
+                filteredLogoSection.style.display = 'block';
+                document.getElementById('logoStatsInfo').textContent = `Based on all ${msaSequences.length} sequences | ${alignLen} positions`;
+                document.getElementById('filteredStatsInfo').textContent = `${msaFilteredStats.length} of ${alignLen} positions kept (${alignLen - msaFilteredStats.length} removed)`;
+            };
+            reader.readAsText(file);
+        }
+
+        function parseMsaFasta(text) {
+            const seqs = [];
+            const lines = text.split('\n');
+            let currentName = '';
+            let currentSeq = '';
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('>')) {
+                    if (currentName && currentSeq) {
+                        seqs.push({ name: currentName, seq: currentSeq.toUpperCase() });
+                    }
+                    currentName = trimmed.substring(1).split(/\s+/)[0];
+                    currentSeq = '';
+                } else if (trimmed) {
+                    currentSeq += trimmed;
+                }
+            }
+            if (currentName && currentSeq) {
+                seqs.push({ name: currentName, seq: currentSeq.toUpperCase() });
+            }
+            return seqs;
+        }
+
+        function calculateMsaPositionStats(seqs) {
+            if (seqs.length === 0) return [];
+            const alignLen = seqs[0].seq.length;
+            const stats = [];
+
+            for (let i = 0; i < alignLen; i++) {
+                const counts = { A: 0, T: 0, G: 0, C: 0, '-': 0, N: 0 };
+                let total = 0;
+
+                for (const seq of seqs) {
+                    const base = seq.seq[i] || 'N';
+                    if (counts.hasOwnProperty(base)) counts[base]++;
+                    else counts['N']++;
+                    total++;
+                }
+
+                const freqs = {};
+                for (const base in counts) freqs[base] = counts[base] / total;
+
+                let maxCount = 0, consensus = 'N';
+                for (const base of ['A', 'T', 'G', 'C']) {
+                    if (counts[base] > maxCount) {
+                        maxCount = counts[base];
+                        consensus = base;
+                    }
+                }
+
+                const conservation = maxCount / total;
+                let entropy = 0;
+                for (const base of ['A', 'T', 'G', 'C']) {
+                    if (freqs[base] > 0) entropy -= freqs[base] * Math.log2(freqs[base]);
+                }
+                const ic = 2 - entropy;
+
+                stats.push({ counts, freqs, consensus, conservation, ic, total });
+            }
+            return stats;
+        }
+
+        function renderMsa() {
+            if (msaSequences.length === 0) return;
+
+            const showNames = document.getElementById('msaShowNames').checked;
+            const maxSeqs = parseInt(document.getElementById('msaMaxSeqs').value) || 200;
+            const displaySeqs = msaSequences.slice(0, maxSeqs);
+            const alignLen = msaSequences[0].seq.length;
+
+            let html = '<div style="display:flex;flex-direction:column;">';
+
+            // Ruler
+            html += '<div style="display:flex;padding:2px 0;border-bottom:1px solid #e5e7eb;position:sticky;top:0;background:white;z-index:10;">';
+            if (showNames) html += '<div style="width:180px;min-width:180px;padding-right:8px;color:#666;font-weight:600;font-size:9px;">Position</div>';
+            html += '<div style="display:flex;">';
+            for (let i = 0; i < alignLen; i++) {
+                html += `<div style="width:10px;text-align:center;color:#999;font-size:8px;">${i % 10 === 0 ? (i + 1) : ''}</div>`;
+            }
+            html += '</div></div>';
+
+            // Sequences
+            for (const seq of displaySeqs) {
+                html += '<div style="display:flex;margin-bottom:1px;" onmouseover="this.style.background=\'#f0f7ff\'" onmouseout="this.style.background=\'transparent\'">';
+                if (showNames) html += `<div style="width:180px;min-width:180px;padding-right:8px;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;" title="${seq.name}">${seq.name}</div>`;
+                html += '<div style="display:flex;">';
+                for (const base of seq.seq) {
+                    html += `<div class="msa-base msa-base-${base === '-' ? 'gap' : base}" style="width:10px;height:12px;text-align:center;line-height:12px;font-weight:500;border-radius:1px;margin-right:1px;font-size:9px;">${base}</div>`;
+                }
+                html += '</div></div>';
+            }
+
+            if (msaSequences.length > maxSeqs) {
+                html += `<div style="padding:8px;color:#666;font-size:11px;">Showing ${maxSeqs} of ${msaSequences.length} sequences</div>`;
+            }
+            html += '</div>';
+
+            msaContentEl.innerHTML = html;
+            applyMsaZoom();
+        }
+
+        function renderMsaLogo() {
+            if (msaPositionStats.length === 0) return;
+
+            const showNames = document.getElementById('msaShowNames').checked;
+            const alignLen = msaPositionStats.length;
+            const logoHeight = 50;
+
+            let html = '<div style="display:flex;flex-direction:column;">';
+
+            // Sequence Logo
+            html += '<div style="display:flex;align-items:flex-end;height:' + logoHeight + 'px;margin-bottom:5px;">';
+            if (showNames) html += '<div style="width:180px;min-width:180px;padding-right:8px;color:#374151;font-size:9px;font-weight:600;align-self:center;">Sequence Logo</div>';
+            html += '<div style="display:flex;align-items:flex-end;height:' + logoHeight + 'px;">';
+
+            for (let i = 0; i < alignLen; i++) {
+                const stat = msaPositionStats[i];
+                html += '<div class="logo-col" style="width:10px;margin-right:1px;display:flex;flex-direction:column;justify-content:flex-end;height:100%;">';
+                const bases = ['A', 'T', 'G', 'C'].map(b => ({ base: b, freq: stat.freqs[b] })).filter(b => b.freq > 0.01).sort((a, b) => a.freq - b.freq);
+                const scale = stat.ic / 2;
+                for (const { base, freq } of bases) {
+                    const height = freq * scale * logoHeight;
+                    if (height > 2) {
+                        const fontSize = Math.min(height, 12);
+                        html += `<div style="height:${height}px;font-size:${fontSize}px;text-align:center;font-weight:bold;line-height:1;color:${getMsaBaseColor(base)};">${base}</div>`;
+                    }
+                }
+                html += '</div>';
+            }
+            html += '</div></div>';
+
+            // Conservation bar
+            html += '<div style="display:flex;margin-bottom:2px;">';
+            if (showNames) html += '<div style="width:180px;min-width:180px;padding-right:8px;color:#374151;font-size:9px;font-weight:600;">Conservation</div>';
+            html += '<div style="display:flex;">';
+            for (let i = 0; i < alignLen; i++) {
+                const stat = msaPositionStats[i];
+                const height = stat.conservation * 25;
+                const color = getConservationColor(stat.conservation);
+                html += `<div class="cons-bar" style="width:10px;height:25px;margin-right:1px;background:#e5e7eb;border-radius:2px 2px 0 0;position:relative;" title="${(stat.conservation * 100).toFixed(1)}%">`;
+                html += `<div style="position:absolute;bottom:0;left:0;right:0;height:${height}px;background:${color};border-radius:2px 2px 0 0;"></div>`;
+                html += '</div>';
+            }
+            html += '</div></div>';
+
+            // Consensus
+            html += '<div style="display:flex;margin-top:5px;padding-top:5px;border-top:1px solid #e5e7eb;">';
+            if (showNames) html += '<div style="width:180px;min-width:180px;padding-right:8px;color:#374151;font-size:9px;font-weight:600;">Consensus</div>';
+            html += '<div style="display:flex;">';
+            for (let i = 0; i < alignLen; i++) {
+                const stat = msaPositionStats[i];
+                html += `<div class="msa-base msa-base-${stat.consensus}" style="width:10px;height:12px;text-align:center;line-height:12px;font-weight:500;border-radius:1px;margin-right:1px;font-size:9px;" title="${(stat.freqs[stat.consensus] * 100).toFixed(1)}%">${stat.consensus}</div>`;
+            }
+            html += '</div></div>';
+
+            // Support percentage
+            html += '<div style="display:flex;margin-top:2px;">';
+            if (showNames) html += '<div style="width:180px;min-width:180px;padding-right:8px;color:#374151;font-size:9px;font-weight:600;">Support %</div>';
+            html += '<div style="display:flex;">';
+            for (let i = 0; i < alignLen; i++) {
+                const stat = msaPositionStats[i];
+                const pct = Math.round(stat.freqs[stat.consensus] * 100);
+                const color = pct >= 90 ? '#166534' : pct >= 70 ? '#65a30d' : pct >= 50 ? '#ca8a04' : '#dc2626';
+                html += `<div class="support-pct" style="width:10px;text-align:center;font-size:7px;color:${color};font-weight:500;margin-right:1px;" title="${pct}%">${pct}</div>`;
+            }
+            html += '</div></div>';
+
+            // Ruler
+            html += '<div style="display:flex;margin-top:5px;">';
+            if (showNames) html += '<div style="width:180px;min-width:180px;padding-right:8px;color:#666;font-size:9px;">Position</div>';
+            html += '<div style="display:flex;">';
+            for (let i = 0; i < alignLen; i++) {
+                html += `<div class="logo-ruler" style="width:10px;text-align:center;color:#999;font-size:8px;">${i % 10 === 0 ? (i + 1) : ''}</div>`;
+            }
+            html += '</div></div>';
+
+            html += '</div>';
+            logoContentEl.innerHTML = html;
+            applyMsaZoomToLogo();
+        }
+
+        function renderFilteredLogo() {
+            if (msaFilteredStats.length === 0) return;
+
+            const showNames = document.getElementById('msaShowNames').checked;
+            const alignLen = msaFilteredStats.length;
+            const logoHeight = 50;
+
+            let html = '<div style="display:flex;flex-direction:column;">';
+
+            // Sequence Logo
+            html += '<div style="display:flex;align-items:flex-end;height:' + logoHeight + 'px;margin-bottom:5px;">';
+            if (showNames) html += '<div style="width:180px;min-width:180px;padding-right:8px;color:#92400e;font-size:9px;font-weight:600;align-self:center;">Filtered Logo</div>';
+            html += '<div style="display:flex;align-items:flex-end;height:' + logoHeight + 'px;">';
+
+            for (let i = 0; i < alignLen; i++) {
+                const stat = msaFilteredStats[i];
+                html += '<div class="flogo-col" style="width:10px;margin-right:1px;display:flex;flex-direction:column;justify-content:flex-end;height:100%;">';
+                const bases = ['A', 'T', 'G', 'C'].map(b => ({ base: b, freq: stat.freqs[b] })).filter(b => b.freq > 0.01).sort((a, b) => a.freq - b.freq);
+                const scale = stat.ic / 2;
+                for (const { base, freq } of bases) {
+                    const height = freq * scale * logoHeight;
+                    if (height > 2) {
+                        const fontSize = Math.min(height, 12);
+                        html += `<div style="height:${height}px;font-size:${fontSize}px;text-align:center;font-weight:bold;line-height:1;color:${getMsaBaseColor(base)};">${base}</div>`;
+                    }
+                }
+                html += '</div>';
+            }
+            html += '</div></div>';
+
+            // Conservation bar
+            html += '<div style="display:flex;margin-bottom:2px;">';
+            if (showNames) html += '<div style="width:180px;min-width:180px;padding-right:8px;color:#92400e;font-size:9px;font-weight:600;">Conservation</div>';
+            html += '<div style="display:flex;">';
+            for (let i = 0; i < alignLen; i++) {
+                const stat = msaFilteredStats[i];
+                const height = stat.conservation * 25;
+                const color = getConservationColor(stat.conservation);
+                html += `<div class="fcons-bar" style="width:10px;height:25px;margin-right:1px;background:#fef3c7;border-radius:2px 2px 0 0;position:relative;" title="${(stat.conservation * 100).toFixed(1)}%">`;
+                html += `<div style="position:absolute;bottom:0;left:0;right:0;height:${height}px;background:${color};border-radius:2px 2px 0 0;"></div>`;
+                html += '</div>';
+            }
+            html += '</div></div>';
+
+            // Consensus
+            html += '<div style="display:flex;margin-top:5px;padding-top:5px;border-top:1px solid #fcd34d;">';
+            if (showNames) html += '<div style="width:180px;min-width:180px;padding-right:8px;color:#92400e;font-size:9px;font-weight:600;">Filtered Consensus</div>';
+            html += '<div style="display:flex;">';
+            for (let i = 0; i < alignLen; i++) {
+                const stat = msaFilteredStats[i];
+                html += `<div class="fmsa-base msa-base-${stat.consensus}" style="width:10px;height:12px;text-align:center;line-height:12px;font-weight:500;border-radius:1px;margin-right:1px;font-size:9px;" title="${(stat.freqs[stat.consensus] * 100).toFixed(1)}%">${stat.consensus}</div>`;
+            }
+            html += '</div></div>';
+
+            // Support percentage
+            html += '<div style="display:flex;margin-top:2px;">';
+            if (showNames) html += '<div style="width:180px;min-width:180px;padding-right:8px;color:#92400e;font-size:9px;font-weight:600;">Support %</div>';
+            html += '<div style="display:flex;">';
+            for (let i = 0; i < alignLen; i++) {
+                const stat = msaFilteredStats[i];
+                const pct = Math.round(stat.freqs[stat.consensus] * 100);
+                const color = pct >= 90 ? '#166534' : pct >= 70 ? '#65a30d' : pct >= 50 ? '#ca8a04' : '#dc2626';
+                html += `<div class="fsupport-pct" style="width:10px;text-align:center;font-size:7px;color:${color};font-weight:500;margin-right:1px;" title="${pct}%">${pct}</div>`;
+            }
+            html += '</div></div>';
+
+            // Ruler (position in original alignment)
+            html += '<div style="display:flex;margin-top:5px;">';
+            if (showNames) html += '<div style="width:180px;min-width:180px;padding-right:8px;color:#92400e;font-size:9px;">Filtered Position</div>';
+            html += '<div style="display:flex;">';
+            for (let i = 0; i < alignLen; i++) {
+                html += `<div class="flogo-ruler" style="width:10px;text-align:center;color:#b45309;font-size:8px;">${i % 10 === 0 ? (i + 1) : ''}</div>`;
+            }
+            html += '</div></div>';
+
+            html += '</div>';
+            filteredLogoContentEl.innerHTML = html;
+            applyMsaZoomToFilteredLogo();
+        }
+
+        function applyMsaZoomToFilteredLogo() {
+            const scale = msaCurrentZoom / 100;
+            const baseWidth = Math.round(10 * scale);
+            const supportFontSize = Math.round(7 * scale);
+
+            document.querySelectorAll('.flogo-col').forEach(el => el.style.width = baseWidth + 'px');
+            document.querySelectorAll('.fcons-bar').forEach(el => el.style.width = baseWidth + 'px');
+            document.querySelectorAll('.flogo-ruler').forEach(el => el.style.width = baseWidth + 'px');
+            document.querySelectorAll('.fmsa-base').forEach(el => {
+                el.style.width = baseWidth + 'px';
+                el.style.height = Math.round(12 * scale) + 'px';
+                el.style.lineHeight = Math.round(12 * scale) + 'px';
+                el.style.fontSize = Math.round(9 * scale) + 'px';
+            });
+            document.querySelectorAll('.fsupport-pct').forEach(el => {
+                el.style.width = baseWidth + 'px';
+                el.style.fontSize = supportFontSize + 'px';
+            });
+        }
+
+        function getMsaBaseColor(base) {
+            switch(base) {
+                case 'A': return '#22c55e';
+                case 'T': return '#3b82f6';
+                case 'G': return '#f59e0b';
+                case 'C': return '#ef4444';
+                default: return '#6b7280';
+            }
+        }
+
+        function getConservationColor(conservation) {
+            if (conservation >= 0.9) return '#22c55e';
+            if (conservation >= 0.7) return '#84cc16';
+            if (conservation >= 0.5) return '#f59e0b';
+            if (conservation >= 0.3) return '#f97316';
+            return '#ef4444';
+        }
+
+        function msaZoom(delta) {
+            msaCurrentZoom = Math.max(50, Math.min(200, msaCurrentZoom + delta * 10));
+            document.getElementById('msaZoomLevel').textContent = msaCurrentZoom + '%';
+            applyMsaZoom();
+            applyMsaZoomToLogo();
+            applyMsaZoomToFilteredLogo();
+        }
+
+        function applyMsaZoom() {
+            const scale = msaCurrentZoom / 100;
+            const baseWidth = Math.round(10 * scale);
+            const baseHeight = Math.round(12 * scale);
+            const fontSize = Math.round(9 * scale);
+
+            document.querySelectorAll('.msa-base').forEach(el => {
+                el.style.width = baseWidth + 'px';
+                el.style.height = baseHeight + 'px';
+                el.style.lineHeight = baseHeight + 'px';
+                el.style.fontSize = fontSize + 'px';
+            });
+        }
+
+        function applyMsaZoomToLogo() {
+            const scale = msaCurrentZoom / 100;
+            const baseWidth = Math.round(10 * scale);
+            const supportFontSize = Math.round(7 * scale);
+
+            document.querySelectorAll('.logo-col').forEach(el => el.style.width = baseWidth + 'px');
+            document.querySelectorAll('.cons-bar').forEach(el => el.style.width = baseWidth + 'px');
+            document.querySelectorAll('.logo-ruler').forEach(el => el.style.width = baseWidth + 'px');
+            document.querySelectorAll('.support-pct').forEach(el => {
+                el.style.width = baseWidth + 'px';
+                el.style.fontSize = supportFontSize + 'px';
+            });
+        }
+
+        function copyConsensus(btn) {
+            if (msaPositionStats.length === 0) {
+                alert('No MSA loaded');
+                return;
+            }
+            const consensus = msaPositionStats.map(s => s.consensus).join('');
+            navigator.clipboard.writeText(consensus).then(() => {
+                const origText = btn.textContent;
+                btn.textContent = '✓ Copied!';
+                btn.style.background = '#22c55e';
+                setTimeout(() => {
+                    btn.textContent = origText;
+                    btn.style.background = '#166534';
+                }, 1500);
+            }).catch(err => {
+                alert('Failed to copy: ' + err);
+            });
+        }
+
+        function copyFilteredConsensus(btn) {
+            if (msaFilteredStats.length === 0) {
+                alert('No filtered consensus available');
+                return;
+            }
+            const consensus = msaFilteredStats.map(s => s.consensus).join('');
+            navigator.clipboard.writeText(consensus).then(() => {
+                const origText = btn.textContent;
+                btn.textContent = '✓ Copied!';
+                btn.style.background = '#22c55e';
+                setTimeout(() => {
+                    btn.textContent = origText;
+                    btn.style.background = '#92400e';
+                }, 1500);
+            }).catch(err => {
+                alert('Failed to copy: ' + err);
+            });
+        }
+        </script>
+
+        <style>
+        .msa-base-A { background: #22c55e; color: white; text-shadow: 0 0 1px rgba(0,0,0,0.3); }
+        .msa-base-T { background: #3b82f6; color: white; text-shadow: 0 0 1px rgba(0,0,0,0.3); }
+        .msa-base-G { background: #f59e0b; color: white; text-shadow: 0 0 1px rgba(0,0,0,0.3); }
+        .msa-base-C { background: #ef4444; color: white; text-shadow: 0 0 1px rgba(0,0,0,0.3); }
+        .msa-base-gap { background: #cbd5e1; color: #64748b; }
+        .msa-base-N { background: #e5e7eb; color: #6b7280; }
+        </style>
+
+        <script>
+        // Old embedded MSA data removed - now using file loader
+        </script>
+
+
+        <!-- Chromosome Coverage -->
+        <div class="card">
+            <h2>Chromosome Coverage Analysis</h2>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+                <div style="background: #f0fdf4; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.75rem; font-weight: 700; color: #16a34a;">69</div>
+                    <div style="font-size: 0.8rem; color: #166534;">Chromosomes with CDR</div>
+                </div>
+                <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.75rem; font-weight: 700; color: #2563eb;">r = 0.17</div>
+                    <div style="font-size: 0.8rem; color: #1e40af;">Correlation (length vs monomers)</div>
+                </div>
+                <div style="background: #fef3c7; padding: 1rem; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.75rem; font-weight: 700; color: #d97706;">3.9</div>
+                    <div style="font-size: 0.8rem; color: #92400e;">Avg density (mon/Mb)</div>
+                </div>
+            </div>
+
+            <h3 style="font-size: 1rem; color: var(--text); margin-bottom: 1rem;">CDR Size vs Chromosome Length (MAT/PAT comparison)</h3>
+            <div style="max-height: 600px; overflow-y: auto;">
+            <table style="font-size: 0.85rem;">
+                <tr>
+                    <th>Chr</th>
+                    <th>Length (Mb)</th>
+                    <th>MAT mon</th>
+                    <th>PAT mon</th>
+                    <th>MAT dens</th>
+                    <th>PAT dens</th>
+                </tr>
+                <tr><td>chr2</td><td>152.6</td><td>49</td><td>49</td><td style="color:#16a34a;">0.3</td><td style="color:#16a34a;">0.3</td></tr>
+                <tr><td>chr1</td><td>115.9</td><td>36</td><td style="color:#9ca3af;">-</td><td style="color:#16a34a;">0.3</td><td style="color:#9ca3af;">-</td></tr>
+                <tr><td>chr3</td><td>115.6</td><td>41</td><td>35</td><td style="color:#16a34a;">0.3</td><td style="color:#16a34a;">0.3</td></tr>
+                <tr><td>chrZ</td><td>82.2</td><td style="color:#9ca3af;">-</td><td>35</td><td style="color:#9ca3af;">-</td><td style="color:#16a34a;">0.4</td></tr>
+                <tr><td>chr4</td><td>73.8</td><td>38</td><td>45</td><td style="color:#84cc16;">0.5</td><td style="color:#84cc16;">0.6</td></tr>
+                <tr><td>chr1A</td><td>72.4</td><td>35</td><td>37</td><td style="color:#84cc16;">0.5</td><td style="color:#84cc16;">0.5</td></tr>
+                <tr><td>chr7</td><td>39.4</td><td>35</td><td>36</td><td style="color:#eab308;">0.9</td><td style="color:#eab308;">0.9</td></tr>
+                <tr><td>chr6</td><td>37.0</td><td>37</td><td>38</td><td style="color:#eab308;">1.0</td><td style="color:#eab308;">1.0</td></tr>
+                <tr><td>chrW</td><td>33.8</td><td>36</td><td style="color:#9ca3af;">-</td><td style="color:#f97316;">1.1</td><td style="color:#9ca3af;">-</td></tr>
+                <tr><td>chr8</td><td>32.7</td><td>35</td><td>32</td><td style="color:#f97316;">1.1</td><td style="color:#eab308;">1.0</td></tr>
+                <tr><td>chr9</td><td>26.2</td><td>32</td><td>38</td><td style="color:#f97316;">1.2</td><td style="color:#f97316;">1.4</td></tr>
+                <tr><td>chr11</td><td>21.7</td><td>36</td><td>36</td><td style="color:#f97316;">1.7</td><td style="color:#f97316;">1.7</td></tr>
+                <tr><td>chr12</td><td>20.8</td><td>42</td><td>39</td><td style="color:#ef4444;">2.0</td><td style="color:#f97316;">1.9</td></tr>
+                <tr><td>chr4A</td><td>19.6</td><td>38</td><td style="font-weight:bold;">52</td><td style="color:#f97316;">1.9</td><td style="color:#ef4444;">2.7</td></tr>
+                <tr><td>chr13</td><td>18.8</td><td>43</td><td>35</td><td style="color:#ef4444;">2.3</td><td style="color:#f97316;">1.9</td></tr>
+                <tr><td>chr14</td><td>16.4</td><td style="font-weight:bold;">57</td><td>40</td><td style="color:#ef4444;">3.5</td><td style="color:#ef4444;">2.4</td></tr>
+                <tr><td>chr20</td><td>15.5</td><td>36</td><td>49</td><td style="color:#ef4444;">2.3</td><td style="color:#ef4444;">3.2</td></tr>
+                <tr><td>chr18</td><td>11.3</td><td>35</td><td style="font-weight:bold;">53</td><td style="color:#ef4444;">3.1</td><td style="color:#dc2626;">4.7</td></tr>
+                <tr><td>chr30</td><td>10.1</td><td>36</td><td>34</td><td style="color:#ef4444;">3.6</td><td style="color:#ef4444;">3.6</td></tr>
+                <tr><td>chr25</td><td>8.2</td><td>36</td><td>35</td><td style="color:#dc2626;">4.4</td><td style="color:#dc2626;">5.1</td></tr>
+                <tr><td>chr21</td><td>8.0</td><td>42</td><td>27</td><td style="color:#dc2626;">5.2</td><td style="color:#ef4444;">3.4</td></tr>
+                <tr><td>chr37</td><td>7.9</td><td>35</td><td>35</td><td style="color:#dc2626;">4.5</td><td style="color:#dc2626;">5.8</td></tr>
+                <tr><td>chr24</td><td>7.8</td><td>24</td><td>15</td><td style="color:#ef4444;">3.1</td><td style="color:#f97316;">1.9</td></tr>
+                <tr><td>chr26</td><td>7.0</td><td>32</td><td style="font-weight:bold;">47</td><td style="color:#dc2626;">4.6</td><td style="color:#dc2626;">6.7</td></tr>
+                <tr><td>chr23</td><td>7.0</td><td>43</td><td>36</td><td style="color:#dc2626;">6.2</td><td style="color:#dc2626;">5.2</td></tr>
+                <tr><td>chr28</td><td>6.4</td><td>40</td><td>38</td><td style="color:#dc2626;">6.3</td><td style="color:#dc2626;">6.0</td></tr>
+                <tr><td>chr29</td><td>6.2</td><td>40</td><td>35</td><td style="color:#dc2626;">7.0</td><td style="color:#dc2626;">5.7</td></tr>
+                <tr><td>chr27</td><td>5.9</td><td>28</td><td>19</td><td style="color:#dc2626;">4.8</td><td style="color:#ef4444;">3.2</td></tr>
+                <tr><td>chr34</td><td>5.8</td><td>35</td><td>46</td><td style="color:#dc2626;">7.8</td><td style="color:#dc2626;">8.0</td></tr>
+                <tr><td>chr16</td><td>5.7</td><td>37</td><td>36</td><td style="color:#dc2626;">6.5</td><td style="color:#dc2626;">7.5</td></tr>
+                <tr><td>chr31</td><td>5.6</td><td>36</td><td>37</td><td style="color:#dc2626;">6.4</td><td style="color:#dc2626;">6.9</td></tr>
+                <tr><td>chr32</td><td>5.6</td><td>35</td><td>34</td><td style="color:#dc2626;">6.3</td><td style="color:#dc2626;">6.1</td></tr>
+                <tr><td>chr22</td><td>5.3</td><td>36</td><td>38</td><td style="color:#dc2626;">7.1</td><td style="color:#dc2626;">7.1</td></tr>
+                <tr><td>chr36</td><td>5.0</td><td>35</td><td>35</td><td style="color:#dc2626;">7.3</td><td style="color:#dc2626;">7.0</td></tr>
+                <tr><td>chr35</td><td>4.9</td><td style="font-weight:bold;color:#dc2626;">72</td><td>32</td><td style="color:#dc2626;font-weight:bold;">14.7</td><td style="color:#dc2626;">6.5</td></tr>
+                <tr><td>chr33</td><td>4.8</td><td>38</td><td>38</td><td style="color:#dc2626;">8.9</td><td style="color:#dc2626;">7.9</td></tr>
+            </table>
+            </div>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.75rem;">
+                <strong>Legend:</strong> Density color scale: <span style="color:#16a34a;">low (0-1)</span> → <span style="color:#eab308;">medium (1-2)</span> → <span style="color:#ef4444;">high (3-5)</span> → <span style="color:#dc2626;">very high (>5)</span>.
+                Bold values = outliers (>50 monomers). Sex chromosomes: chrZ (pat only), chrW (mat only).
+            </p>
+        </div>
+
+        <!-- Scientific Discussion -->
+        <div class="card" style="background: linear-gradient(135deg, #fefce8 0%, #fef3c7 100%);">
+            <h2 style="color: #92400e;">Scientific Questions & Hypotheses</h2>
+
+            <div style="background: white; padding: 1.5rem; border-radius: 12px; margin-bottom: 1.5rem; border-left: 4px solid #f59e0b;">
+                <h3 style="font-size: 1.1rem; color: #b45309; margin-bottom: 0.75rem;">Key Finding</h3>
+                <p style="font-size: 1rem; margin: 0;">
+                    <strong>Weak correlation (r = 0.17)</strong> between chromosome length and centromeric array size.
+                    Small chromosomes have <em>higher density</em> of centromeric monomers than large chromosomes.
+                </p>
+            </div>
+
+            <div style="display: grid; gap: 1.5rem;">
+                <!-- Hypothesis 1 -->
+                <div style="background: white; padding: 1.25rem; border-radius: 12px; border: 2px solid #e5e7eb;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem;">
+                        <span style="background: #dbeafe; color: #1e40af; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600;">H1</span>
+                        <strong>CDR size is independent of chromosome length</strong>
+                    </div>
+                    <p style="margin: 0 0 0.75rem 0; color: #4b5563;">
+                        Kinetochore assembly may require a minimum threshold of centromeric DNA regardless of chromosome size.
+                        This would explain why small chromosomes have proportionally larger centromeres.
+                    </p>
+                    <div style="background: #f3f4f6; padding: 0.75rem; border-radius: 8px;">
+                        <strong style="font-size: 0.8rem; color: #6b7280;">Test:</strong>
+                        <span style="font-size: 0.875rem;"> Compare CDR absolute size (bp) across chromosomes. If H1 is true, absolute size should be similar (~25-30 kb).</span>
+                    </div>
+                </div>
+
+                <!-- Hypothesis 2 -->
+                <div style="background: white; padding: 1.25rem; border-radius: 12px; border: 2px solid #e5e7eb;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem;">
+                        <span style="background: #dcfce7; color: #166534; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600;">H2</span>
+                        <strong>Functional constraint on kinetochore size</strong>
+                    </div>
+                    <p style="margin: 0 0 0.75rem 0; color: #4b5563;">
+                        The kinetochore may require a minimum number of CENP-A nucleosomes for stable spindle attachment.
+                        CDR size reflects this functional requirement, not chromosome mass.
+                    </p>
+                    <div style="background: #f3f4f6; padding: 0.75rem; border-radius: 8px;">
+                        <strong style="font-size: 0.8rem; color: #6b7280;">Test:</strong>
+                        <span style="font-size: 0.875rem;"> Cross-reference with CENP-A ChIP-seq data if available. Kinetochore footprint should correlate with CDR size.</span>
+                    </div>
+                </div>
+
+                <!-- Hypothesis 3 -->
+                <div style="background: white; padding: 1.25rem; border-radius: 12px; border: 2px solid #e5e7eb;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem;">
+                        <span style="background: #fce7f3; color: #9d174d; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600;">H3</span>
+                        <strong>Evolutionary dynamics differ by chromosome</strong>
+                    </div>
+                    <p style="margin: 0 0 0.75rem 0; color: #4b5563;">
+                        Microchromosomes may have different centromere expansion/contraction dynamics than macrochromosomes.
+                        Selection pressure or recombination rates could vary.
+                    </p>
+                    <div style="background: #f3f4f6; padding: 0.75rem; border-radius: 8px;">
+                        <strong style="font-size: 0.8rem; color: #6b7280;">Test:</strong>
+                        <span style="font-size: 0.875rem;"> Compare monomer sequence diversity between macro (>50 Mb) and micro (<10 Mb) chromosomes via MSA.</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Open Questions -->
+            <div style="margin-top: 1.5rem; padding: 1.25rem; background: white; border-radius: 12px; border: 2px dashed #d1d5db;">
+                <h3 style="font-size: 1rem; color: #6b7280; margin-bottom: 1rem;">Open Questions</h3>
+                <ul style="margin: 0; padding-left: 1.25rem; color: #4b5563;">
+                    <li style="margin-bottom: 0.5rem;"><strong>CENP-B box detection:</strong> No canonical CENP-B boxes found in avian centromeres (expected, as birds lack CENP-B)</li>
+                    <li style="margin-bottom: 0.5rem;"><strong>HOR structure:</strong> Are the 717 bp and 696 bp variants part of a higher-order repeat?</li>
+                    <li style="margin-bottom: 0.5rem;"><strong>Methylation dip confidence:</strong> CDR regions identified by hypomethylation; assembly quality high</li>
+                    <li><strong>Haplotype differences:</strong> MAT (1,341 mon) vs PAT (1,266 mon) - is this significant?</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Next Steps -->
+        <div class="card next-steps">
+            <h2>Next Steps</h2>
+            <ul>
+                <li><s>Rotate monomers to common starting position</s> ✓ Done</li>
+                <li><s>Filter by length to select monomers of similar size</s> ✓ Done</li>
+                <li><s>Multiple sequence alignment using MAFFT</s> ✓ Done</li>
+                <li><strong>Phylogenetic analysis</strong> to study centromere evolution across chromosomes</li>
+                <li><strong>Consensus generation</strong> for each chromosome's centromeric repeat</li>
+                <li><strong>Compare 717bp vs 696bp groups</strong> - are they different HOR variants or subfamilies?</li>
+            </ul>
+        </div>
+
+        <!-- Commands Reference -->
+        <div class="card">
+            <h2>Commands Reference</h2>
+
+            <h3 style="font-size: 0.875rem; color: var(--text-muted); margin-top: 1rem;">1. Decomposition</h3>
+            <pre><code>arraysplitter split -i 716.cdr.fasta -o zf_cdr -v</code></pre>
+
+            <h3 style="font-size: 0.875rem; color: var(--text-muted); margin-top: 1rem;">2. Refinement</h3>
+            <pre><code>arraysplitter refine -i zf_cdr.monomers.tsv -o zf_cdr.refined.monomers.tsv -v</code></pre>
+
+            <h3 style="font-size: 0.875rem; color: var(--text-muted); margin-top: 1rem;">3. Rotation (monomer_rotation.py)</h3>
+            <pre><code># Auto-detect optimal k-mer and rotate monomers
+python -m ArraySplitter.monomer_rotation -i zf_cdr.refined.fasta -o zf_cdr.rotated.fasta -v
+
+# Or specify k-mer manually:
+python -m ArraySplitter.monomer_rotation -i input.fa -o output.fa -k CTTCGCCTCTCAGAAG</code></pre>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">
+                Optimal k-mer: <code class="inline-code">CTTCGCCTCTCAGAAG</code> (16-mer, unique in 82.7% of monomers)
+            </p>
+
+            <h3 style="font-size: 0.875rem; color: var(--text-muted); margin-top: 1rem;">4. MSA (MAFFT with 100 threads)</h3>
+            <pre><code>mafft --auto --thread 100 zf_cdr.msa_717_hq.fasta 2>/dev/null > zf_cdr.msa_717_hq.aligned.fasta
+mafft --auto --thread 100 zf_cdr.msa_696_hq.fasta 2>/dev/null > zf_cdr.msa_696_hq.aligned.fasta</code></pre>
+
+            <h3 style="font-size: 0.875rem; color: var(--text-muted); margin-top: 1rem;">5. Generate consensus (next step)</h3>
+            <pre><code># Using EMBOSS cons tool
+cons -sequence zf_cdr.msa_717_hq.aligned.fasta -outseq consensus_717.fasta
+cons -sequence zf_cdr.msa_696_hq.aligned.fasta -outseq consensus_696.fasta</code></pre>
+        </div>
+    </div>
+
+    <footer>
+        <p>Generated by ArraySplitter Pipeline | ARR-31</p>
+        <p>Data: Zebra Finch (Taeniopygia guttata) VGP Assembly</p>
+    </footer>
+</body>
+</html>
