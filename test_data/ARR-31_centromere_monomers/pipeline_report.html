@@ -3299,6 +3299,114 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
             </div>
         </div>
 
+        <!-- Section 12: AlphaFold Modeling of Kinetochore-DNA Interaction -->
+        <div class="card">
+            <h2><span class="step-number" style="background: #7c3aed;">12</span> AlphaFold3 Modeling: TIGD4/CENP-B Binding to Satellite DNA</h2>
+            <p>Structural modeling of potential kinetochore proteins (TIGD4, CENP-B) binding to Zebra Finch centromeric satellite DNA monomers using AlphaFold3 Server.</p>
+
+            <!-- Hypothesis -->
+            <div style="background: #f3e8ff; padding: 1rem; border-radius: 8px; margin: 1rem 0; border-left: 4px solid #7c3aed;">
+                <strong style="color: #6b21a8;">Hypothesis:</strong>
+                <p style="font-size: 0.9rem; color: #581c87; margin: 0.5rem 0 0 0;">
+                    TIGD4 (Tigger transposable element derived 4) and/or CENP-B may recognize the <strong>CTACTAGGA</strong> motif
+                    in CDR monomers for kinetochore assembly. We compare binding predictions for CDR sequences vs Flanking sequences
+                    to identify differential binding.
+                </p>
+            </div>
+
+            <!-- Models table -->
+            <div style="margin-top: 1.5rem;">
+                <h4 style="font-size: 0.95rem; color: #374151; margin-bottom: 0.75rem;">AlphaFold3 Prediction Results</h4>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                        <thead>
+                            <tr style="background: #f3e8ff;">
+                                <th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #c4b5fd;">Model</th>
+                                <th style="padding: 0.6rem; text-align: center; border-bottom: 2px solid #c4b5fd;">Proteins</th>
+                                <th style="padding: 0.6rem; text-align: center; border-bottom: 2px solid #c4b5fd;">DNA</th>
+                                <th style="padding: 0.6rem; text-align: center; border-bottom: 2px solid #c4b5fd;">iPTM</th>
+                                <th style="padding: 0.6rem; text-align: center; border-bottom: 2px solid #c4b5fd;">pTM</th>
+                                <th style="padding: 0.6rem; text-align: center; border-bottom: 2px solid #c4b5fd;">Link</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr style="background: #fef2f2;">
+                                <td style="padding: 0.5rem; font-weight: 500;">TIGD4+TIGD4+CENPB+Tgut696x2</td>
+                                <td style="padding: 0.5rem; text-align: center; font-size: 0.8rem;">2× TIGD4 + CENP-B</td>
+                                <td style="padding: 0.5rem; text-align: center; font-size: 0.8rem;">2× CDR 696bp</td>
+                                <td style="padding: 0.5rem; text-align: center; font-weight: bold; color: #6b7280;">—</td>
+                                <td style="padding: 0.5rem; text-align: center; font-weight: bold; color: #6b7280;">—</td>
+                                <td style="padding: 0.5rem; text-align: center;"><a href="https://alphafoldserver.com/fold/49949fb642b1cbf6" target="_blank" style="color: #7c3aed; text-decoration: none;">View</a></td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0.5rem; font-weight: 500;">TIGD4+TIGD4+CENPB+Tgut717x2</td>
+                                <td style="padding: 0.5rem; text-align: center; font-size: 0.8rem;">2× TIGD4 + CENP-B</td>
+                                <td style="padding: 0.5rem; text-align: center; font-size: 0.8rem;">2× CDR 717bp</td>
+                                <td style="padding: 0.5rem; text-align: center; font-weight: bold; color: #6b7280;">—</td>
+                                <td style="padding: 0.5rem; text-align: center; font-weight: bold; color: #6b7280;">—</td>
+                                <td style="padding: 0.5rem; text-align: center;"><a href="https://alphafoldserver.com/fold/498c9c7c5a7b5b43" target="_blank" style="color: #7c3aed; text-decoration: none;">View</a></td>
+                            </tr>
+                            <tr style="background: #f9fafb;">
+                                <td style="padding: 0.5rem; font-weight: 500;">TIGD4+TIGD4+CENPB+Tgut717x1</td>
+                                <td style="padding: 0.5rem; text-align: center; font-size: 0.8rem;">2× TIGD4 + CENP-B</td>
+                                <td style="padding: 0.5rem; text-align: center; font-size: 0.8rem;">1× CDR 717bp</td>
+                                <td style="padding: 0.5rem; text-align: center; font-weight: bold; color: #6b7280;">—</td>
+                                <td style="padding: 0.5rem; text-align: center; font-weight: bold; color: #6b7280;">—</td>
+                                <td style="padding: 0.5rem; text-align: center;"><a href="https://alphafoldserver.com/fold/7f73910a8a906708" target="_blank" style="color: #7c3aed; text-decoration: none;">View</a></td>
+                            </tr>
+                            <tr style="background: #ecfdf5;">
+                                <td style="padding: 0.5rem; font-weight: 500;">TIGD4+TIGD4+CENPB+Tgut717_flankx2</td>
+                                <td style="padding: 0.5rem; text-align: center; font-size: 0.8rem;">2× TIGD4 + CENP-B</td>
+                                <td style="padding: 0.5rem; text-align: center; font-size: 0.8rem;">2× <span style="color: #059669;">Flanking</span> 717bp</td>
+                                <td style="padding: 0.5rem; text-align: center; font-weight: bold; color: #6b7280;">—</td>
+                                <td style="padding: 0.5rem; text-align: center; font-weight: bold; color: #6b7280;">—</td>
+                                <td style="padding: 0.5rem; text-align: center;"><a href="https://alphafoldserver.com/fold/5c72154b6105e1ba" target="_blank" style="color: #7c3aed; text-decoration: none;">View</a></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <p style="font-size: 0.75rem; color: #6b7280; margin-top: 0.5rem;">
+                    * iPTM (interface predicted TM-score): measures confidence in protein-protein/protein-DNA interfaces.<br>
+                    * pTM (predicted TM-score): measures overall structural confidence.<br>
+                    * Higher scores (&gt;0.8) indicate confident predictions.
+                </p>
+            </div>
+
+            <!-- Key comparison -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.5rem;">
+                <div style="background: #fef2f2; padding: 1rem; border-radius: 8px; border: 2px solid #fecaca;">
+                    <div style="font-size: 0.9rem; font-weight: bold; color: #dc2626; margin-bottom: 0.5rem;">CDR DNA (with CTACTAGGA)</div>
+                    <div style="font-size: 0.8rem; color: #991b1b;">
+                        Contains the T62A variant creating the CTACTAGGA motif at positions 44-72.
+                        This is the predicted kinetochore binding site.
+                    </div>
+                    <div style="font-family: monospace; font-size: 0.75rem; color: #7f1d1d; margin-top: 0.5rem; background: white; padding: 0.5rem; border-radius: 4px;">
+                        ...GCGGCTACTAGG<span style="background: #fecaca; font-weight: bold;">A</span>GCACCG...
+                    </div>
+                </div>
+                <div style="background: #ecfdf5; padding: 1rem; border-radius: 8px; border: 2px solid #86efac;">
+                    <div style="font-size: 0.9rem; font-weight: bold; color: #059669; margin-bottom: 0.5rem;">Flanking DNA (with CTACTAGGT)</div>
+                    <div style="font-size: 0.8rem; color: #065f46;">
+                        Contains the original T at position 62, creating CTACTAGGT variant.
+                        May show reduced or absent kinetochore protein binding.
+                    </div>
+                    <div style="font-family: monospace; font-size: 0.75rem; color: #064e3b; margin-top: 0.5rem; background: white; padding: 0.5rem; border-radius: 4px;">
+                        ...GCGGCTACTAGG<span style="background: #bbf7d0; font-weight: bold;">T</span>GCACCG...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Expected outcome -->
+            <div style="background: #fffbeb; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #f59e0b;">
+                <strong style="color: #b45309;">Expected Outcome:</strong>
+                <ul style="margin: 0.5rem 0 0 1.5rem; color: #92400e; font-size: 0.9rem;">
+                    <li>If CTACTAGGA is the kinetochore binding motif, CDR models should show higher iPTM scores for protein-DNA interface</li>
+                    <li>Flanking models (with CTACTAGGT) should show lower binding confidence or different binding mode</li>
+                    <li>Comparison of 696bp vs 717bp will reveal if additional sequence context affects binding</li>
+                </ul>
+            </div>
+        </div>
+
         <script>
         // K-mer Enrichment Visualization
         function renderKmerEnrichment() {
