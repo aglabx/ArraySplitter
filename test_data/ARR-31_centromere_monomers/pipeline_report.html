@@ -3080,6 +3080,41 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
                 </div>
             </div>
 
+            <!-- CRITICAL: Consensus Variant Finding -->
+            <div style="background: #fef2f2; padding: 1rem; border-radius: 8px; margin: 1rem 0; border: 2px solid #f87171;">
+                <strong style="color: #b91c1c; font-size: 0.95rem;">⚠️ Critical Finding: Consensus Sequence Variant</strong>
+                <p style="font-size: 0.85rem; color: #7f1d1d; margin: 0.5rem 0;">
+                    The provided 717bp consensus has <strong>T at position 62</strong>, but the CDR monomers from the enrichment analysis have <strong>A at position 62</strong>.
+                </p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.75rem;">
+                    <div style="background: white; padding: 0.75rem; border-radius: 6px;">
+                        <div style="font-size: 0.75rem; color: #6b7280; margin-bottom: 0.25rem;">Consensus (pos 50-70):</div>
+                        <code style="font-size: 0.8rem; color: #991b1b;">GCGGCTACTAGG<span style="background: #fecaca; padding: 0 2px; font-weight: bold;">T</span>GCACCGC</code>
+                    </div>
+                    <div style="background: white; padding: 0.75rem; border-radius: 6px;">
+                        <div style="font-size: 0.75rem; color: #6b7280; margin-bottom: 0.25rem;">CDR Monomers (pos 50-70):</div>
+                        <code style="font-size: 0.8rem; color: #059669;">GCGGCTACTAGG<span style="background: #bbf7d0; padding: 0 2px; font-weight: bold;">A</span>GCACCGC</code>
+                    </div>
+                </div>
+                <p style="font-size: 0.8rem; color: #991b1b; margin-top: 0.75rem;">
+                    <strong>Result:</strong> With T62A correction, ALL 30 CDR-enriched k-mers map to a single <strong>28bp region (positions 44-72)</strong> containing the <strong>CTACTAGGA</strong> motif – a potential kinetochore binding site.
+                </p>
+            </div>
+
+            <!-- CDR-Enriched K-mer Hotspot -->
+            <div style="margin-top: 1.5rem;">
+                <h4 style="font-size: 0.95rem; color: #dc2626; margin-bottom: 0.75rem;">CDR-Enriched K-mer Hotspot (positions 44-72)</h4>
+                <p style="font-size: 0.8rem; color: #6b7280; margin-bottom: 0.5rem;">
+                    All 30 CDR-enriched k-mers (with log2FC &gt; 6.0) cluster in a single 28bp region. This is the only location on the monomer showing true CDR enrichment.
+                </p>
+                <div style="background: #f3f4f6; padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.85rem; overflow-x: auto;">
+                    <div style="color: #6b7280; margin-bottom: 0.5rem;">Position:   44        54        64        72</div>
+                    <div style="color: #374151;">Sequence: <span style="background: linear-gradient(90deg, #fef2f2 0%, #dc2626 20%, #dc2626 80%, #fef2f2 100%); color: white; padding: 2px 4px; border-radius: 4px;">AAGAAGCGGCTACTAGGAGCACCGCTGA</span></div>
+                    <div style="color: #dc2626; margin-top: 0.5rem;">Coverage:  <span style="letter-spacing: 0.15em;">4579999999999999999999997531</span></div>
+                    <div style="color: #6b7280; font-size: 0.75rem; margin-top: 0.5rem;">* Coverage = number of overlapping CDR-enriched k-mers at each position</div>
+                </div>
+            </div>
+
             <!-- Coverage visualization on 717bp consensus - 3 DF tracks -->
             <div style="margin-top: 1.5rem;">
                 <h4 style="font-size: 0.95rem; color: #374151; margin-bottom: 0.75rem;">K-mer Document Frequency (DF%) on 717bp Consensus</h4>
@@ -3254,9 +3289,10 @@ GCAGTGCCAAGGCTGCGCACACAAGCCGGTTTCGTT</pre>
             <div style="background: #f0f9ff; padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #0891b2;">
                 <strong style="color: #0e7490;">Key Findings (v2 with TF-DF):</strong>
                 <ul style="margin: 0.5rem 0 0 1.5rem; color: #0369a1;">
-                    <li><strong>No CDR-exclusive k-mers:</strong> All k-mers found in CDR are also present in flanking regions. CDR and flanking share the same satellite DNA sequence.</li>
+                    <li><strong style="color: #dc2626;">CTACTAGGA motif is CDR-specific:</strong> All 30 CDR-enriched k-mers (log2FC &gt; 6.0) map to a single 28bp region (pos 44-72) containing CTACTAGGA - a candidate kinetochore binding site.</li>
+                    <li><strong>Consensus variant at position 62:</strong> The provided consensus has T62, but CDR monomers have A62. This T/A variant creates the CDR-specific CTACTAGGA motif.</li>
                     <li><strong>220 k-mers (k≥15) conserved in ALL 72 CDRs:</strong> These represent the conserved core of centromeric satellite DNA.</li>
-                    <li><strong>Normalized fold change ~1.0:</strong> After correcting for 8.84x size difference, k-mer density is nearly equal in CDR and flanking.</li>
+                    <li><strong>Normalized fold change ~1.0:</strong> After correcting for 8.84x size difference, most k-mer densities are equal in CDR and flanking.</li>
                     <li><strong>Differential DF (not TF):</strong> Some k-mers show differential region distribution - present in 100% of CDRs but only 66% of flanking regions.</li>
                     <li><strong>~74% of consensus is variable:</strong> Only ~26% of the 717bp monomer is conserved across all CDR regions.</li>
                 </ul>
