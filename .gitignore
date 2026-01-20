@@ -181,3 +181,6 @@ test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.10kb.trf
 test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.bed
 test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.fasta
 test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.trf
+
+# Rust build artifacts
+src/rust/arraysplitter/target/
