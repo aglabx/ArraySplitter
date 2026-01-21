@@ -30,6 +30,11 @@ struct Args {
     #[arg(short, long)]
     threads: Option<usize>,
 
+    /// Maximum sequence length for edit distance calculation [default: 10000]
+    /// Sequences longer than this will have "TOO_LONG" instead of edit distance
+    #[arg(short, long, default_value = "10000")]
+    max_length: usize,
+
     /// Verbose output
     #[arg(short, long)]
     verbose: bool,
@@ -56,7 +61,7 @@ struct SequenceGroup {
 /// Output record with edit distance
 struct OutputRecord {
     sequence_id: String,
-    records: Vec<(MonomerRecord, Option<usize>)>, // (monomer, edit_distance_to_prev)
+    records: Vec<(MonomerRecord, EditDistResult)>, // (monomer, edit_distance_to_prev)
 }
 
 /// Parse a TSV line into a MonomerRecord
@@ -146,20 +151,33 @@ fn reader_thread(
     }
 }
 
+/// Edit distance result - either a value, too long, or first monomer
+#[derive(Debug, Clone)]
+enum EditDistResult {
+    Value(usize),
+    TooLong,
+    First,
+}
+
 /// Process a sequence group: calculate edit distances
-fn process_group(group: SequenceGroup) -> OutputRecord {
+fn process_group(group: SequenceGroup, max_length: usize) -> OutputRecord {
     // Sort by index to ensure correct order
     let mut monomers = group.monomers;
     monomers.sort_by_key(|m| m.index);
 
     // Calculate edit distances
-    let mut results: Vec<(MonomerRecord, Option<usize>)> = Vec::with_capacity(monomers.len());
+    let mut results: Vec<(MonomerRecord, EditDistResult)> = Vec::with_capacity(monomers.len());
 
     for i in 0..monomers.len() {
         let ed = if i > 0 {
-            Some(edit_distance(&monomers[i - 1].sequence, &monomers[i].sequence))
+            // Skip edit distance for very long sequences (O(n*m) complexity)
+            if monomers[i].sequence.len() > max_length || monomers[i - 1].sequence.len() > max_length {
+                EditDistResult::TooLong
+            } else {
+                EditDistResult::Value(edit_distance(&monomers[i - 1].sequence, &monomers[i].sequence))
+            }
         } else {
-            None // First monomer has no previous
+            EditDistResult::First // First monomer has no previous
         };
         results.push((monomers[i].clone(), ed));
     }
@@ -180,10 +198,10 @@ fn writer_thread(
 ) {
     let mut fw = BufWriter::new(File::create(&output_path).expect("Failed to create output file"));
 
-    // Write header with new column
+    // Write header with new column (edit_dist before sequence for easier viewing)
     writeln!(
         fw,
-        "sequence_id\torientation\tindex\ttype\tlength\tis_flank\tsequence\tedit_dist_to_prev"
+        "sequence_id\torientation\tindex\ttype\tlength\tis_flank\tedit_dist_to_prev\tsequence"
     )
     .unwrap();
 
@@ -192,6 +210,7 @@ fn writer_thread(
     let mut total_monomers = 0;
     let mut total_edit_distance: usize = 0;
     let mut edit_distance_count = 0;
+    let mut too_long_count = 0;
 
     // Statistics per sequence
     let mut sequence_stats: HashMap<String, Vec<usize>> = HashMap::new();
@@ -204,8 +223,8 @@ fn writer_thread(
 
                 for (monomer, ed) in &result.records {
                     let ed_str = match ed {
-                        Some(d) => {
-                            total_edit_distance += d;
+                        EditDistResult::Value(d) => {
+                            total_edit_distance += *d;
                             edit_distance_count += 1;
                             sequence_stats
                                 .entry(result.sequence_id.clone())
@@ -213,7 +232,11 @@ fn writer_thread(
                                 .push(*d);
                             d.to_string()
                         }
-                        None => "NA".to_string(),
+                        EditDistResult::TooLong => {
+                            too_long_count += 1;
+                            "TOO_LONG".to_string()
+                        }
+                        EditDistResult::First => "NA".to_string(),
                     };
 
                     writeln!(
@@ -225,8 +248,8 @@ fn writer_thread(
                         monomer.piece_type,
                         monomer.length,
                         monomer.is_flank,
-                        monomer.sequence,
-                        ed_str
+                        ed_str,
+                        monomer.sequence
                     )
                     .unwrap();
                 }
@@ -256,6 +279,9 @@ fn writer_thread(
     eprintln!("\rProcessed: {}/{} (100.0%)", processed, total);
     eprintln!("Total monomers: {}", total_monomers);
     eprintln!("Total edit distance pairs: {}", edit_distance_count);
+    if too_long_count > 0 {
+        eprintln!("Skipped (too long): {}", too_long_count);
+    }
 
     if edit_distance_count > 0 {
         let mean_ed = total_edit_distance as f64 / edit_distance_count as f64;
@@ -291,6 +317,7 @@ fn main() {
 
     eprintln!("Input: {}", args.input);
     eprintln!("Output: {}", args.output);
+    eprintln!("Max sequence length: {}", args.max_length);
 
     // Channels with bounded capacity (controls memory)
     let (input_tx, input_rx) = mpsc::sync_channel::<Option<SequenceGroup>>(num_workers * 2);
@@ -298,6 +325,7 @@ fn main() {
 
     let total_count = Arc::new(AtomicUsize::new(0));
     let verbose = args.verbose;
+    let max_length = args.max_length;
 
     // Spawn reader thread
     let reader_total = Arc::clone(&total_count);
@@ -323,7 +351,7 @@ fn main() {
 
                 match group {
                     Ok(Some(group)) => {
-                        let result = process_group(group);
+                        let result = process_group(group, max_length);
                         tx.send(Some(result)).expect("Failed to send result");
                     }
                     Ok(None) | Err(_) => {
