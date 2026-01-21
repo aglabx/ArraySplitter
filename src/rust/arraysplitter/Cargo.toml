@@ -12,6 +12,7 @@ clap = { version = "4.4", features = ["derive"] }
 
 # Parallelism
 rayon = "1.8"
+num_cpus = "1.16"
 
 # Progress bar
 indicatif = "0.17"
@@ -32,6 +33,14 @@ triple_accel = "0.4"
 
 # Statistics
 statrs = "0.16"
+
+[[bin]]
+name = "arraysplitter_rs"
+path = "src/main.rs"
+
+[[bin]]
+name = "arraysplitter_edit_dist"
+path = "src/bin/edit_distance.rs"
 
 [profile.release]
 opt-level = 3
