@@ -468,20 +468,12 @@ fn find_monomer_cycle(
 
         let mean_len: f64 = lengths.iter().sum::<f64>() / lengths.len() as f64;
 
-        // Skip if mean monomer length is too short (< 20bp)
-        // This catches bad anchors like single nucleotides that produce nonsense decomposition
-        const MIN_MEAN_MONOMER_LENGTH: f64 = 20.0;
-        if mean_len < MIN_MEAN_MONOMER_LENGTH {
-            if verbose {
-                eprintln!("  Skipping '{}': mean length {:.1}bp < {}bp minimum",
-                    &anchor[..anchor.len().min(20)], mean_len, MIN_MEAN_MONOMER_LENGTH);
-            }
-            continue;
-        }
-
         // Check monomer similarity: consecutive monomers should be similar (copies with mutations)
         // Sample up to 10 consecutive pairs and check edit distance
-        const MIN_SIMILARITY: f64 = 0.3;  // Monomers must be at least 30% similar
+        // Rationale: random DNA sequences have ~25% similarity by chance (1/4 nucleotides match)
+        // Real satellite monomers are copies with mutations, typically >70% similar
+        // We use 50% as minimum to allow for highly diverged repeats while filtering nonsense
+        const MIN_SIMILARITY: f64 = 0.5;
         const MAX_MONOMER_FOR_ED: usize = 2000;  // Skip ED for very long monomers
         const SAMPLE_PAIRS: usize = 10;
 
