@@ -709,6 +709,62 @@ let mean_similarity = similarity_sum / count as f64;
                 <li>Even if we allowed 1bp, similarity would be <0.5 → <strong>REJECTED</strong></li>
             </ul>
         </div>
+
+        <h3>Verification: Problem Solved ✅</h3>
+        <p>Tested the fix on <code>chr20_30868954_30881282</code>:</p>
+
+        <div class="mermaid-like" style="line-height: 2.2;">
+<strong>Verbose output from fixed Rust:</strong>
+
+Finding monomer cycle:
+  Candidate: CATCACAAA... period=911, CV=0.866, <span class="highlight2">sim=0.52</span>, cuts=28
+  <span class="highlight">Skipping 'GTGAAGATATT': monomers too dissimilar (similarity=0.40 < 0.50)</span>
+  Candidate: TTTTATGTG... period=2221, CV=1.091, <span class="highlight2">sim=0.59</span>, cuts=11
+  <span class="highlight">Skipping 'AAAGAA': monomers too dissimilar (similarity=0.18 < 0.50)</span>
+  Selected: CATCACAAA... period=911, CV=0.866
+
+<strong>Before fix:</strong>
+• Cut: "A" (single nucleotide)
+• Monomers: <span class="highlight">1050 fragments, ~12bp each</span>
+
+<strong>After fix:</strong>
+• Cut: "CATCACAAA" (9bp anchor)
+• Monomers: <span class="highlight2">34 fragments, ~342bp each</span>
+
+Heuristics then refined to final decomposition with proper monomer lengths.
+        </div>
+
+        <table class="diff-table">
+            <tr>
+                <th>Metric</th>
+                <th>Before Fix</th>
+                <th>After Fix</th>
+            </tr>
+            <tr>
+                <td>Cut sequence</td>
+                <td style="color: var(--error);">"A"</td>
+                <td style="color: var(--success);">"CATCACAAA"</td>
+            </tr>
+            <tr>
+                <td>Number of monomers</td>
+                <td style="color: var(--error);">1050</td>
+                <td style="color: var(--success);">34</td>
+            </tr>
+            <tr>
+                <td>Mean monomer length</td>
+                <td style="color: var(--error);">~12bp</td>
+                <td style="color: var(--success);">~342bp</td>
+            </tr>
+            <tr>
+                <td>Biological meaning</td>
+                <td style="color: var(--error);">None (random chunks)</td>
+                <td style="color: var(--success);">Alpha satellite HORs</td>
+            </tr>
+        </table>
+
+        <div class="success-box">
+            <strong>Status:</strong> <span class="tag ok">FIXED</span> - The similarity filter correctly rejects anchors that produce dissimilar monomers. Problem arrays like <code>chr20_30868954_30881282</code> are now decomposed correctly.
+        </div>
     </div>
 
     <!-- POST-PROCESSING SECTION -->
