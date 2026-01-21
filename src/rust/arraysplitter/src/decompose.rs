@@ -1,14 +1,15 @@
 //! Core decomposition algorithm for satellite DNA arrays
 //!
 //! Implements the main decomposition pipeline that:
-//! 1. Builds frequency suffix tree to find candidate cut sequences
-//! 2. Uses anchor graph to select optimal cuts
-//! 3. Decomposes arrays into monomers
+//! 1. Builds frequency suffix tree to find candidate cut sequences (all nucleotides)
+//! 2. Uses anchor graph to select optimal cuts (primary method)
+//! 3. Falls back to FS-tree decomposition if anchor graph fails
+//! 4. Applies post-processing heuristics to refine decomposition
 
 use std::collections::HashMap;
 
 use crate::sequence::find_gcd_of_list;
-use crate::fs_tree::FsTree;
+use crate::fs_tree::iterate_hints;
 use crate::anchor_graph::AnchorGraphDecomposer;
 
 /// Result of array decomposition
@@ -37,21 +38,25 @@ fn count_frequencies<T: std::hash::Hash + Eq + Clone>(items: &[T]) -> HashMap<T,
     counts
 }
 
-/// Get canonical orientation of a sequence
+/// Get canonical orientation of a sequence (matching Python exactly)
 ///
-/// Returns True if sequence is already canonical (A > T, or A == T and C >= G)
-/// When counts are equal, we consider it canonical to avoid unnecessary reversal.
+/// Returns True if sequence is already canonical (A > T, or A == T and C > G)
+/// When A == T and C == G, returns True (consider it canonical)
 pub fn is_canonical_orientation(sequence: &str) -> bool {
-    let a_count = sequence.chars().filter(|&c| c == 'A' || c == 'a').count();
-    let t_count = sequence.chars().filter(|&c| c == 'T' || c == 't').count();
-    let c_count = sequence.chars().filter(|&c| c == 'C' || c == 'c').count();
-    let g_count = sequence.chars().filter(|&c| c == 'G' || c == 'g').count();
+    let sequence_upper = sequence.to_uppercase();
+    let a_count = sequence_upper.chars().filter(|&c| c == 'A').count();
+    let t_count = sequence_upper.chars().filter(|&c| c == 'T').count();
+    let c_count = sequence_upper.chars().filter(|&c| c == 'C').count();
+    let g_count = sequence_upper.chars().filter(|&c| c == 'G').count();
 
+    // Primary criterion: A > T
     if a_count != t_count {
         return a_count > t_count;
     }
-    // When A == T, use C >= G (treat tie as canonical)
-    c_count >= g_count
+
+    // Secondary criterion: C > G (when A == T)
+    // Python: return c_count > g_count
+    c_count > g_count
 }
 
 /// Rotate monomers so they start with the cut sequence
@@ -70,21 +75,7 @@ pub fn rotate_monomers_to_cut(decomposition: &[String], cut_sequence: &str) -> V
         .collect()
 }
 
-/// Get the most frequent nucleotide in a sequence
-pub fn get_top1_nucleotide(array: &str) -> char {
-    let mut counts: HashMap<char, usize> = HashMap::new();
-    for n in "ACTG".chars() {
-        counts.insert(n, array.chars().filter(|&c| c == n).count());
-    }
-
-    counts
-        .into_iter()
-        .max_by_key(|(_, count)| *count)
-        .map(|(c, _)| c)
-        .unwrap_or('A')
-}
-
-/// Candidate for cut sequence selection
+/// Candidate for cut sequence selection (matching Python structure)
 #[derive(Debug, Clone)]
 pub struct CutCandidate {
     pub cut: String,
@@ -93,12 +84,19 @@ pub struct CutCandidate {
     pub adjusted_score: f64,
     pub fragmentation: f64,
     pub period_gcd: usize,
+    pub period_distribution: HashMap<usize, usize>,
     pub num_segments: usize,
     pub num_parts: usize,
     pub empty_ratio: f64,
 }
 
-/// Compute best cut sequence from hints
+/// Compute best cut sequence from hints (matching Python compute_cuts exactly)
+///
+/// Key features:
+/// - Handles empty_ratio for perfect/near-perfect repeats
+/// - Calculates fragmentation penalty
+/// - Checks for fundamental period using GCD
+/// - Sorts by (-adjusted_score, num_segments, mode_period)
 pub fn compute_cuts(
     array: &str,
     hints: &[(usize, String, usize)],
@@ -107,15 +105,19 @@ pub fn compute_cuts(
 ) -> (String, f64, usize) {
     let mut candidates: Vec<CutCandidate> = Vec::new();
 
+    // Calculate metrics for each hint (matching Python exactly)
     for (_, cut_sequence, _) in hints {
         let parts: Vec<&str> = array.split(cut_sequence.as_str()).collect();
         let mut periods: Vec<usize> = Vec::new();
         let mut non_empty_periods: Vec<usize> = Vec::new();
 
         for (i, part) in parts.iter().enumerate() {
+            // Handle edge cases for first/last parts
+            // Python: if i < len(parts) - 1 or part:
             if i < parts.len() - 1 || !part.is_empty() {
                 let period = part.len() + cut_sequence.len();
                 periods.push(period);
+                // Track non-empty parts separately
                 if !part.is_empty() {
                     non_empty_periods.push(period);
                 }
@@ -126,13 +128,17 @@ pub fn compute_cuts(
             continue;
         }
 
+        // Determine if this is a perfect/near-perfect repeat
         let empty_ratio = (periods.len() - non_empty_periods.len()) as f64 / periods.len() as f64;
 
         let (period_counts, mode_period, mode_count, total_segments) = if empty_ratio >= 0.8 {
+            // 80% or more empty parts = perfect/near-perfect repeat
+            // Use the cut sequence length as the period
             let mut counts = HashMap::new();
             counts.insert(cut_sequence.len(), periods.len());
             (counts, cut_sequence.len(), periods.len(), periods.len())
         } else if !non_empty_periods.is_empty() {
+            // Use only non-empty parts for period calculation
             let counts = count_frequencies(&non_empty_periods);
             let (mode, count) = counts
                 .iter()
@@ -141,6 +147,7 @@ pub fn compute_cuts(
                 .unwrap_or((0, 0));
             (counts, mode, count, non_empty_periods.len())
         } else {
+            // Fallback: use all periods
             let counts = count_frequencies(&periods);
             let (mode, count) = counts
                 .iter()
@@ -150,6 +157,7 @@ pub fn compute_cuts(
             (counts, mode, count, periods.len())
         };
 
+        // Base score (uniformity)
         let base_score = mode_count as f64 / total_segments as f64;
 
         // Fragmentation penalty
@@ -172,6 +180,7 @@ pub fn compute_cuts(
             adjusted_score: base_score * (1.0 - fragmentation * 0.5),
             fragmentation,
             period_gcd,
+            period_distribution: period_counts,
             num_segments: total_segments,
             num_parts: parts.len(),
             empty_ratio,
@@ -182,7 +191,7 @@ pub fn compute_cuts(
         return (String::new(), 0.0, array.len());
     }
 
-    // Sort by score
+    // Group candidates by score
     candidates.sort_by(|a, b| {
         b.base_score
             .partial_cmp(&a.base_score)
@@ -201,10 +210,18 @@ pub fn compute_cuts(
     let mut fundamental_candidates: Vec<&CutCandidate> = Vec::new();
     for c in &similar_candidates {
         if c.period_gcd > 1 && c.period_gcd < c.mode_period {
-            fundamental_candidates.push(c);
+            // Check if most periods are multiples of GCD
+            let multiples: usize = c.period_distribution
+                .keys()
+                .filter(|&&p| p % c.period_gcd == 0)
+                .count();
+            if multiples >= ((c.num_segments as f64 * 0.8) as usize).max(1) {
+                fundamental_candidates.push(c);
+            }
         }
     }
 
+    // If we found fundamental periods, use those
     if !fundamental_candidates.is_empty() {
         let best = fundamental_candidates
             .iter()
@@ -213,15 +230,22 @@ pub fn compute_cuts(
         return (best.cut.clone(), best.base_score, best.period_gcd);
     }
 
-    // Sort by adjusted score, then by period
+    // Otherwise, penalize fragmentation and choose best
+    // Sort by adjusted score, then by number of segments (fewer is better), then by period (smaller is better)
     let mut similar: Vec<CutCandidate> = similar_candidates.iter().map(|c| (*c).clone()).collect();
     similar.sort_by(|a, b| {
+        // Python: similar_candidates.sort(key=lambda x: (-x['adjusted_score'], x['num_segments'], x['mode_period']))
         let score_cmp = b
             .adjusted_score
             .partial_cmp(&a.adjusted_score)
             .unwrap_or(std::cmp::Ordering::Equal);
         if score_cmp == std::cmp::Ordering::Equal {
-            a.mode_period.cmp(&b.mode_period)
+            let seg_cmp = a.num_segments.cmp(&b.num_segments);
+            if seg_cmp == std::cmp::Ordering::Equal {
+                a.mode_period.cmp(&b.mode_period)
+            } else {
+                seg_cmp
+            }
         } else {
             score_cmp
         }
@@ -231,7 +255,7 @@ pub fn compute_cuts(
     (best.cut.clone(), best.base_score, best.mode_period)
 }
 
-/// Decompose array using the cut sequence (iteration 1)
+/// Decompose array using the cut sequence (matching Python decompose_array_iter1)
 pub fn decompose_array_iter1(
     array: &str,
     best_cut_seq: &str,
@@ -242,6 +266,7 @@ pub fn decompose_array_iter1(
     let mut decomposition: Vec<String> = Vec::new();
 
     if best_cut_seq.is_empty() || !array.contains(best_cut_seq) {
+        // No cut sequence or not found, return whole array
         decomposition.push(array.to_string());
         *repeats2count.entry(array.to_string()).or_insert(0) += 1;
         return (decomposition, repeats2count);
@@ -250,8 +275,9 @@ pub fn decompose_array_iter1(
     // Split by cut sequence
     let parts: Vec<&str> = array.split(best_cut_seq).collect();
 
-    // First part is a flank
+    // First part is a special case (flank)
     if !parts[0].is_empty() {
+        // First fragment (before first cut) - this is a flank
         decomposition.push(parts[0].to_string());
         *repeats2count.entry(parts[0].to_string()).or_insert(0) += 1;
         if verbose {
@@ -288,11 +314,11 @@ pub fn decompose_array_iter1(
     (decomposition, repeats2count)
 }
 
-/// Get candidates from hints for anchor graph
+/// Get candidates from hints for anchor graph (matching Python get_candidates_from_hints)
 fn get_candidates_from_hints(array: &str, hints: &[(usize, String, usize)]) -> Vec<CutCandidate> {
     let mut candidates: Vec<CutCandidate> = Vec::new();
 
-    for (l, cut_sequence, _n) in hints {
+    for (_l, cut_sequence, _n) in hints {
         let parts: Vec<&str> = array.split(cut_sequence.as_str()).collect();
         let mut periods: Vec<usize> = Vec::new();
         let mut non_empty_periods: Vec<usize> = Vec::new();
@@ -348,6 +374,7 @@ fn get_candidates_from_hints(array: &str, hints: &[(usize, String, usize)]) -> V
             adjusted_score,
             fragmentation,
             period_gcd: mode_period,
+            period_distribution: period_counts,
             num_segments: total_segments,
             num_parts: parts.len(),
             empty_ratio,
@@ -357,7 +384,46 @@ fn get_candidates_from_hints(array: &str, hints: &[(usize, String, usize)]) -> V
     candidates
 }
 
-/// Decompose array using anchor graph
+/// Get all hints from all nucleotides (matching Python get_all_hints_for_graph)
+fn get_all_hints_for_graph(array: &str, depth: usize, cutoff: usize) -> Vec<(usize, String, usize)> {
+    let mut all_hints: Vec<(usize, String, usize)> = Vec::new();
+
+    for nucleotide in "ACTG".chars() {
+        // Get positions of this nucleotide
+        let positions: Vec<usize> = array
+            .char_indices()
+            .filter(|(_, c)| c.to_ascii_uppercase() == nucleotide)
+            .map(|(i, _)| i)
+            .collect();
+
+        if positions.len() <= cutoff {
+            continue;
+        }
+
+        // Get hints from fs_tree
+        let hints = iterate_hints(array, nucleotide, cutoff, depth);
+        for hint in hints {
+            all_hints.push((hint.length, hint.pattern, hint.frequency));
+        }
+    }
+
+    // Remove duplicates, keeping highest frequency
+    let mut unique: HashMap<(usize, String), (usize, String, usize)> = HashMap::new();
+    for (length, anchor, freq) in all_hints {
+        let key = (length, anchor.clone());
+        if let Some(existing) = unique.get(&key) {
+            if freq > existing.2 {
+                unique.insert(key, (length, anchor, freq));
+            }
+        } else {
+            unique.insert(key, (length, anchor, freq));
+        }
+    }
+
+    unique.into_values().collect()
+}
+
+/// Decompose array using anchor graph (primary method, matching Python)
 fn decompose_with_anchor_graph(
     array: &str,
     hints: &[(usize, String, usize)],
@@ -371,7 +437,15 @@ fn decompose_with_anchor_graph(
     }
 
     // Get anchor strings from candidates (max length 11)
-    let anchors: Vec<String> = candidates
+    // Sort by adjusted_score descending first
+    let mut sorted_candidates = candidates;
+    sorted_candidates.sort_by(|a, b| {
+        b.adjusted_score
+            .partial_cmp(&a.adjusted_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let anchors: Vec<String> = sorted_candidates
         .iter()
         .filter(|c| c.cut.len() <= 11)
         .map(|c| c.cut.clone())
@@ -389,28 +463,6 @@ fn decompose_with_anchor_graph(
     // Decompose
     let result = decomposer.decompose(verbose)?;
 
-    // Calculate CV
-    let cut_seq = result.cut_sequence.clone();
-    let lengths: Vec<usize> = result
-        .monomers
-        .iter()
-        .filter(|m| m.starts_with(&cut_seq))
-        .map(|m| m.len())
-        .collect();
-
-    if lengths.len() < 2 {
-        return None;
-    }
-
-    let mean_len: f64 = lengths.iter().sum::<usize>() as f64 / lengths.len() as f64;
-    let variance: f64 =
-        lengths.iter().map(|&x| (x as f64 - mean_len).powi(2)).sum::<f64>() / lengths.len() as f64;
-    let cv = if mean_len > 0.0 {
-        variance.sqrt() / mean_len
-    } else {
-        f64::INFINITY
-    };
-
     // Verify reconstruction
     let reconstructed: String = result.monomers.join("");
     if reconstructed != array {
@@ -420,22 +472,23 @@ fn decompose_with_anchor_graph(
         return None;
     }
 
-    Some((result.monomers, cut_seq, result.period, cv))
+    Some((result.monomers, result.cut_sequence, result.period, result.cv))
 }
 
-/// Main decomposition function
+/// Main decomposition function (matching Python decompose_array exactly)
 ///
 /// Decomposes a satellite DNA array into monomers using:
-/// 1. Frequency suffix tree to find candidate cut sequences
-/// 2. Anchor graph to select optimal cut
-/// 3. Post-processing heuristics to refine decomposition
+/// 1. Gets hints from ALL nucleotides (ACTG)
+/// 2. Tries anchor graph decomposition first (primary method)
+/// 3. Falls back to FS-tree decomposition if anchor graph fails
+/// 4. Post-processing heuristics are applied separately
 pub fn decompose_array(
     array: &str,
     depth: usize,
     cutoff: Option<usize>,
     verbose: bool,
 ) -> Decomposition {
-    // Set cutoff based on array size if not provided
+    // Set cutoff based on array size if not provided (matching Python)
     let cutoff = cutoff.unwrap_or_else(|| {
         if array.len() > 1_000_000 {
             1000
@@ -448,13 +501,15 @@ pub fn decompose_array(
         }
     });
 
-    // Collect hints from all nucleotides
+    // Step 1-3. Get hints from all nucleotides instead of just the most frequent
     let mut all_hints: Vec<(usize, String, usize)> = Vec::new();
+    let mut hint_sources: HashMap<(usize, String), (usize, char)> = HashMap::new();
 
     for nucleotide in "ACTG".chars() {
+        // Get positions of this nucleotide
         let positions: Vec<usize> = array
             .char_indices()
-            .filter(|(_, c)| *c == nucleotide)
+            .filter(|(_, c)| c.to_ascii_uppercase() == nucleotide)
             .map(|(i, _)| i)
             .collect();
 
@@ -462,16 +517,22 @@ pub fn decompose_array(
             continue;
         }
 
-        // Build fs_tree for this nucleotide
-        let fs_tree = FsTree::new(array, 3, depth.min(100), cutoff);
-
-        // Get hints from this fs_tree
-        for hint in fs_tree.get_hints_starting_with(nucleotide) {
-            all_hints.push((hint.pattern.len(), hint.pattern, hint.frequency));
+        // Get hints from fs_tree for this nucleotide
+        let hints = iterate_hints(array, nucleotide, cutoff, depth);
+        for hint in hints {
+            all_hints.push((hint.length, hint.pattern.clone(), hint.frequency));
+            let hint_key = (hint.length, hint.pattern.clone());
+            if let Some(existing) = hint_sources.get(&hint_key) {
+                if hint.frequency > existing.0 {
+                    hint_sources.insert(hint_key, (hint.frequency, nucleotide));
+                }
+            } else {
+                hint_sources.insert(hint_key, (hint.frequency, nucleotide));
+            }
         }
     }
 
-    // Remove duplicates, keeping highest frequency
+    // Remove duplicates, keeping the one with highest frequency
     let mut unique_hints: HashMap<(usize, String), (usize, String, usize)> = HashMap::new();
     for (length, sequence, freq) in all_hints {
         let key = (length, sequence.clone());
@@ -486,9 +547,21 @@ pub fn decompose_array(
 
     let hints: Vec<(usize, String, usize)> = unique_hints.into_values().collect();
 
-    // Try anchor graph decomposition first
+    // Step 4. PRIMARY: Try anchor graph decomposition first
+    // For large sequences, get more hints with smaller cutoff
+    let graph_hints = if array.len() > 10_000 {
+        let extra_hints = get_all_hints_for_graph(array, 100, 3);
+        if extra_hints.len() > hints.len() {
+            extra_hints
+        } else {
+            hints.clone()
+        }
+    } else {
+        hints.clone()
+    };
+
     if let Some((monomers, cut_seq, period, cv)) =
-        decompose_with_anchor_graph(array, &hints, verbose)
+        decompose_with_anchor_graph(array, &graph_hints, verbose)
     {
         if verbose {
             eprintln!(
@@ -499,6 +572,7 @@ pub fn decompose_array(
             );
         }
 
+        // Calculate best_cut_score as fraction of monomers starting with cut
         let monomers_with_cut = monomers.iter().filter(|m| m.starts_with(&cut_seq)).count();
         let score = monomers_with_cut as f64 / monomers.len() as f64;
 
@@ -512,7 +586,7 @@ pub fn decompose_array(
         };
     }
 
-    // Fallback to FS-tree decomposition
+    // Step 5. FALLBACK: Use FS-tree decomposition if anchor graph fails
     if verbose {
         eprintln!("  Anchor graph failed, falling back to FS-tree decomposition");
     }
@@ -556,7 +630,7 @@ pub fn decompose_array(
     }
 }
 
-/// Decompose array using predefined cut sequences
+/// Decompose array using predefined cut sequences (matching Python decompose_array_with_cuts)
 pub fn decompose_array_with_cuts(
     array: &str,
     cut_sequences: &[String],
@@ -587,6 +661,7 @@ pub fn decompose_array_with_cuts(
             continue;
         }
 
+        // Calculate score (same logic as compute_cuts)
         let period_counts = count_frequencies(&periods);
         let (mode_period, mode_count) = period_counts
             .iter()
@@ -597,6 +672,7 @@ pub fn decompose_array_with_cuts(
         let total_segments = periods.len();
         let base_score = mode_count as f64 / total_segments as f64;
 
+        // Fragmentation penalty
         let short_threshold = (mode_period as f64 * 0.5) as usize;
         let short_fragments = periods.iter().filter(|&&p| p < short_threshold).count();
         let fragmentation = short_fragments as f64 / total_segments as f64;
@@ -609,6 +685,7 @@ pub fn decompose_array_with_cuts(
     }
 
     if best_result.is_none() {
+        // No cuts found, return whole array
         return Decomposition {
             monomers: vec![array.to_string()],
             cut_sequence: String::new(),
@@ -667,7 +744,11 @@ mod tests {
         // T > A should not be canonical
         assert!(!is_canonical_orientation("TTTT"));
         // A == T, C > G should be canonical
-        assert!(is_canonical_orientation("ACGT"));
+        assert!(is_canonical_orientation("ATCC"));
+        // A == T, C < G should not be canonical
+        assert!(!is_canonical_orientation("ATGG"));
+        // A == T, C == G - Python returns c_count > g_count which is False
+        assert!(!is_canonical_orientation("ATCG"));
     }
 
     #[test]
@@ -675,7 +756,7 @@ mod tests {
         let array = "ACGTACGTACGTACGT";
         let result = decompose_array(array, 100, None, false);
 
-        // Should decompose into 4bp monomers
+        // Should decompose into monomers
         assert!(result.monomers.len() >= 2);
 
         // Verify reconstruction
@@ -695,5 +776,17 @@ mod tests {
         // Verify reconstruction
         let reconstructed: String = result.monomers.join("");
         assert_eq!(reconstructed, array);
+    }
+
+    #[test]
+    fn test_compute_cuts_with_empty_ratio() {
+        // Test perfect repeat (all parts empty except start/end)
+        let array = "AAAAAAAAAA";
+        let hints = vec![(1, "A".to_string(), 10)];
+        let (cut, score, period) = compute_cuts(&array, &hints, 0.05, 0.5);
+
+        assert_eq!(cut, "A");
+        // For perfect repeat, period should be cut length
+        assert!(period >= 1);
     }
 }

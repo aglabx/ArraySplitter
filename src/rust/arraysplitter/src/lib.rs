@@ -57,11 +57,12 @@ pub use io::{
 };
 
 pub use fs_tree::{
-    FsTree,
+    FsNode,
     Hint,
-    get_fs_tree,
+    is_self_repeating as fs_is_self_repeating,
+    iter_fs_tree_from_sequence,
     iterate_hints,
-    analyze_distances,
+    get_fs_tree_hints,
 };
 
 pub use anchor_graph::{

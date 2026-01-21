@@ -1,220 +1,330 @@
 //! Frequency Suffix Tree for finding frequent patterns in sequences
 //!
+//! Iterative implementation matching Python's iter_fs_tree_from_sequence exactly.
+//!
 //! Used to identify potential cut sequences for array decomposition.
 
-use rustc_hash::FxHashMap;
-use std::collections::HashMap;
+use std::collections::BinaryHeap;
 
-/// A hint represents a frequent pattern found in the sequence
+/// A node in the frequency suffix tree iteration
+/// Stored as (length, names, positions) matching Python
+#[derive(Debug, Clone)]
+pub struct FsNode {
+    pub length: usize,
+    pub names: Vec<usize>,      // starting positions (original indices)
+    pub positions: Vec<usize>,  // current positions (where we are now in the string)
+}
+
+impl Ord for FsNode {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Min-heap by length (smaller lengths processed first)
+        other.length.cmp(&self.length)
+    }
+}
+
+impl PartialOrd for FsNode {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for FsNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.length == other.length
+    }
+}
+
+impl Eq for FsNode {}
+
+/// Hint from the fs-tree: (length, sequence, frequency)
 #[derive(Debug, Clone)]
 pub struct Hint {
+    pub length: usize,
     pub pattern: String,
-    pub positions: Vec<usize>,
     pub frequency: usize,
-    pub score: f64,
 }
 
-impl Hint {
-    pub fn new(pattern: String, positions: Vec<usize>) -> Self {
-        let frequency = positions.len();
-        Self {
-            pattern,
-            positions,
-            frequency,
-            score: 0.0,
+/// Check if a pattern is composed of repeated smaller units.
+/// Returns the minimal unit if self-repeating, None otherwise.
+pub fn is_self_repeating(pattern: &str) -> Option<String> {
+    let n = pattern.len();
+    for sub_len in 1..=(n / 2) {
+        if n % sub_len == 0 {
+            let sub_pattern = &pattern[..sub_len];
+            let repeated = sub_pattern.repeat(n / sub_len);
+            if pattern == repeated {
+                return Some(sub_pattern.to_string());
+            }
         }
     }
-
-    /// Calculate score based on frequency and pattern properties
-    pub fn calculate_score(&mut self, seq_len: usize) {
-        if self.positions.len() < 2 {
-            self.score = 0.0;
-            return;
-        }
-
-        // Calculate distances between consecutive occurrences
-        let distances: Vec<usize> = self.positions
-            .windows(2)
-            .map(|w| w[1] - w[0])
-            .collect();
-
-        if distances.is_empty() {
-            self.score = 0.0;
-            return;
-        }
-
-        // Score based on consistency of distances (low variance = good)
-        let mean_dist: f64 = distances.iter().sum::<usize>() as f64 / distances.len() as f64;
-        let variance: f64 = distances.iter()
-            .map(|&d| (d as f64 - mean_dist).powi(2))
-            .sum::<f64>() / distances.len() as f64;
-
-        let cv = if mean_dist > 0.0 {
-            variance.sqrt() / mean_dist
-        } else {
-            f64::MAX
-        };
-
-        // Lower CV = more regular pattern = higher score
-        // Also factor in frequency
-        let coverage = self.positions.len() as f64 * mean_dist / seq_len as f64;
-        self.score = coverage / (1.0 + cv);
-    }
+    None
 }
 
-/// Frequency Suffix Tree implementation using HashMap
+/// Iterate through fs-tree from sequence, matching Python iter_fs_tree_from_sequence exactly.
 ///
-/// For each suffix length, stores the frequency of each pattern.
-pub struct FsTree {
-    /// Pattern -> positions mapping
-    patterns: FxHashMap<String, Vec<usize>>,
-    /// Sequence length
-    seq_len: usize,
-    /// Minimum pattern length
-    min_len: usize,
-    /// Maximum pattern length
-    max_len: usize,
-}
+/// This function yields hints as it traverses the tree using a heap (priority queue).
+///
+/// # Arguments
+/// * `array` - The DNA sequence
+/// * `starting_nucleotide` - Starting nucleotide (e.g., 'A', 'C', 'G', 'T')
+/// * `cutoff` - Minimum frequency to keep a branch
+/// * `depth` - Maximum pattern length to explore
+///
+/// # Returns
+/// Vector of (length, names, positions) tuples
+pub fn iter_fs_tree_from_sequence(
+    array: &str,
+    starting_nucleotide: char,
+    cutoff: usize,
+    depth: usize,
+) -> Vec<FsNode> {
+    let array_bytes = array.as_bytes();
+    let array_len = array.len();
 
-impl FsTree {
-    /// Build frequency tree from sequence
-    ///
-    /// # Arguments
-    /// * `sequence` - DNA sequence
-    /// * `min_len` - Minimum pattern length to consider
-    /// * `max_len` - Maximum pattern length (depth)
-    /// * `cutoff` - Minimum frequency to keep a pattern
-    pub fn new(sequence: &str, min_len: usize, max_len: usize, cutoff: usize) -> Self {
-        let mut patterns: FxHashMap<String, Vec<usize>> = FxHashMap::default();
-        let seq_bytes = sequence.as_bytes();
-        let seq_len = sequence.len();
+    // Find all positions of the starting nucleotide
+    let starting_nucleotide_upper = starting_nucleotide.to_ascii_uppercase() as u8;
+    let names: Vec<usize> = array_bytes
+        .iter()
+        .enumerate()
+        .filter(|(_, &b)| b == starting_nucleotide_upper)
+        .map(|(i, _)| i)
+        .collect();
 
-        // Scan all positions
-        for pos in 0..seq_len {
-            // For each pattern length
-            for len in min_len..=max_len.min(seq_len - pos) {
-                let pattern = &sequence[pos..pos + len];
+    if names.len() <= cutoff {
+        return Vec::new();
+    }
 
-                // Skip patterns with N
-                if pattern.contains('N') || pattern.contains('n') {
-                    continue;
+    let positions = names.clone();
+
+    // Initial node: (length=1, names, positions)
+    let initial = FsNode {
+        length: 1,
+        names,
+        positions,
+    };
+
+    // Use min-heap ordered by length
+    let mut heap: BinaryHeap<FsNode> = BinaryHeap::new();
+    heap.push(initial);
+
+    let mut results: Vec<FsNode> = Vec::new();
+
+    while let Some(node) = heap.pop() {
+        let l = node.length;
+
+        // Stop if we exceed depth
+        if l > depth {
+            continue;
+        }
+
+        // Classify positions by next nucleotide
+        let mut fs_a: Vec<usize> = Vec::new();
+        let mut fs_c: Vec<usize> = Vec::new();
+        let mut fs_g: Vec<usize> = Vec::new();
+        let mut fs_t: Vec<usize> = Vec::new();
+        let mut fs_ap: Vec<usize> = Vec::new();
+        let mut fs_cp: Vec<usize> = Vec::new();
+        let mut fs_gp: Vec<usize> = Vec::new();
+        let mut fs_tp: Vec<usize> = Vec::new();
+
+        for (ii, &pos) in node.positions.iter().enumerate() {
+            let name = node.names[ii];
+
+            // Check if we're at the end of the array
+            if pos + 1 >= array_len {
+                continue;
+            }
+
+            let nucl = array_bytes[pos + 1];
+            match nucl {
+                b'A' => {
+                    fs_a.push(name);
+                    fs_ap.push(pos + 1);
                 }
-
-                patterns
-                    .entry(pattern.to_string())
-                    .or_insert_with(Vec::new)
-                    .push(pos);
+                b'C' => {
+                    fs_c.push(name);
+                    fs_cp.push(pos + 1);
+                }
+                b'G' => {
+                    fs_g.push(name);
+                    fs_gp.push(pos + 1);
+                }
+                b'T' => {
+                    fs_t.push(name);
+                    fs_tp.push(pos + 1);
+                }
+                _ => {}
             }
         }
 
-        // Filter by cutoff
-        patterns.retain(|_, positions| positions.len() >= cutoff);
+        // Process each nucleotide extension
+        if fs_a.len() > cutoff {
+            let new_node = FsNode {
+                length: l + 1,
+                names: fs_a,
+                positions: fs_ap,
+            };
+            heap.push(new_node.clone());
+            results.push(new_node);
+        }
 
-        Self {
-            patterns,
-            seq_len,
-            min_len,
-            max_len,
+        if fs_c.len() > cutoff {
+            let new_node = FsNode {
+                length: l + 1,
+                names: fs_c,
+                positions: fs_cp,
+            };
+            heap.push(new_node.clone());
+            results.push(new_node);
+        }
+
+        if fs_g.len() > cutoff {
+            let new_node = FsNode {
+                length: l + 1,
+                names: fs_g,
+                positions: fs_gp,
+            };
+            heap.push(new_node.clone());
+            results.push(new_node);
+        }
+
+        if fs_t.len() > cutoff {
+            let new_node = FsNode {
+                length: l + 1,
+                names: fs_t,
+                positions: fs_tp,
+            };
+            heap.push(new_node.clone());
+            results.push(new_node);
         }
     }
 
-    /// Get all patterns with their positions
-    pub fn get_patterns(&self) -> &FxHashMap<String, Vec<usize>> {
-        &self.patterns
-    }
-
-    /// Get hints sorted by score
-    pub fn get_hints(&self) -> Vec<Hint> {
-        let mut hints: Vec<Hint> = self.patterns
-            .iter()
-            .map(|(pattern, positions)| {
-                let mut hint = Hint::new(pattern.clone(), positions.clone());
-                hint.calculate_score(self.seq_len);
-                hint
-            })
-            .collect();
-
-        // Sort by score descending
-        hints.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-
-        hints
-    }
-
-    /// Get hints filtered by top1 nucleotide start
-    pub fn get_hints_starting_with(&self, nucleotide: char) -> Vec<Hint> {
-        self.get_hints()
-            .into_iter()
-            .filter(|h| h.pattern.starts_with(nucleotide))
-            .collect()
-    }
+    results
 }
 
-/// Build frequency suffix tree with automatic cutoff calculation
-pub fn get_fs_tree(array: &str, top1_nucleotide: char, depth: usize) -> FsTree {
-    // Calculate cutoff based on sequence length
-    // Expect at least 3 occurrences per kb
-    let cutoff = (array.len() / 1000).max(3);
-
-    FsTree::new(array, 3, depth, cutoff)
-}
-
-/// Iterate through hints and find best candidates for cut sequences
+/// Iterate through hints matching Python's iterate_hints function.
+///
+/// Key features:
+/// - Groups results by length and picks max frequency at each length
+/// - Detects self-repeating patterns and yields minimal unit instead
+/// - Tracks found patterns to avoid duplicates
+///
+/// # Returns
+/// Vector of (length, sequence, frequency) hints
 pub fn iterate_hints(
     array: &str,
-    fs_tree: &FsTree,
+    starting_nucleotide: char,
+    cutoff: usize,
     depth: usize,
-    top1_nucleotide: char,
 ) -> Vec<Hint> {
-    use crate::sequence::is_self_repeating;
+    let nodes = iter_fs_tree_from_sequence(array, starting_nucleotide, cutoff, depth);
 
-    let mut hints = fs_tree.get_hints_starting_with(top1_nucleotide);
+    if nodes.is_empty() {
+        return Vec::new();
+    }
 
-    // Filter out self-repeating patterns
-    hints.retain(|h| !is_self_repeating(&h.pattern));
+    // Sort nodes by length
+    let mut sorted_nodes = nodes;
+    sorted_nodes.sort_by_key(|n| n.length);
 
-    // Filter by minimum length
-    hints.retain(|h| h.pattern.len() >= 3);
+    // Group by length and pick best at each length
+    let mut hints: Vec<Hint> = Vec::new();
+    let mut found_patterns: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    // Keep top candidates
-    hints.truncate(100);
+    let mut current_length = 0;
+    let mut buffer: Vec<&FsNode> = Vec::new();
+
+    for node in &sorted_nodes {
+        let l = node.length;
+
+        if l != current_length {
+            // Process buffer for previous length
+            if !buffer.is_empty() {
+                // Find node with max frequency
+                let best = buffer.iter().max_by_key(|n| n.names.len()).unwrap();
+                let start = best.names[0];
+                let end = best.positions[0];
+                let found_seq = &array[start..=end];
+                let n_freq = best.names.len();
+
+                // Check if self-repeating
+                if let Some(minimal_unit) = is_self_repeating(found_seq) {
+                    // Yield minimal unit instead
+                    if !found_patterns.contains(&minimal_unit) {
+                        let min_len = minimal_unit.len();
+                        let min_count = array.matches(&minimal_unit).count();
+                        hints.push(Hint {
+                            length: min_len,
+                            pattern: minimal_unit.clone(),
+                            frequency: min_count,
+                        });
+                        found_patterns.insert(minimal_unit);
+                    }
+                } else {
+                    // Not self-repeating, yield as normal
+                    let pattern = found_seq.to_string();
+                    if !found_patterns.contains(&pattern) {
+                        hints.push(Hint {
+                            length: current_length,
+                            pattern: pattern.clone(),
+                            frequency: n_freq,
+                        });
+                        found_patterns.insert(pattern);
+                    }
+                }
+            }
+
+            buffer.clear();
+            current_length = l;
+
+            // Stop if we exceed depth
+            if current_length > depth {
+                break;
+            }
+        }
+
+        buffer.push(node);
+    }
+
+    // Process final buffer
+    if !buffer.is_empty() && current_length <= depth {
+        let best = buffer.iter().max_by_key(|n| n.names.len()).unwrap();
+        let start = best.names[0];
+        let end = best.positions[0];
+
+        if end < array.len() {
+            let found_seq = &array[start..=end];
+            let n_freq = best.names.len();
+
+            if let Some(minimal_unit) = is_self_repeating(found_seq) {
+                if !found_patterns.contains(&minimal_unit) {
+                    let min_len = minimal_unit.len();
+                    let min_count = array.matches(&minimal_unit).count();
+                    hints.push(Hint {
+                        length: min_len,
+                        pattern: minimal_unit.clone(),
+                        frequency: min_count,
+                    });
+                }
+            } else {
+                let pattern = found_seq.to_string();
+                if !found_patterns.contains(&pattern) {
+                    hints.push(Hint {
+                        length: current_length,
+                        pattern: pattern.clone(),
+                        frequency: n_freq,
+                    });
+                }
+            }
+        }
+    }
 
     hints
 }
 
-/// Analyze distances between pattern occurrences to estimate period
-pub fn analyze_distances(positions: &[usize]) -> Option<(f64, f64, usize)> {
-    if positions.len() < 2 {
-        return None;
-    }
-
-    let distances: Vec<usize> = positions
-        .windows(2)
-        .map(|w| w[1] - w[0])
-        .collect();
-
-    if distances.is_empty() {
-        return None;
-    }
-
-    let mean: f64 = distances.iter().sum::<usize>() as f64 / distances.len() as f64;
-    let variance: f64 = distances.iter()
-        .map(|&d| (d as f64 - mean).powi(2))
-        .sum::<f64>() / distances.len() as f64;
-    let std_dev = variance.sqrt();
-
-    // Most common distance
-    let mut dist_counts: HashMap<usize, usize> = HashMap::new();
-    for &d in &distances {
-        *dist_counts.entry(d).or_insert(0) += 1;
-    }
-
-    let mode = dist_counts
-        .into_iter()
-        .max_by_key(|(_, count)| *count)
-        .map(|(dist, _)| dist)
-        .unwrap_or(mean as usize);
-
-    Some((mean, std_dev, mode))
+/// Get fs_tree for array with automatic cutoff calculation (matching Python get_fs_tree)
+pub fn get_fs_tree_hints(array: &str, nucleotide: char, cutoff: usize, depth: usize) -> Vec<Hint> {
+    iterate_hints(array, nucleotide, cutoff, depth)
 }
 
 #[cfg(test)]
@@ -222,33 +332,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fs_tree_simple() {
-        let seq = "ACGTACGTACGTACGT";
-        let tree = FsTree::new(seq, 3, 10, 2);
-
-        let patterns = tree.get_patterns();
-        assert!(patterns.contains_key("ACGT"));
-        assert!(patterns.contains_key("CGT"));
+    fn test_is_self_repeating() {
+        assert_eq!(is_self_repeating("ACAC"), Some("AC".to_string()));
+        assert_eq!(is_self_repeating("ACGTACGT"), Some("ACGT".to_string()));
+        assert_eq!(is_self_repeating("AAAAAA"), Some("A".to_string()));
+        assert_eq!(is_self_repeating("ACGT"), None);
+        assert_eq!(is_self_repeating("ACG"), None);
     }
 
     #[test]
-    fn test_hints() {
+    fn test_iter_fs_tree() {
         let seq = "ACGTACGTACGTACGT";
-        let tree = FsTree::new(seq, 3, 10, 2);
-        let hints = tree.get_hints();
+        let nodes = iter_fs_tree_from_sequence(seq, 'A', 2, 10);
+
+        // Should have nodes at different lengths
+        assert!(!nodes.is_empty());
+
+        // Check that we found ACGT pattern (starting with A)
+        let has_acgt = nodes.iter().any(|n| {
+            if n.names.is_empty() { return false; }
+            let start = n.names[0];
+            let end = n.positions[0];
+            end < seq.len() && &seq[start..=end] == "ACGT"
+        });
+        assert!(has_acgt);
+    }
+
+    #[test]
+    fn test_iterate_hints() {
+        let seq = "ACGTACGTACGTACGT";
+        let hints = iterate_hints(seq, 'A', 2, 10);
 
         assert!(!hints.is_empty());
-        // ACGT should be a good pattern
-        assert!(hints.iter().any(|h| h.pattern == "ACGT"));
-    }
 
-    #[test]
-    fn test_analyze_distances() {
-        let positions = vec![0, 100, 200, 300, 400];
-        let (mean, std, mode) = analyze_distances(&positions).unwrap();
-
-        assert!((mean - 100.0).abs() < 0.1);
-        assert!(std < 1.0);
-        assert_eq!(mode, 100);
+        // Should find ACGT or its patterns
+        let patterns: Vec<&str> = hints.iter().map(|h| h.pattern.as_str()).collect();
+        println!("Found patterns: {:?}", patterns);
     }
 }

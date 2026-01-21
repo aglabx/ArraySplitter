@@ -278,7 +278,7 @@ pub fn optimize_monomer_lengths(
     }
 
     // Try merging short monomers with adjacent ones
-    let mut working_decomposition = decomposition.to_vec();
+    let working_decomposition = decomposition.to_vec();
     let mut new_decomposition: Vec<String> = Vec::new();
     let mut i = 0;
 
