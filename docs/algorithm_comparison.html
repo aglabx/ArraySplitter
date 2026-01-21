@@ -586,6 +586,131 @@ fn find_monomer_cycle(
         </div>
     </div>
 
+    <!-- ANCHOR FILTERING SECTION -->
+    <div class="section">
+        <h2>Step 3.5: Anchor Quality Filtering (Rust)</h2>
+        <p>After discovering the <code>chr20_30868954_30881282</code> problem (Rust chose cut="A", producing 1050 monomers of ~12bp), we added quality filters to reject bad anchors.</p>
+
+        <h3>The Problem: Single Nucleotide Cuts</h3>
+        <div class="mermaid-like" style="line-height: 2;">
+<strong>Array:</strong> chr20_30868954_30881282_12329_171_MONO (12.3 KB)
+
+<strong>Python decomposition:</strong>
+• Cut sequence: (complex anchor)
+• Monomers: 8 fragments, ~1540bp each
+• Problem: monomers too LARGE (should be ~171bp for alpha satellite)
+
+<strong>Rust decomposition (BEFORE fix):</strong>
+• Cut sequence: <span class="highlight">"A"</span> (single nucleotide!)
+• Monomers: <span class="highlight">1050 fragments, ~12bp each</span>
+• Problem: monomers too SMALL and DISSIMILAR
+
+<strong>Root cause:</strong>
+FS-tree finds "A" is the most frequent pattern (appears ~1050 times).
+Without filtering, Rust selects it as the anchor.
+This produces nonsense decomposition — "monomers" are just random
+chunks between A's, with no biological meaning.
+        </div>
+
+        <h3>Solution: Two-Tier Quality Filtering</h3>
+        <table class="diff-table">
+            <tr>
+                <th>Filter</th>
+                <th>Value</th>
+                <th>Rationale</th>
+            </tr>
+            <tr>
+                <td><code>MIN_ANCHOR_LENGTH</code></td>
+                <td>3 bp</td>
+                <td>Single nucleotides (A,C,G,T) and dinucleotides (AT,CG) are too common.<br>3bp = 64 variants, more specific.</td>
+            </tr>
+            <tr>
+                <td><code>MIN_SIMILARITY</code></td>
+                <td>0.5 (50%)</td>
+                <td>Consecutive monomers must share >50% sequence identity.<br>Random DNA has ~25% similarity by chance (1/4 nucleotides match).</td>
+            </tr>
+        </table>
+
+        <h3>Similarity Check Algorithm</h3>
+        <div class="mermaid-like" style="line-height: 2.2;">
+<strong>For each anchor candidate:</strong>
+
+1. Compute cut positions using cluster analysis
+2. Extract sample monomers (up to 10 consecutive pairs)
+3. For each pair (monomer_i, monomer_{i+1}):
+   • Calculate Levenshtein edit distance
+   • Similarity = 1 - (edit_distance / max_length)
+4. Mean similarity = average of all pairs
+5. <span class="highlight">REJECT anchor if mean_similarity < 0.5</span>
+
+<strong>Example - Good anchor "ACGT":</strong>
+Monomers: ACGTNNNN...NNN (171bp each)
+Edit distance between consecutive: ~25
+Similarity: 1 - 25/171 = <span class="highlight2">0.85 (85%)</span> ✓ PASS
+
+<strong>Example - Bad anchor "A":</strong>
+Monomers: ACGT (4bp), TGCA (4bp), NNNN (8bp), ...
+Edit distance between consecutive: ~4
+Similarity: 1 - 4/8 = <span class="highlight">0.5 (50%)</span> — borderline
+But lengths vary wildly (4-20bp), so actual similarity ≈ 0.3 ✗ REJECT
+        </div>
+
+        <h3>Implementation (Rust)</h3>
+<pre><code>// In anchor_graph.rs, find_monomer_cycle():
+
+// Filter 1: Minimum anchor length
+const MIN_ANCHOR_LENGTH: usize = 3;
+const MAX_ANCHOR_LENGTH: usize = 11;
+
+self.anchors = candidates.iter()
+    .filter(|c| c.len() >= MIN_ANCHOR_LENGTH && c.len() <= MAX_ANCHOR_LENGTH)
+    .take(15)
+    .cloned()
+    .collect();
+
+// Filter 2: Monomer similarity check
+const MIN_SIMILARITY: f64 = 0.5;
+const MAX_MONOMER_FOR_ED: usize = 2000;
+const SAMPLE_PAIRS: usize = 10;
+
+// Sample consecutive monomer pairs
+for i in 0..num_pairs.min(SAMPLE_PAIRS) {
+    let monomer1 = &sequence[cut_positions[i]..cut_positions[i+1]];
+    let monomer2 = &sequence[cut_positions[i+1]..cut_positions[i+2]];
+
+    if monomer1.len() <= MAX_MONOMER_FOR_ED && monomer2.len() <= MAX_MONOMER_FOR_ED {
+        let ed = levenshtein(monomer1, monomer2);
+        let sim = 1.0 - (ed as f64 / monomer1.len().max(monomer2.len()) as f64);
+        similarity_sum += sim;
+        count += 1;
+    }
+}
+
+let mean_similarity = similarity_sum / count as f64;
+<span class="highlight">if mean_similarity < MIN_SIMILARITY {
+    continue; // Skip this anchor
+}</span></code></pre>
+
+        <h3>Why NOT Use MIN_MEAN_MONOMER_LENGTH?</h3>
+        <div class="issue-box">
+            <strong>We initially added MIN_MEAN_MONOMER_LENGTH = 20bp</strong>, but this would reject legitimate short tandem repeats:
+            <ul style="margin-top: 0.5rem;">
+                <li>Trinucleotide repeats: (CAG)n → 3bp monomers</li>
+                <li>Pentanucleotide repeats: (CAGGG)n → 5bp monomers</li>
+                <li>Microsatellites: various short repeat units</li>
+            </ul>
+            <strong>Solution:</strong> Rely on similarity check instead. Short but IDENTICAL monomers (similarity=1.0) are valid.
+        </div>
+
+        <div class="success-box">
+            <strong>Result:</strong> After adding these filters, anchor "A" would be rejected:
+            <ul style="margin-top: 0.5rem;">
+                <li>Length 1bp < MIN_ANCHOR_LENGTH (3bp) → <strong>REJECTED</strong></li>
+                <li>Even if we allowed 1bp, similarity would be <0.5 → <strong>REJECTED</strong></li>
+            </ul>
+        </div>
+    </div>
+
     <!-- POST-PROCESSING SECTION -->
     <div class="section">
         <h2>Step 5: Post-Processing Heuristics <span class="tag ok">VERIFIED</span></h2>
