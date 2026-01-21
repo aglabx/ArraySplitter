@@ -1220,35 +1220,110 @@ Edit distance: <span class="highlight">~170</span> (almost full monomer differen
             </tr>
             <tr>
                 <td>ED Pairs Calculated</td>
-                <td>560,456</td>
+                <td>560,395</td>
                 <td>158,670</td>
                 <td>—</td>
             </tr>
             <tr>
                 <td>Skipped (>10KB)</td>
-                <td>0</td>
+                <td style="color: var(--success);">61</td>
                 <td style="color: var(--warning);">87</td>
                 <td><span class="tag python">PYTHON</span></td>
             </tr>
             <tr>
                 <td><strong>Mean Edit Distance</strong></td>
-                <td style="color: var(--success);"><strong>32.67</strong></td>
+                <td style="color: var(--success);"><strong>29.71</strong></td>
                 <td>89.08</td>
                 <td><span class="tag python">PYTHON</span></td>
             </tr>
             <tr>
                 <td>Std Deviation</td>
-                <td style="color: var(--error);">810.01</td>
+                <td>123.05</td>
                 <td style="color: var(--success);">221.00</td>
-                <td><span class="tag rust">RUST</span></td>
+                <td>—</td>
             </tr>
             <tr>
                 <td><strong>CV of Edit Distance</strong></td>
-                <td style="color: var(--error);"><strong>2479%</strong></td>
+                <td style="color: var(--error);"><strong>414%</strong></td>
                 <td style="color: var(--success);"><strong>248%</strong></td>
                 <td><span class="tag rust">RUST</span></td>
             </tr>
         </table>
+
+        <h3>Sum of Edit Distances (Better Metric)</h3>
+        <p>Instead of mean ED, we should minimize <strong>total sum of ED</strong> — this captures the overall "cost" of decomposition.</p>
+
+        <table class="diff-table">
+            <tr>
+                <th>Metric</th>
+                <th>Python</th>
+                <th>Rust</th>
+                <th>Better</th>
+            </tr>
+            <tr>
+                <td><strong>Total Sum ED</strong></td>
+                <td>16,647,071</td>
+                <td style="color: var(--success);"><strong>14,133,900</strong></td>
+                <td><span class="tag rust">RUST</span> (-15%)</td>
+            </tr>
+            <tr>
+                <td><strong>Mean sum/sequence</strong></td>
+                <td>36,268</td>
+                <td style="color: var(--success);"><strong>31,409</strong></td>
+                <td><span class="tag rust">RUST</span> (-13%)</td>
+            </tr>
+            <tr>
+                <td><strong>Median sum/sequence</strong></td>
+                <td style="color: var(--success);"><strong>6,966</strong></td>
+                <td>7,102</td>
+                <td><span class="tag python">PYTHON</span> (-2%)</td>
+            </tr>
+            <tr>
+                <td>Skipped (>10KB)</td>
+                <td style="color: var(--success);">61</td>
+                <td>87</td>
+                <td><span class="tag python">PYTHON</span></td>
+            </tr>
+        </table>
+
+        <h3>Top 10 Worst Arrays (Highest ED Sum)</h3>
+        <div class="comparison">
+            <div class="impl-box python">
+                <h4><span class="tag python">Python</span> Highest ED Sums</h4>
+<pre style="font-size: 0.8rem;"><code>1. chr18_15974533_21021420  sum=1,533,181  mean=51.4
+2. chr22_12779106_15718780  sum=1,252,514  mean=83.0
+3. chr4_52115489_54870439   sum=1,238,669  mean=292.6
+4. chr14_10093086_12716126  sum=1,107,535  mean=82.4
+5. chr6_58286687_61068538   sum=906,018    mean=731.8
+6. chr20_26925601_29521049  sum=691,656    mean=45.3
+7. chr13_15547599_17536288  sum=624,740    mean=328.6
+8. chr2_92299236_94008899   sum=469,990    mean=46.8
+9. chr20_32017168_32969589  sum=422,742    mean=449.7
+10.chr9_46000807_47590847   sum=405,377    mean=43.4</code></pre>
+            </div>
+
+            <div class="impl-box rust">
+                <h4><span class="tag rust">Rust</span> Highest ED Sums</h4>
+<pre style="font-size: 0.8rem;"><code>1. <span class="highlight">chr11_51006709_54488056</span>  sum=1,824,862  mean=225.3
+2. chr18_15974533_21021420  sum=1,533,181  mean=51.4
+3. chr20_26925601_29521049  sum=1,035,986  mean=495.7
+4. chr17_23430418_27415613  sum=924,982    mean=39.4
+5. chr22_12779106_15718780  sum=589,655    mean=132.5
+6. chr20_32017168_32969589  sum=422,742    mean=449.7
+7. chr9_46000807_47590847   sum=405,377    mean=43.4
+8. chr19_25892828_29746601  sum=389,860    mean=33.1
+9. chr12_34583274_37061332  sum=336,518    mean=46.0
+10.chr3_91731393_92595770   sum=326,091    mean=220.9</code></pre>
+            </div>
+        </div>
+
+        <div class="issue-box">
+            <strong>Key Finding:</strong> <code>chr11_51006709_54488056</code> is #1 worst for Rust (sum=1.8M) but NOT in Python's top-10. This array is poorly decomposed by Rust but well-handled by Python.
+        </div>
+
+        <div class="success-box">
+            <strong>Identical Results:</strong> <code>chr18_15974533_21021420</code> has identical sum (1,533,181) and pairs (29,838) in both — proving implementations CAN produce the same result.
+        </div>
 
         <h3>Interpretation</h3>
         <div class="comparison">
@@ -1302,9 +1377,10 @@ CV: 248% (better - no extreme outliers)
         <div class="success-box">
             <strong>Conclusion:</strong> Edit distance analysis reveals complementary strengths:
             <ul style="margin-top: 0.5rem;">
-                <li><strong>Python:</strong> Better at fine-grained decomposition (lower mean ED), but has outlier problems (high CV)</li>
-                <li><strong>Rust:</strong> More consistent decomposition (lower CV), but sometimes at coarser level (higher mean ED)</li>
-                <li>Ideal would be Python's mean ED with Rust's CV</li>
+                <li><strong>Rust wins on Total Sum ED:</strong> 14.1M vs 16.6M (-15%) — lower overall "cost"</li>
+                <li><strong>Median is nearly identical:</strong> ~7000 per sequence — typical arrays handled equally well</li>
+                <li><strong>Python has more outliers:</strong> Mean sum 36K vs 31K, driven by problematic arrays</li>
+                <li><strong>Some arrays identical:</strong> chr18_15974533_21021420 has same result in both</li>
             </ul>
         </div>
 

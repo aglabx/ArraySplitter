@@ -286,6 +286,7 @@ fn writer_thread(
     if edit_distance_count > 0 {
         let mean_ed = total_edit_distance as f64 / edit_distance_count as f64;
         eprintln!("Mean edit distance: {:.2}", mean_ed);
+        eprintln!("Total sum ED: {}", total_edit_distance);
 
         if verbose {
             // Calculate variance
@@ -299,6 +300,40 @@ fn writer_thread(
             let std_dev = variance.sqrt();
             eprintln!("Std deviation: {:.2}", std_dev);
             eprintln!("CV: {:.2}%", (std_dev / mean_ed) * 100.0);
+
+            // Per-sequence statistics
+            eprintln!("\n--- Per-sequence ED sums ---");
+            let mut seq_sums: Vec<(String, usize, usize)> = sequence_stats
+                .iter()
+                .map(|(id, eds)| (id.clone(), eds.iter().sum::<usize>(), eds.len()))
+                .collect();
+            seq_sums.sort_by(|a, b| b.1.cmp(&a.1)); // Sort by sum descending
+
+            // Show top 10 highest ED sums
+            eprintln!("Top 10 highest ED sums:");
+            for (id, sum, count) in seq_sums.iter().take(10) {
+                let mean = *sum as f64 / *count as f64;
+                eprintln!("  {}: sum={}, pairs={}, mean={:.1}", id, sum, count, mean);
+            }
+
+            // Show top 10 lowest ED sums (best decompositions)
+            eprintln!("\nTop 10 lowest ED sums:");
+            for (id, sum, count) in seq_sums.iter().rev().take(10) {
+                let mean = *sum as f64 / *count as f64;
+                eprintln!("  {}: sum={}, pairs={}, mean={:.1}", id, sum, count, mean);
+            }
+
+            // Summary stats for per-sequence sums
+            let all_sums: Vec<f64> = seq_sums.iter().map(|(_, s, _)| *s as f64).collect();
+            let sum_mean = all_sums.iter().sum::<f64>() / all_sums.len() as f64;
+            let sum_median = {
+                let mut sorted = all_sums.clone();
+                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                sorted[sorted.len() / 2]
+            };
+            eprintln!("\nPer-sequence ED sum stats:");
+            eprintln!("  Mean sum per sequence: {:.1}", sum_mean);
+            eprintln!("  Median sum per sequence: {:.1}", sum_median);
         }
     }
 }
