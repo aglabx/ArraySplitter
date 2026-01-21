@@ -277,13 +277,13 @@
             <div class="stat-value">466</div>
             <div class="stat-label">Arrays Tested</div>
         </div>
-        <div class="stat-box good">
-            <div class="stat-value">158K</div>
-            <div class="stat-label">Total Monomers</div>
-        </div>
         <div class="stat-box python">
-            <div class="stat-value">✓</div>
-            <div class="stat-label">Python = Rust</div>
+            <div class="stat-value">561K</div>
+            <div class="stat-label">Python Monomers</div>
+        </div>
+        <div class="stat-box rust">
+            <div class="stat-value">159K</div>
+            <div class="stat-label">Rust Monomers</div>
         </div>
     </div>
 
@@ -1179,6 +1179,142 @@ RCV Range    | Python | Rust   | Winner
                 <td style="color: var(--success);">0.03%</td>
             </tr>
         </table>
+    </div>
+
+    <!-- EDIT DISTANCE ANALYSIS SECTION -->
+    <div class="section">
+        <h2>Edit Distance Analysis: Consecutive Monomer Similarity</h2>
+        <p>A sanity check: consecutive monomers in a satellite array should be similar to each other (they are copies of the same repeat unit with mutations). We calculate Levenshtein edit distance between each pair of consecutive monomers.</p>
+
+        <h3>Why Edit Distance Matters</h3>
+        <div class="mermaid-like" style="line-height: 2.2;">
+<strong>Good decomposition:</strong>
+Monomer i:   ACGTACGT...ACGT (171bp)
+Monomer i+1: ACGTACGT...ACGT (171bp)  ← few mutations
+Edit distance: ~10-30 (point mutations only)
+
+<strong>Bad decomposition (merged monomers):</strong>
+Monomer i:   ACGTACGT...ACGT (171bp)
+Monomer i+1: ACGTACGT...ACGTACGT...ACGT (<span class="highlight">342bp</span>)  ← two monomers merged
+Edit distance: <span class="highlight">~170</span> (almost full monomer difference!)
+
+<strong>Expected:</strong>
+• Low mean ED → monomers are similar (correct decomposition)
+• Low CV of ED → consistent similarity (no outliers)
+• High CV → some pairs have huge ED (merged/split errors)
+        </div>
+
+        <h3>Results Comparison</h3>
+        <table class="diff-table">
+            <tr>
+                <th>Metric</th>
+                <th>Python</th>
+                <th>Rust</th>
+                <th>Better</th>
+            </tr>
+            <tr>
+                <td>Total Monomers</td>
+                <td style="color: var(--success);">560,922</td>
+                <td>159,223</td>
+                <td><span class="tag python">PYTHON</span> (3.5x more)</td>
+            </tr>
+            <tr>
+                <td>ED Pairs Calculated</td>
+                <td>560,456</td>
+                <td>158,670</td>
+                <td>—</td>
+            </tr>
+            <tr>
+                <td>Skipped (>10KB)</td>
+                <td>0</td>
+                <td style="color: var(--warning);">87</td>
+                <td><span class="tag python">PYTHON</span></td>
+            </tr>
+            <tr>
+                <td><strong>Mean Edit Distance</strong></td>
+                <td style="color: var(--success);"><strong>32.67</strong></td>
+                <td>89.08</td>
+                <td><span class="tag python">PYTHON</span></td>
+            </tr>
+            <tr>
+                <td>Std Deviation</td>
+                <td style="color: var(--error);">810.01</td>
+                <td style="color: var(--success);">221.00</td>
+                <td><span class="tag rust">RUST</span></td>
+            </tr>
+            <tr>
+                <td><strong>CV of Edit Distance</strong></td>
+                <td style="color: var(--error);"><strong>2479%</strong></td>
+                <td style="color: var(--success);"><strong>248%</strong></td>
+                <td><span class="tag rust">RUST</span></td>
+            </tr>
+        </table>
+
+        <h3>Interpretation</h3>
+        <div class="comparison">
+            <div class="impl-box python">
+                <h4><span class="tag python">Python</span> Analysis</h4>
+                <ul>
+                    <li><strong>Lower mean ED (32.67)</strong> — consecutive monomers are very similar</li>
+                    <li><strong>Huge CV (2479%)</strong> — BUT there are extreme outliers!</li>
+                    <li>Std dev 810 > mean 32 → some pairs have ED in thousands</li>
+                    <li>These outliers are likely merged monomers or flanks</li>
+                </ul>
+                <div class="issue-box" style="margin-top: 1rem;">
+                    <strong>Issue:</strong> Extreme outliers suggest some monomers are incorrectly merged or include flanks that dramatically differ from internal monomers.
+                </div>
+            </div>
+
+            <div class="impl-box rust">
+                <h4><span class="tag rust">Rust</span> Analysis</h4>
+                <ul>
+                    <li><strong>Higher mean ED (89.08)</strong> — monomers less similar on average</li>
+                    <li><strong>Lower CV (248%)</strong> — more consistent, fewer outliers</li>
+                    <li>87 pairs skipped due to >10KB "monomers"</li>
+                    <li>These giant "monomers" are undecomposed arrays</li>
+                </ul>
+                <div class="issue-box" style="margin-top: 1rem;">
+                    <strong>Issue:</strong> 87 sequences were not decomposed at all (stayed as single 10KB+ chunks). Higher mean ED suggests decomposition at HOR level rather than alpha monomer level.
+                </div>
+            </div>
+        </div>
+
+        <h3>Why Rust Has Higher Mean ED but Lower CV</h3>
+        <div class="mermaid-like" style="line-height: 2;">
+<strong>Python decomposes at alpha monomer level (~171bp):</strong>
+Consecutive monomers: [171bp] → [171bp] → [171bp]
+Edit distances: 25, 30, 28, 35, <span class="highlight">2500</span>, 32, 27...  ← occasional huge outlier
+Mean: 32.67 (good!)
+CV: 2479% (bad - outliers dominate variance)
+
+<strong>Rust often decomposes at HOR level (~1700bp):</strong>
+Consecutive monomers: [1700bp] → [1700bp] → [1700bp]
+Edit distances: 85, 92, 78, 95, 88, 91...  ← more consistent
+Mean: 89.08 (higher because longer sequences)
+CV: 248% (better - no extreme outliers)
+
+<strong>Key insight:</strong>
+• Python's low mean is good, but CV reveals hidden problems
+• Rust's higher mean is expected for longer monomers
+• Rust's lower CV suggests more consistent decomposition
+        </div>
+
+        <div class="success-box">
+            <strong>Conclusion:</strong> Edit distance analysis reveals complementary strengths:
+            <ul style="margin-top: 0.5rem;">
+                <li><strong>Python:</strong> Better at fine-grained decomposition (lower mean ED), but has outlier problems (high CV)</li>
+                <li><strong>Rust:</strong> More consistent decomposition (lower CV), but sometimes at coarser level (higher mean ED)</li>
+                <li>Ideal would be Python's mean ED with Rust's CV</li>
+            </ul>
+        </div>
+
+        <h3>Next Steps for Edit Distance</h3>
+        <ol>
+            <li><strong>Investigate Python outliers:</strong> Find pairs with ED > 500 and analyze why</li>
+            <li><strong>Fix Rust non-decomposition:</strong> 87 arrays stayed as single chunks — debug these</li>
+            <li><strong>Add ED-based filtering:</strong> Flag monomers where ED to neighbor > 3× median</li>
+            <li><strong>Use Robust Mean ED:</strong> Use median instead of mean to reduce outlier impact</li>
+        </ol>
     </div>
 
     <!-- CONCLUSIONS SECTION -->
