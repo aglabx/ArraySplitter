@@ -795,6 +795,9 @@ pub fn split_by_popular_prefix(
     result
 }
 
+/// Maximum number of monomers for ED refinement (avoid O(n²) on huge arrays)
+const MAX_MONOMERS_FOR_ED_REFINE: usize = 5000;
+
 /// Refine decomposition using local edit distance optimization
 ///
 /// Algorithm:
@@ -808,6 +811,15 @@ pub fn refine_by_ed(
     verbose: bool,
 ) -> Vec<String> {
     if decomposition.len() < 3 {
+        return decomposition.to_vec();
+    }
+
+    // Skip ED refinement for very large arrays (too slow)
+    if decomposition.len() > MAX_MONOMERS_FOR_ED_REFINE {
+        if verbose {
+            eprintln!("  Skipping ED refinement: {} monomers > {} limit",
+                decomposition.len(), MAX_MONOMERS_FOR_ED_REFINE);
+        }
         return decomposition.to_vec();
     }
 
