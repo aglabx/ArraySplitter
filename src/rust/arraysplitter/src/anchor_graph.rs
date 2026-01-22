@@ -412,7 +412,7 @@ fn find_monomer_cycle(
     // Pass 2: Full similarity calculation only for top candidates
 
     const MIN_CUT_COUNT: usize = 10;
-    const MAX_CV_FOR_ED: f64 = 0.5;  // Only calculate ED for candidates with CV < 0.5
+    const MAX_CV_FOR_ED: f64 = 1.0;  // Calculate ED for all candidates with CV < 1.0
     const TOP_CANDIDATES_FOR_ED: usize = 5;  // Calculate ED for top N candidates by CV
     const MIN_SIMILARITY: f64 = 0.5;
     const MAX_MONOMER_FOR_ED: usize = 2000;  // Skip ED for very long monomers
@@ -553,7 +553,7 @@ fn find_monomer_cycle(
         candidates.push((vec![anchor.clone()], *cv, *true_period, *cut_count, *n_clusters, centers.clone(), mean_similarity));
     }
 
-    // Add remaining candidates without full ED (assume sim=1.0 but they won't win by CV anyway)
+    // Add remaining candidates without full ED (sim=0.0 so they lose to candidates with ED)
     for (anchor, cv, true_period, cut_count, n_clusters, centers, _cut_positions) in &remaining_candidates {
         if verbose {
             let cluster_info = if *n_clusters > 1 {
@@ -564,7 +564,7 @@ fn find_monomer_cycle(
             eprintln!("  Candidate: {}... period={:.0}, CV={:.3}, sim=N/A, cuts={}{} [no ED - high CV]",
                 &anchor[..anchor.len().min(20)], true_period, cv, cut_count, cluster_info);
         }
-        candidates.push((vec![anchor.clone()], *cv, *true_period, *cut_count, *n_clusters, centers.clone(), 1.0));
+        candidates.push((vec![anchor.clone()], *cv, *true_period, *cut_count, *n_clusters, centers.clone(), 0.0));
     }
 
     // Select best candidate
@@ -584,17 +584,19 @@ fn find_monomer_cycle(
         return (Vec::new(), 0.0, f64::INFINITY, 1, Vec::new());
     }
 
-    // Sort by: CV (ascending), then similarity (descending), then cuts (descending), then clusters (ascending)
+    // Sort by: similarity (descending), then CV (ascending), then cuts (descending), then clusters (ascending)
+    // Rationale: similarity measures biological meaning (monomers are copies with mutations)
+    // CV can be artificially low for HOR-level cuts
     candidates.sort_by(|a, b| {
-        // First compare CV (lower is better)
-        let cv_cmp = a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal);
-        if cv_cmp != std::cmp::Ordering::Equal {
-            return cv_cmp;
-        }
-        // If CV is similar, prefer higher similarity
+        // First compare similarity (higher is better)
         let sim_cmp = b.6.partial_cmp(&a.6).unwrap_or(std::cmp::Ordering::Equal);
         if sim_cmp != std::cmp::Ordering::Equal {
             return sim_cmp;
+        }
+        // If similarity is similar, prefer lower CV
+        let cv_cmp = a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal);
+        if cv_cmp != std::cmp::Ordering::Equal {
+            return cv_cmp;
         }
         // Then prefer more cuts (more reliable)
         let cuts_cmp = b.3.cmp(&a.3);
