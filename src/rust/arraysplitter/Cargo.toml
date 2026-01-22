@@ -34,6 +34,9 @@ triple_accel = "0.4"
 # Statistics
 statrs = "0.16"
 
+# System info (memory, CPU)
+sysinfo = "0.30"
+
 [[bin]]
 name = "arraysplitter_rs"
 path = "src/main.rs"

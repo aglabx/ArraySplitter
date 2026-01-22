@@ -7,9 +7,11 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 use std::sync::mpsc::{self, SyncSender, Receiver};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
+use std::time::Instant;
+use sysinfo::{System, Pid, ProcessRefreshKind};
 
 use arraysplitter_rs::{
     decompose_array, decompose_array_with_cuts, apply_all_heuristics,
@@ -324,6 +326,7 @@ fn writer_thread(
 }
 
 fn main() {
+    let start_time = Instant::now();
     let args = Args::parse();
 
     let num_workers = args.threads.unwrap_or_else(num_cpus::get);
@@ -350,6 +353,31 @@ fn main() {
     if let Some(ref cuts) = predefined_cuts {
         eprintln!("Using predefined cuts: {:?}", cuts);
     }
+
+    // Resource monitoring: track peak memory
+    let peak_memory_kb = Arc::new(AtomicU64::new(0));
+    let monitor_running = Arc::new(std::sync::atomic::AtomicBool::new(true));
+
+    // Spawn memory monitor thread
+    let peak_mem = Arc::clone(&peak_memory_kb);
+    let monitor_flag = Arc::clone(&monitor_running);
+    let monitor_handle = thread::spawn(move || {
+        let mut sys = System::new();
+        let pid = Pid::from_u32(std::process::id());
+
+        while monitor_flag.load(Ordering::Relaxed) {
+            sys.refresh_processes_specifics(ProcessRefreshKind::new().with_memory());
+
+            if let Some(process) = sys.process(pid) {
+                let mem_kb = process.memory() / 1024;  // Convert to KB
+                let current_peak = peak_mem.load(Ordering::Relaxed);
+                if mem_kb > current_peak {
+                    peak_mem.store(mem_kb, Ordering::Relaxed);
+                }
+            }
+            thread::sleep(std::time::Duration::from_millis(100));
+        }
+    });
 
     // Channels with bounded capacity (controls memory)
     let (input_tx, input_rx) = mpsc::sync_channel::<Option<InputRecord>>(num_workers * 2);
@@ -419,5 +447,46 @@ fn main() {
     }
     writer_handle.join().expect("Writer thread panicked");
 
+    // Stop memory monitor
+    monitor_running.store(false, Ordering::Relaxed);
+    monitor_handle.join().expect("Monitor thread panicked");
+
+    // Calculate final stats
+    let elapsed = start_time.elapsed();
+    let peak_mem = peak_memory_kb.load(Ordering::Relaxed);
+
+    // Get CPU usage
+    let mut sys = System::new();
+    let pid = Pid::from_u32(std::process::id());
+    sys.refresh_processes_specifics(ProcessRefreshKind::new().with_cpu());
+    let cpu_usage = sys.process(pid).map(|p| p.cpu_usage()).unwrap_or(0.0);
+
+    // Format elapsed time
+    let total_secs = elapsed.as_secs();
+    let hours = total_secs / 3600;
+    let minutes = (total_secs % 3600) / 60;
+    let seconds = total_secs % 60;
+    let millis = elapsed.subsec_millis();
+
+    eprintln!("\n=== Resource Usage ===");
+    if hours > 0 {
+        eprintln!("Elapsed time:  {}h {}m {}.{:03}s", hours, minutes, seconds, millis);
+    } else if minutes > 0 {
+        eprintln!("Elapsed time:  {}m {}.{:03}s", minutes, seconds, millis);
+    } else {
+        eprintln!("Elapsed time:  {}.{:03}s", seconds, millis);
+    }
+
+    // Format memory
+    if peak_mem > 1024 * 1024 {
+        eprintln!("Peak memory:   {:.2} GB", peak_mem as f64 / 1024.0 / 1024.0);
+    } else if peak_mem > 1024 {
+        eprintln!("Peak memory:   {:.2} MB", peak_mem as f64 / 1024.0);
+    } else {
+        eprintln!("Peak memory:   {} KB", peak_mem);
+    }
+
+    eprintln!("CPU usage:     {:.1}%", cpu_usage);
+    eprintln!("Threads:       {}", num_workers);
     eprintln!("Done!");
 }
