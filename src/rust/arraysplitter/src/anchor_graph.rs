@@ -506,8 +506,10 @@ fn find_monomer_cycle(
     }
 
     // Pass 2: Calculate full similarity only for top candidates
-    // Tuple: (cycle, cv, period, cut_count, n_clusters, centers, similarity)
-    let mut candidates: Vec<(Vec<String>, f64, f64, usize, usize, Vec<f64>, f64)> = Vec::new();
+    // Tuple: (cycle, cv, period, cut_count, n_clusters, centers, mean_ed, std_ed, combined_score)
+    // Combined score = mean_ed + LAMBDA * std_ed (lower is better)
+    const LAMBDA: f64 = 1.0;  // Weight for std_ed in combined score
+    let mut candidates: Vec<(Vec<String>, f64, f64, usize, usize, Vec<f64>, f64, f64, f64)> = Vec::new();
 
     let candidates_for_ed = pass1_candidates.iter()
         .filter(|(_, cv, _, _, _, _, _)| *cv <= MAX_CV_FOR_ED)
@@ -520,10 +522,9 @@ fn find_monomer_cycle(
         .collect::<Vec<_>>();
 
     // Calculate full ED for top candidates
-    // Now we use mean_ed (lower is better) instead of similarity
+    // Now we use mean_ed + lambda*std_ed (lower is better) instead of similarity
     for (anchor, cv, true_period, cut_count, n_clusters, centers, cut_positions) in &candidates_for_ed {
-        let mut ed_sum: usize = 0;
-        let mut ed_count = 0;
+        let mut ed_values: Vec<f64> = Vec::new();
         let mut similarity_sum = 0.0;
 
         // Calculate ED for ALL consecutive pairs (not just 10)
@@ -540,14 +541,29 @@ fn find_monomer_cycle(
             if monomer1.len() <= MAX_MONOMER_FOR_ED && monomer2.len() <= MAX_MONOMER_FOR_ED {
                 let ed = raw_edit_distance(monomer1, monomer2);
                 let sim = sequence_similarity(monomer1, monomer2);
-                ed_sum += ed;
+                ed_values.push(ed as f64);
                 similarity_sum += sim;
-                ed_count += 1;
             }
         }
 
-        let mean_ed = if ed_count > 0 {
-            ed_sum as f64 / ed_count as f64
+        let ed_count = ed_values.len();
+
+        let (mean_ed, std_ed) = if ed_count > 0 {
+            let mean = ed_values.iter().sum::<f64>() / ed_count as f64;
+            let variance = if ed_count > 1 {
+                ed_values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / ed_count as f64
+            } else {
+                0.0
+            };
+            (mean, variance.sqrt())
+        } else {
+            (f64::INFINITY, f64::INFINITY)
+        };
+
+        // Combined score: lower is better
+        // Low mean_ed = similar monomers, Low std_ed = consistent similarity (true monomers)
+        let combined_score = if mean_ed.is_finite() && std_ed.is_finite() {
+            mean_ed + LAMBDA * std_ed
         } else {
             f64::INFINITY
         };
@@ -573,15 +589,15 @@ fn find_monomer_cycle(
             } else {
                 String::new()
             };
-            eprintln!("  Candidate: {}... period={:.0}, CV={:.3}, meanED={:.1}, sim={:.2}, cuts={}{} [full ED]",
-                &anchor[..anchor.len().min(20)], true_period, cv, mean_ed, mean_similarity, cut_count, cluster_info);
+            eprintln!("  Candidate: {}... period={:.0}, CV={:.3}, meanED={:.1}, stdED={:.1}, score={:.1}, sim={:.2}, cuts={}{} [full ED]",
+                &anchor[..anchor.len().min(20)], true_period, cv, mean_ed, std_ed, combined_score, mean_similarity, cut_count, cluster_info);
         }
 
-        // Store mean_ed (lower is better) in the tuple position where we had similarity
-        candidates.push((vec![anchor.clone()], *cv, *true_period, *cut_count, *n_clusters, centers.clone(), mean_ed));
+        // Store mean_ed, std_ed, combined_score (lower is better)
+        candidates.push((vec![anchor.clone()], *cv, *true_period, *cut_count, *n_clusters, centers.clone(), mean_ed, std_ed, combined_score));
     }
 
-    // Add remaining candidates without full ED (mean_ed=INFINITY so they lose to candidates with ED)
+    // Add remaining candidates without full ED (combined_score=INFINITY so they lose to candidates with ED)
     for (anchor, cv, true_period, cut_count, n_clusters, centers, _cut_positions) in &remaining_candidates {
         if verbose {
             let cluster_info = if *n_clusters > 1 {
@@ -589,10 +605,10 @@ fn find_monomer_cycle(
             } else {
                 String::new()
             };
-            eprintln!("  Candidate: {}... period={:.0}, CV={:.3}, meanED=N/A, cuts={}{} [no ED - high CV]",
+            eprintln!("  Candidate: {}... period={:.0}, CV={:.3}, meanED=N/A, stdED=N/A, score=N/A, cuts={}{} [no ED - high CV]",
                 &anchor[..anchor.len().min(20)], true_period, cv, cut_count, cluster_info);
         }
-        candidates.push((vec![anchor.clone()], *cv, *true_period, *cut_count, *n_clusters, centers.clone(), f64::INFINITY));
+        candidates.push((vec![anchor.clone()], *cv, *true_period, *cut_count, *n_clusters, centers.clone(), f64::INFINITY, f64::INFINITY, f64::INFINITY));
     }
 
     // Select best candidate
@@ -614,37 +630,38 @@ fn find_monomer_cycle(
 
     // Show all candidates with ED before sorting
     if verbose && !candidates.is_empty() {
-        eprintln!("  Final candidates (before sorting):");
-        eprintln!("  {:20} {:>8} {:>8} {:>8} {:>6}", "Anchor", "Period", "CV", "MeanED", "Cuts");
-        for (anchors, cv, period, cuts, _, _, mean_ed) in &candidates {
+        eprintln!("  Final candidates (before sorting, LAMBDA={:.1}):", LAMBDA);
+        eprintln!("  {:20} {:>8} {:>8} {:>8} {:>8} {:>8} {:>6}", "Anchor", "Period", "CV", "MeanED", "StdED", "Score", "Cuts");
+        for (anchors, cv, period, cuts, _, _, mean_ed, std_ed, score) in &candidates {
             let anchor = &anchors[0];
             let anchor_display = if anchor.len() > 18 {
                 format!("{}...", &anchor[..15])
             } else {
                 anchor.clone()
             };
-            let ed_str = if mean_ed.is_finite() {
-                format!("{:.1}", mean_ed)
-            } else {
-                "N/A".to_string()
-            };
-            eprintln!("  {:20} {:>8.0} {:>8.3} {:>8} {:>6}",
-                anchor_display, period, cv, ed_str, cuts);
+            let ed_str = if mean_ed.is_finite() { format!("{:.1}", mean_ed) } else { "N/A".to_string() };
+            let std_str = if std_ed.is_finite() { format!("{:.1}", std_ed) } else { "N/A".to_string() };
+            let score_str = if score.is_finite() { format!("{:.1}", score) } else { "N/A".to_string() };
+            eprintln!("  {:20} {:>8.0} {:>8.3} {:>8} {:>8} {:>8} {:>6}",
+                anchor_display, period, cv, ed_str, std_str, score_str, cuts);
         }
         eprintln!();
     }
 
-    // Sort by: mean_ed (ascending), then CV (ascending), then cuts (descending), then clusters (ascending)
-    // Rationale: Lower absolute ED means more similar monomers at the true monomer level.
-    // HOR units have higher absolute ED (e.g., 250) while true monomers have lower ED (e.g., 26).
-    // This prevents HOR selection when true monomers exist.
+    // Sort by: combined_score (ascending), then CV (ascending), then cuts (descending), then clusters (ascending)
+    // combined_score = mean_ed + LAMBDA * std_ed
+    // Rationale:
+    // - Lower mean_ed = more similar adjacent monomers
+    // - Lower std_ed = more consistent similarity (true monomers vs HOR)
+    // True monomers: low mean_ed AND low std_ed (copies of same unit)
+    // HOR monomers: moderate mean_ed AND high std_ed (different monomers A,B,C)
     candidates.sort_by(|a, b| {
-        // First compare mean_ed (lower is better)
-        let ed_cmp = a.6.partial_cmp(&b.6).unwrap_or(std::cmp::Ordering::Equal);
-        if ed_cmp != std::cmp::Ordering::Equal {
-            return ed_cmp;
+        // First compare combined_score (lower is better)
+        let score_cmp = a.8.partial_cmp(&b.8).unwrap_or(std::cmp::Ordering::Equal);
+        if score_cmp != std::cmp::Ordering::Equal {
+            return score_cmp;
         }
-        // If mean_ed is similar, prefer lower CV
+        // If combined_score is similar, prefer lower CV
         let cv_cmp = a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal);
         if cv_cmp != std::cmp::Ordering::Equal {
             return cv_cmp;
@@ -658,7 +675,7 @@ fn find_monomer_cycle(
         a.4.cmp(&b.4)
     });
 
-    let (best_cycle, best_cv, best_period, _best_count, best_n_clusters, best_centers, best_mean_ed) =
+    let (best_cycle, best_cv, best_period, _best_count, best_n_clusters, best_centers, best_mean_ed, best_std_ed, best_score) =
         candidates.into_iter().next().unwrap();
 
     if verbose {
@@ -667,8 +684,8 @@ fn find_monomer_cycle(
         } else {
             String::new()
         };
-        let ed_info = if best_mean_ed.is_finite() {
-            format!(", meanED={:.1}", best_mean_ed)
+        let ed_info = if best_mean_ed.is_finite() && best_std_ed.is_finite() {
+            format!(", meanED={:.1}, stdED={:.1}, score={:.1}", best_mean_ed, best_std_ed, best_score)
         } else {
             String::new()
         };
