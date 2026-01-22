@@ -74,6 +74,14 @@ struct Args {
     /// Verbose output
     #[arg(short, long)]
     verbose: bool,
+
+    /// Show statistics and outliers after processing
+    #[arg(short, long)]
+    stats: bool,
+
+    /// Number of outliers to show [default: 20]
+    #[arg(long, default_value = "20")]
+    top_outliers: usize,
 }
 
 /// Input record for workers
@@ -187,12 +195,41 @@ fn reader_thread(
     }
 }
 
+/// Per-array statistics for --stats output
+struct ArrayStats {
+    id: String,
+    n_monomers: usize,
+    lengths: Vec<usize>,
+    eds: Vec<usize>,
+}
+
+/// Calculate robust CV (MAD/median)
+fn robust_cv(vals: &[usize]) -> f64 {
+    if vals.len() < 3 {
+        return f64::INFINITY;
+    }
+    let mut sorted: Vec<usize> = vals.to_vec();
+    sorted.sort();
+    let median = sorted[sorted.len() / 2];
+    if median == 0 {
+        return f64::INFINITY;
+    }
+    let mut deviations: Vec<usize> = sorted.iter()
+        .map(|&v| if v > median { v - median } else { median - v })
+        .collect();
+    deviations.sort();
+    let mad = deviations[deviations.len() / 2];
+    mad as f64 / median as f64
+}
+
 /// Writer thread: receives results and writes to files
 fn writer_thread(
     rx: Receiver<Option<OutputRecord>>,
     output_prefix: String,
     total_count: Arc<AtomicUsize>,
     num_workers: usize,
+    collect_stats: bool,
+    top_outliers: usize,
 ) {
     let output_file = format!("{}.decomposed.fasta", output_prefix);
     let detail_file = format!("{}.monomers.tsv", output_prefix);
@@ -207,6 +244,9 @@ fn writer_thread(
     let mut processed = 0;
     let mut finished_workers = 0;
     let mut total_monomers = 0;
+
+    // Collect per-array stats if requested
+    let mut all_stats: Vec<ArrayStats> = Vec::new();
 
     loop {
         match rx.recv() {
@@ -268,6 +308,10 @@ fn writer_thread(
                 let lengths: Vec<String> = decomposition.iter().map(|m| m.len().to_string()).collect();
                 writeln!(fw_lengths, "{}", lengths.join(" ")).unwrap();
 
+                // Collect stats for this array (lengths and EDs, no sequences)
+                let mut array_lengths: Vec<usize> = Vec::new();
+                let mut array_eds: Vec<usize> = Vec::new();
+
                 // Write detail TSV with ED calculation
                 // Track previous monomer for ED calculation
                 let mut prev_monomer: Option<&String> = None;
@@ -281,15 +325,25 @@ fn writer_thread(
                     };
 
                     // Calculate ED only between consecutive MONOMERs
-                    let ed_str = if piece_type == "MONOMER" {
+                    let ed_val: Option<usize> = if piece_type == "MONOMER" {
                         if let Some(prev) = prev_monomer {
-                            edit_distance(prev, monomer).to_string()
+                            Some(edit_distance(prev, monomer))
                         } else {
-                            "-".to_string()  // First monomer, no previous
+                            None  // First monomer, no previous
                         }
                     } else {
-                        "-".to_string()  // Flanks don't participate in ED
+                        None  // Flanks don't participate in ED
                     };
+
+                    let ed_str = ed_val.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
+
+                    // Collect stats for MONOMERs only
+                    if piece_type == "MONOMER" {
+                        array_lengths.push(monomer.len());
+                        if let Some(ed) = ed_val {
+                            array_eds.push(ed);
+                        }
+                    }
 
                     // Update prev_monomer only for MONOMERs
                     if piece_type == "MONOMER" {
@@ -301,6 +355,16 @@ fn writer_thread(
                         result.header, orientation, i, piece_type,
                         monomer.len(), ed_str, monomer
                     ).unwrap();
+                }
+
+                // Store stats if collecting
+                if collect_stats && !array_lengths.is_empty() {
+                    all_stats.push(ArrayStats {
+                        id: result.header.clone(),
+                        n_monomers: array_lengths.len(),
+                        lengths: array_lengths,
+                        eds: array_eds,
+                    });
                 }
 
                 // Progress output
@@ -323,6 +387,56 @@ fn writer_thread(
     let total = total_count.load(Ordering::SeqCst);
     eprintln!("\rProcessed: {}/{} (100.0%)", processed, total);
     eprintln!("Total monomers: {}", total_monomers);
+
+    // Output statistics if requested
+    if collect_stats && !all_stats.is_empty() {
+        eprintln!("\n=== Statistics ===");
+
+        // Calculate RCV and mean ED for each array
+        let mut stats_with_rcv: Vec<(String, usize, usize, f64, f64)> = all_stats.iter().map(|s| {
+            let rcv = robust_cv(&s.lengths);
+            let median_len = {
+                let mut sorted = s.lengths.clone();
+                sorted.sort();
+                sorted[sorted.len() / 2]
+            };
+            let mean_ed = if s.eds.is_empty() {
+                0.0
+            } else {
+                s.eds.iter().sum::<usize>() as f64 / s.eds.len() as f64
+            };
+            (s.id.clone(), s.n_monomers, median_len, rcv, mean_ed)
+        }).collect();
+
+        // Quality breakdown
+        let excellent = stats_with_rcv.iter().filter(|s| s.3 <= 0.05).count();
+        let moderate = stats_with_rcv.iter().filter(|s| s.3 > 0.05 && s.3 <= 0.20).count();
+        let poor = stats_with_rcv.iter().filter(|s| s.3 > 0.20).count();
+        let total_arrays = stats_with_rcv.len();
+
+        eprintln!("Arrays: {}", total_arrays);
+        eprintln!("\nQuality (Robust CV = MAD/median):");
+        eprintln!("  Excellent (RCV ≤ 5%):  {:>4} ({:>2}%)", excellent, 100 * excellent / total_arrays);
+        eprintln!("  Moderate  (5-20%):     {:>4} ({:>2}%)", moderate, 100 * moderate / total_arrays);
+        eprintln!("  Poor      (> 20%):     {:>4} ({:>2}%)", poor, 100 * poor / total_arrays);
+
+        // Sort by RCV descending for outliers
+        stats_with_rcv.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
+
+        eprintln!("\nTop {} outliers (highest RCV):", top_outliers.min(stats_with_rcv.len()));
+        eprintln!("{:<55} {:>5} {:>7} {:>7} {:>8}", "Array", "N", "Median", "RCV", "MeanED");
+        for (id, n, median, rcv, mean_ed) in stats_with_rcv.iter().take(top_outliers) {
+            eprintln!("{:<55} {:>5} {:>7} {:>7.3} {:>8.1}", id, n, median, rcv, mean_ed);
+        }
+
+        // Also show best performers
+        stats_with_rcv.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
+        eprintln!("\nTop {} best (lowest RCV):", top_outliers.min(stats_with_rcv.len()));
+        eprintln!("{:<55} {:>5} {:>7} {:>7} {:>8}", "Array", "N", "Median", "RCV", "MeanED");
+        for (id, n, median, rcv, mean_ed) in stats_with_rcv.iter().take(top_outliers) {
+            eprintln!("{:<55} {:>5} {:>7} {:>7.3} {:>8.1}", id, n, median, rcv, mean_ed);
+        }
+    }
 }
 
 fn main() {
@@ -436,8 +550,10 @@ fn main() {
 
     // Spawn writer thread
     let writer_total = Arc::clone(&total_count);
+    let collect_stats = args.stats;
+    let top_outliers = args.top_outliers;
     let writer_handle = thread::spawn(move || {
-        writer_thread(output_rx, output_prefix, writer_total, num_workers);
+        writer_thread(output_rx, output_prefix, writer_total, num_workers, collect_stats, top_outliers);
     });
 
     // Wait for completion
