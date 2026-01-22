@@ -388,6 +388,11 @@ fn sequence_similarity(s1: &str, s2: &str) -> f64 {
     1.0 - (edit_dist / max_len as f64)
 }
 
+/// Calculate raw edit distance between two sequences.
+fn raw_edit_distance(s1: &str, s2: &str) -> usize {
+    levenshtein_exp(s1.as_bytes(), s2.as_bytes()) as usize
+}
+
 /// Find the best anchor for decomposition using distance clustering.
 ///
 /// Strategy:
@@ -503,9 +508,11 @@ fn find_monomer_cycle(
         .collect::<Vec<_>>();
 
     // Calculate full ED for top candidates
+    // Now we use mean_ed (lower is better) instead of similarity
     for (anchor, cv, true_period, cut_count, n_clusters, centers, cut_positions) in &candidates_for_ed {
+        let mut ed_sum: usize = 0;
+        let mut ed_count = 0;
         let mut similarity_sum = 0.0;
-        let mut similarity_count = 0;
 
         // Calculate ED for ALL consecutive pairs (not just 10)
         for i in 0..(cut_positions.len().saturating_sub(2)) {
@@ -519,16 +526,24 @@ fn find_monomer_cycle(
 
             // Skip very long monomers (ED is O(n*m))
             if monomer1.len() <= MAX_MONOMER_FOR_ED && monomer2.len() <= MAX_MONOMER_FOR_ED {
+                let ed = raw_edit_distance(monomer1, monomer2);
                 let sim = sequence_similarity(monomer1, monomer2);
+                ed_sum += ed;
                 similarity_sum += sim;
-                similarity_count += 1;
+                ed_count += 1;
             }
         }
 
-        let mean_similarity = if similarity_count > 0 {
-            similarity_sum / similarity_count as f64
+        let mean_ed = if ed_count > 0 {
+            ed_sum as f64 / ed_count as f64
         } else {
-            1.0
+            f64::INFINITY
+        };
+
+        let mean_similarity = if ed_count > 0 {
+            similarity_sum / ed_count as f64
+        } else {
+            0.0
         };
 
         // Filter by minimum similarity
@@ -546,14 +561,15 @@ fn find_monomer_cycle(
             } else {
                 String::new()
             };
-            eprintln!("  Candidate: {}... period={:.0}, CV={:.3}, sim={:.2}, cuts={}{} [full ED]",
-                &anchor[..anchor.len().min(20)], true_period, cv, mean_similarity, cut_count, cluster_info);
+            eprintln!("  Candidate: {}... period={:.0}, CV={:.3}, meanED={:.1}, sim={:.2}, cuts={}{} [full ED]",
+                &anchor[..anchor.len().min(20)], true_period, cv, mean_ed, mean_similarity, cut_count, cluster_info);
         }
 
-        candidates.push((vec![anchor.clone()], *cv, *true_period, *cut_count, *n_clusters, centers.clone(), mean_similarity));
+        // Store mean_ed (lower is better) in the tuple position where we had similarity
+        candidates.push((vec![anchor.clone()], *cv, *true_period, *cut_count, *n_clusters, centers.clone(), mean_ed));
     }
 
-    // Add remaining candidates without full ED (sim=0.0 so they lose to candidates with ED)
+    // Add remaining candidates without full ED (mean_ed=INFINITY so they lose to candidates with ED)
     for (anchor, cv, true_period, cut_count, n_clusters, centers, _cut_positions) in &remaining_candidates {
         if verbose {
             let cluster_info = if *n_clusters > 1 {
@@ -561,10 +577,10 @@ fn find_monomer_cycle(
             } else {
                 String::new()
             };
-            eprintln!("  Candidate: {}... period={:.0}, CV={:.3}, sim=N/A, cuts={}{} [no ED - high CV]",
+            eprintln!("  Candidate: {}... period={:.0}, CV={:.3}, meanED=N/A, cuts={}{} [no ED - high CV]",
                 &anchor[..anchor.len().min(20)], true_period, cv, cut_count, cluster_info);
         }
-        candidates.push((vec![anchor.clone()], *cv, *true_period, *cut_count, *n_clusters, centers.clone(), 0.0));
+        candidates.push((vec![anchor.clone()], *cv, *true_period, *cut_count, *n_clusters, centers.clone(), f64::INFINITY));
     }
 
     // Select best candidate
@@ -584,16 +600,17 @@ fn find_monomer_cycle(
         return (Vec::new(), 0.0, f64::INFINITY, 1, Vec::new());
     }
 
-    // Sort by: similarity (descending), then CV (ascending), then cuts (descending), then clusters (ascending)
-    // Rationale: similarity measures biological meaning (monomers are copies with mutations)
-    // CV can be artificially low for HOR-level cuts
+    // Sort by: mean_ed (ascending), then CV (ascending), then cuts (descending), then clusters (ascending)
+    // Rationale: Lower absolute ED means more similar monomers at the true monomer level.
+    // HOR units have higher absolute ED (e.g., 250) while true monomers have lower ED (e.g., 26).
+    // This prevents HOR selection when true monomers exist.
     candidates.sort_by(|a, b| {
-        // First compare similarity (higher is better)
-        let sim_cmp = b.6.partial_cmp(&a.6).unwrap_or(std::cmp::Ordering::Equal);
-        if sim_cmp != std::cmp::Ordering::Equal {
-            return sim_cmp;
+        // First compare mean_ed (lower is better)
+        let ed_cmp = a.6.partial_cmp(&b.6).unwrap_or(std::cmp::Ordering::Equal);
+        if ed_cmp != std::cmp::Ordering::Equal {
+            return ed_cmp;
         }
-        // If similarity is similar, prefer lower CV
+        // If mean_ed is similar, prefer lower CV
         let cv_cmp = a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal);
         if cv_cmp != std::cmp::Ordering::Equal {
             return cv_cmp;
@@ -607,7 +624,7 @@ fn find_monomer_cycle(
         a.4.cmp(&b.4)
     });
 
-    let (best_cycle, best_cv, best_period, _best_count, best_n_clusters, best_centers, _best_similarity) =
+    let (best_cycle, best_cv, best_period, _best_count, best_n_clusters, best_centers, best_mean_ed) =
         candidates.into_iter().next().unwrap();
 
     if verbose {
@@ -616,8 +633,13 @@ fn find_monomer_cycle(
         } else {
             String::new()
         };
-        eprintln!("  Selected: {}... period={:.0}, CV={:.3}{}",
-            &best_cycle[0][..best_cycle[0].len().min(20)], best_period, best_cv, cluster_info);
+        let ed_info = if best_mean_ed.is_finite() {
+            format!(", meanED={:.1}", best_mean_ed)
+        } else {
+            String::new()
+        };
+        eprintln!("  Selected: {}... period={:.0}, CV={:.3}{}{}",
+            &best_cycle[0][..best_cycle[0].len().min(20)], best_period, best_cv, ed_info, cluster_info);
     }
 
     (best_cycle, best_period, best_cv, best_n_clusters, best_centers)

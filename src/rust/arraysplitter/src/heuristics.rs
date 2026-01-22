@@ -973,8 +973,16 @@ pub fn refine_by_ed(
                         edit_distance(next, &current[i + 2])
                     } else { 0 };
 
-                    let local_ed_before_merge = ed_prev + ed_curr_next + ed_next_to_next2;
-                    let local_ed_after_merge = ed_prev_new + ed_next_new;
+                    let local_ed_before_merge = ed_prev.saturating_add(ed_curr_next).saturating_add(ed_next_to_next2);
+                    let local_ed_after_merge = ed_prev_new.saturating_add(ed_next_new);
+
+                    // Skip if any ED is infinity (too long monomers)
+                    const ED_INFINITY_THRESHOLD: usize = usize::MAX / 4;
+                    if local_ed_before_merge > ED_INFINITY_THRESHOLD || local_ed_after_merge > ED_INFINITY_THRESHOLD {
+                        new_decomposition.push(mono.clone());
+                        i += 1;
+                        continue;
+                    }
 
                     // Accept merge if ED improves
                     if local_ed_after_merge < local_ed_before_merge {
