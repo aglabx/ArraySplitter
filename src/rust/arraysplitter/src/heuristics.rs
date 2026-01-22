@@ -46,8 +46,15 @@ fn count_frequencies<T: std::hash::Hash + Eq + Clone>(items: &[T]) -> HashMap<T,
     counts
 }
 
+/// Maximum monomer length for ED calculation (avoid O(n*m) on huge sequences)
+const MAX_LEN_FOR_ED: usize = 2000;
+
 /// Edit distance between two strings
+/// Returns usize::MAX if either string is too long to avoid quadratic blowup
 fn edit_distance(s1: &str, s2: &str) -> usize {
+    if s1.len() > MAX_LEN_FOR_ED || s2.len() > MAX_LEN_FOR_ED {
+        return usize::MAX / 2; // Large value but avoids overflow
+    }
     levenshtein_exp(s1.as_bytes(), s2.as_bytes()) as usize
 }
 
@@ -788,6 +795,224 @@ pub fn split_by_popular_prefix(
     result
 }
 
+/// Refine decomposition using local edit distance optimization
+///
+/// Algorithm:
+/// 1. Find outliers (monomers with high ED to neighbors)
+/// 2. For long outliers: try to split
+/// 3. For short outliers: try to merge with neighbor
+/// 4. Accept modification only if local ED decreases
+pub fn refine_by_ed(
+    decomposition: &[String],
+    cut_seq: &str,
+    verbose: bool,
+) -> Vec<String> {
+    if decomposition.len() < 3 {
+        return decomposition.to_vec();
+    }
+
+    let original_sequence: String = decomposition.join("");
+    let mut current = decomposition.to_vec();
+    let mut total_improvements = 0;
+
+    // Calculate median length for outlier detection
+    let lengths: Vec<usize> = current.iter()
+        .filter(|m| m.starts_with(cut_seq))
+        .map(|m| m.len())
+        .collect();
+
+    if lengths.is_empty() {
+        return decomposition.to_vec();
+    }
+
+    let mut sorted_lengths = lengths.clone();
+    sorted_lengths.sort();
+    let median_len = sorted_lengths[sorted_lengths.len() / 2];
+
+    // Iterate until no more improvements
+    for iteration in 0..20 {
+        let mut improved = false;
+        let mut new_decomposition: Vec<String> = Vec::new();
+        let mut i = 0;
+
+        while i < current.len() {
+            let mono = &current[i];
+
+            // Skip flanks
+            if !mono.starts_with(cut_seq) {
+                new_decomposition.push(mono.clone());
+                i += 1;
+                continue;
+            }
+
+            let is_long = mono.len() > (median_len as f64 * 1.5) as usize;
+            let is_short = mono.len() < (median_len as f64 * 0.6) as usize;
+
+            // Calculate current local ED
+            let ed_prev = if !new_decomposition.is_empty() {
+                let prev = new_decomposition.last().unwrap();
+                if prev.starts_with(cut_seq) {
+                    edit_distance(prev, mono)
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
+
+            let ed_next = if i + 1 < current.len() && current[i + 1].starts_with(cut_seq) {
+                edit_distance(mono, &current[i + 1])
+            } else {
+                0
+            };
+
+            let local_ed_before = ed_prev + ed_next;
+
+            // Try to split long monomer
+            if is_long && mono.len() >= median_len * 2 - median_len / 4 {
+                let n_parts = (mono.len() as f64 / median_len as f64).round() as usize;
+                if n_parts >= 2 {
+                    // Find best split position using ED
+                    let mut best_split: Option<(usize, usize)> = None; // (position, local_ed_after)
+
+                    // Search for anchor near expected position
+                    for part_idx in 1..n_parts {
+                        let expected_pos = part_idx * median_len;
+                        let search_window = median_len / 4;
+
+                        if let Some(split_pos) = find_mutant_anchor(
+                            mono, cut_seq, expected_pos, search_window, 2
+                        ) {
+                            if split_pos > 0 && split_pos < mono.len() {
+                                let part1 = &mono[..split_pos];
+                                let part2 = &mono[split_pos..];
+
+                                // Calculate ED after split
+                                let ed_prev_new = if !new_decomposition.is_empty() {
+                                    let prev = new_decomposition.last().unwrap();
+                                    if prev.starts_with(cut_seq) {
+                                        edit_distance(prev, part1)
+                                    } else { 0 }
+                                } else { 0 };
+
+                                let ed_between = edit_distance(part1, part2);
+
+                                let ed_next_new = if i + 1 < current.len() && current[i + 1].starts_with(cut_seq) {
+                                    edit_distance(part2, &current[i + 1])
+                                } else { 0 };
+
+                                let local_ed_after = ed_prev_new + ed_between + ed_next_new;
+
+                                if best_split.is_none() || local_ed_after < best_split.unwrap().1 {
+                                    best_split = Some((split_pos, local_ed_after));
+                                }
+                            }
+                        }
+                    }
+
+                    // Accept split if ED improves
+                    if let Some((split_pos, local_ed_after)) = best_split {
+                        if local_ed_after < local_ed_before {
+                            let part1 = mono[..split_pos].to_string();
+                            let part2 = mono[split_pos..].to_string();
+
+                            if verbose {
+                                eprintln!(
+                                    "  ED-split #{}: {}bp -> {}bp + {}bp (ED {} -> {})",
+                                    i, mono.len(), part1.len(), part2.len(),
+                                    local_ed_before, local_ed_after
+                                );
+                            }
+
+                            new_decomposition.push(part1);
+                            new_decomposition.push(part2);
+                            improved = true;
+                            total_improvements += 1;
+                            i += 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // Try to merge short monomer with next
+            if is_short && i + 1 < current.len() {
+                let next = &current[i + 1];
+                if next.starts_with(cut_seq) {
+                    let merged = format!("{}{}", mono, next);
+
+                    // Calculate ED after merge
+                    let ed_prev_new = if !new_decomposition.is_empty() {
+                        let prev = new_decomposition.last().unwrap();
+                        if prev.starts_with(cut_seq) {
+                            edit_distance(prev, &merged)
+                        } else { 0 }
+                    } else { 0 };
+
+                    let ed_next_new = if i + 2 < current.len() && current[i + 2].starts_with(cut_seq) {
+                        edit_distance(&merged, &current[i + 2])
+                    } else { 0 };
+
+                    // ED between current and next (which we're merging)
+                    let ed_curr_next = edit_distance(mono, next);
+
+                    // Also need ed_next to next+1
+                    let ed_next_to_next2 = if i + 2 < current.len() && current[i + 2].starts_with(cut_seq) {
+                        edit_distance(next, &current[i + 2])
+                    } else { 0 };
+
+                    let local_ed_before_merge = ed_prev + ed_curr_next + ed_next_to_next2;
+                    let local_ed_after_merge = ed_prev_new + ed_next_new;
+
+                    // Accept merge if ED improves
+                    if local_ed_after_merge < local_ed_before_merge {
+                        if verbose {
+                            eprintln!(
+                                "  ED-merge #{}: {}bp + {}bp -> {}bp (ED {} -> {})",
+                                i, mono.len(), next.len(), merged.len(),
+                                local_ed_before_merge, local_ed_after_merge
+                            );
+                        }
+
+                        new_decomposition.push(merged);
+                        improved = true;
+                        total_improvements += 1;
+                        i += 2; // Skip both merged monomers
+                        continue;
+                    }
+                }
+            }
+
+            // No improvement, keep as is
+            new_decomposition.push(mono.clone());
+            i += 1;
+        }
+
+        current = new_decomposition;
+
+        if !improved {
+            break;
+        }
+
+        if verbose {
+            eprintln!("  ED-refine iteration {}: improvements made", iteration + 1);
+        }
+    }
+
+    // Verify reconstruction
+    let final_sequence: String = current.join("");
+    if final_sequence != original_sequence {
+        eprintln!("ERROR: Sequence changed during refine_by_ed!");
+        return decomposition.to_vec();
+    }
+
+    if verbose && total_improvements > 0 {
+        eprintln!("  ED-refinement: {} total improvements", total_improvements);
+    }
+
+    current
+}
+
 /// Apply all post-processing heuristics to a decomposition
 pub fn apply_all_heuristics(
     decomposition: &[String],
@@ -811,6 +1036,9 @@ pub fn apply_all_heuristics(
 
     // 5. Split monomers that start with popular monomer
     result = split_by_popular_prefix(&result, cut_seq, verbose);
+
+    // 6. ED-based refinement (split/merge to minimize local ED)
+    result = refine_by_ed(&result, cut_seq, verbose);
 
     result
 }

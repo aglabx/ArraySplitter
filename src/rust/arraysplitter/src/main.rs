@@ -19,10 +19,20 @@ use arraysplitter_rs::{
     decompose::is_canonical_orientation,
 };
 
+/// Global maximum monomer length for ED calculation (set from CLI)
+static MAX_ED_LEN: AtomicUsize = AtomicUsize::new(10000);
+
 /// Calculate edit distance between two sequences
+/// Returns usize::MAX/2 if either string is too long to avoid quadratic blowup
 fn edit_distance(s1: &str, s2: &str) -> usize {
     let len1 = s1.len();
     let len2 = s2.len();
+    let max_ed_len = MAX_ED_LEN.load(Ordering::Relaxed);
+
+    // Skip ED for very long monomers
+    if len1 > max_ed_len || len2 > max_ed_len {
+        return usize::MAX / 2;
+    }
 
     if len1 == 0 { return len2; }
     if len2 == 0 { return len1; }
@@ -82,6 +92,10 @@ struct Args {
     /// Number of outliers to show [default: 20]
     #[arg(long, default_value = "20")]
     top_outliers: usize,
+
+    /// Maximum monomer length for ED calculation [default: 10000]
+    #[arg(long, default_value = "10000")]
+    max_ed_len: usize,
 }
 
 /// Input record for workers
@@ -97,6 +111,8 @@ struct OutputRecord {
     cut_sequence: String,
     was_reversed: bool,
     period: usize,
+    processing_time_ms: u128,
+    array_len: usize,
 }
 
 /// Process a single array
@@ -107,6 +123,9 @@ fn process_array(
     depth: usize,
     verbose: bool,
 ) -> OutputRecord {
+    let start = Instant::now();
+    let array_len = array.len();
+
     let is_canonical = is_canonical_orientation(array);
     let (working_array, was_reversed) = if is_canonical {
         (array.to_string(), false)
@@ -130,6 +149,7 @@ fn process_array(
     };
 
     let decomposition = apply_all_heuristics(&result.monomers, &result.cut_sequence, verbose);
+    let processing_time_ms = start.elapsed().as_millis();
 
     OutputRecord {
         header: id.to_string(),
@@ -137,6 +157,8 @@ fn process_array(
         cut_sequence: result.cut_sequence,
         was_reversed,
         period: result.period,
+        processing_time_ms,
+        array_len,
     }
 }
 
@@ -234,12 +256,15 @@ fn writer_thread(
     let output_file = format!("{}.decomposed.fasta", output_prefix);
     let detail_file = format!("{}.monomers.tsv", output_prefix);
     let lengths_file = format!("{}.lengths", output_prefix);
+    let timings_file = format!("{}.timings.tsv", output_prefix);
 
     let mut fw = BufWriter::new(File::create(&output_file).expect("Failed to create output file"));
     let mut fw_detail = BufWriter::new(File::create(&detail_file).expect("Failed to create detail file"));
     let mut fw_lengths = BufWriter::new(File::create(&lengths_file).expect("Failed to create lengths file"));
+    let mut fw_timings = BufWriter::new(File::create(&timings_file).expect("Failed to create timings file"));
 
     writeln!(fw_detail, "sequence_id\torientation\tindex\ttype\tlength\tED\tsequence").unwrap();
+    writeln!(fw_timings, "array_id\tarray_len\tn_monomers\ttime_sec").unwrap();
 
     let mut processed = 0;
     let mut finished_workers = 0;
@@ -307,6 +332,12 @@ fn writer_thread(
                 writeln!(fw_lengths, ">{}", header_info).unwrap();
                 let lengths: Vec<String> = decomposition.iter().map(|m| m.len().to_string()).collect();
                 writeln!(fw_lengths, "{}", lengths.join(" ")).unwrap();
+
+                // Write timings
+                writeln!(fw_timings, "{}\t{}\t{}\t{:.3}",
+                    result.header, result.array_len, decomposition.len(),
+                    result.processing_time_ms as f64 / 1000.0
+                ).unwrap();
 
                 // Collect stats for this array (lengths and EDs, no sequences)
                 let mut array_lengths: Vec<usize> = Vec::new();
@@ -467,6 +498,10 @@ fn main() {
     if let Some(ref cuts) = predefined_cuts {
         eprintln!("Using predefined cuts: {:?}", cuts);
     }
+
+    // Set global MAX_ED_LEN from CLI
+    MAX_ED_LEN.store(args.max_ed_len, Ordering::Relaxed);
+    eprintln!("Max ED length: {} bp", args.max_ed_len);
 
     // Resource monitoring: track peak memory
     let peak_memory_kb = Arc::new(AtomicU64::new(0));

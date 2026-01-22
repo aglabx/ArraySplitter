@@ -184,3 +184,25 @@ test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.trf
 
 # Rust build artifacts
 src/rust/arraysplitter/target/
+
+# macOS
+.DS_Store
+
+# Compiled binaries
+bin/
+src/c/*_c
+src/c/*.o
+
+# Analysis results (keep in labjournal)
+*.decomposed.fasta
+*.monomers.tsv
+*.monomers.ed
+*.hierarchy.tsv
+*.stats.tsv
+*.components.tsv
+*.component_stats.tsv
+*.regions.tsv
+*.timings.tsv
+zf_*.tsv
+zebra_finch_*
+docs/*.html
