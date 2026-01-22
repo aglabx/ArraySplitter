@@ -305,7 +305,7 @@ fn writer_thread(
 
                 // Progress output
                 let total = total_count.load(Ordering::SeqCst);
-                if total > 0 && processed % 100 == 0 {
+                if total > 0 {
                     eprint!("\rProcessed: {}/{} ({:.1}%)",
                         processed, total, (processed as f64 / total as f64) * 100.0);
                 }
