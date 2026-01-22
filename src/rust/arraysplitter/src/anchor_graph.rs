@@ -508,7 +508,7 @@ fn find_monomer_cycle(
     // Pass 2: Calculate full similarity only for top candidates
     // Tuple: (cycle, cv, period, cut_count, n_clusters, centers, mean_ed, std_ed, combined_score)
     // Combined score = mean_ed + LAMBDA * std_ed (lower is better)
-    const LAMBDA: f64 = 1.0;  // Weight for std_ed in combined score
+    const LAMBDA: f64 = 0.0;  // Weight for std_ed in combined score (0.0 = pure mean_ed, tested: higher values worsen results)
     let mut candidates: Vec<(Vec<String>, f64, f64, usize, usize, Vec<f64>, f64, f64, f64)> = Vec::new();
 
     let candidates_for_ed = pass1_candidates.iter()
