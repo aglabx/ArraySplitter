@@ -1574,6 +1574,257 @@ CV: 248% (better - no extreme outliers)
         </ol>
     </div>
 
+    <!-- ANOMALIES SECTION -->
+    <div class="section">
+        <h2>Remaining Anomalies & Strong Inference Analysis</h2>
+        <p>After applying the similarity filter fix, we identified three classes of remaining problems. Using <strong>Strong Inference</strong> (Platt, 1964), we enumerate hypotheses and design experiments to distinguish between them.</p>
+
+        <h3>Class 1: Arrays That Didn't Decompose (Giant "Monomers")</h3>
+        <p>These arrays have 3-5 "monomers" of 100KB-1.3MB each — essentially undecomposed.</p>
+
+        <table class="diff-table">
+            <tr>
+                <th>Array</th>
+                <th>Size</th>
+                <th>Monomers</th>
+                <th>Mean Length</th>
+                <th>Expected</th>
+            </tr>
+            <tr>
+                <td>chr13_15547599_17536288</td>
+                <td>2.0 MB</td>
+                <td>4</td>
+                <td style="color: var(--error);">497 KB</td>
+                <td>~1190bp (HOR)</td>
+            </tr>
+            <tr>
+                <td>chr10_39670745_41932202</td>
+                <td>2.3 MB</td>
+                <td>5</td>
+                <td style="color: var(--error);">452 KB</td>
+                <td>~340bp (MONO)</td>
+            </tr>
+            <tr>
+                <td>chr2_92299236_94008899</td>
+                <td>1.7 MB</td>
+                <td>4</td>
+                <td style="color: var(--error);">427 KB</td>
+                <td>~342bp (MONO)</td>
+            </tr>
+            <tr>
+                <td>chr9_44938622_45577453</td>
+                <td>639 KB</td>
+                <td>4</td>
+                <td style="color: var(--error);">160 KB</td>
+                <td>~342bp (MONO)</td>
+            </tr>
+        </table>
+
+        <h4>Strong Inference: Alternative Hypotheses</h4>
+        <div class="mermaid-like" style="line-height: 2.2;">
+<strong>H1: No anchor passed similarity filter</strong>
+All candidate anchors were rejected because resulting monomers had similarity < 0.5.
+<span class="highlight2">Test:</span> Run with verbose, check if "Skipping ... monomers too dissimilar" appears for all candidates.
+<span class="highlight2">Fix:</span> Lower MIN_SIMILARITY threshold for these specific cases, or try different anchor sources.
+
+<strong>H2: FS-tree didn't find conserved patterns</strong>
+The array is too divergent — no pattern appears frequently enough to pass cutoff.
+<span class="highlight2">Test:</span> Check FS-tree output: how many candidates were generated? What were their frequencies?
+<span class="highlight2">Fix:</span> Lower cutoff parameter, or use k-mer frequency approach instead of FS-tree.
+
+<strong>H3: Array is not tandem repeat</strong>
+These regions may not be true satellite DNA — could be complex HOR with high divergence.
+<span class="highlight2">Test:</span> BLAST against known satellite consensus sequences.
+<span class="highlight2">Fix:</span> Flag as "complex/undecomposable" rather than forcing bad decomposition.
+
+<strong>H4: Anchor exists but clustering failed</strong>
+The anchor was found, but distance clustering produced wrong cut positions.
+<span class="highlight2">Test:</span> Check cluster analysis output — are there too many clusters or wrong centers?
+<span class="highlight2">Fix:</span> Adjust clustering parameters (max_k, min_cluster_size).
+        </div>
+
+        <h4>Crucial Experiment</h4>
+        <div class="issue-box">
+            <strong>Run one array with maximum verbosity:</strong>
+<pre style="background: #1e293b; color: #e2e8f0; padding: 0.5rem; margin-top: 0.5rem;">arraysplitter_rs -i chr13_single.fasta -o test -v 2>&1 | head -100</pre>
+            This will reveal which hypothesis is correct by showing:
+            <ul style="margin-top: 0.5rem;">
+                <li>Number of anchors found (H2 if zero)</li>
+                <li>"Skipping ... dissimilar" messages (H1 if all rejected)</li>
+                <li>Cluster analysis details (H4 if clustering issue)</li>
+            </ul>
+        </div>
+
+        <h3>Class 2: A-B Pattern Not Merged (Bimodal Distribution)</h3>
+        <p>Array has two distinct monomer length groups that should have been merged.</p>
+
+        <table class="diff-table">
+            <tr>
+                <th>Array</th>
+                <th>Monomers</th>
+                <th>Group A</th>
+                <th>Group B</th>
+                <th>Sum ED</th>
+            </tr>
+            <tr>
+                <td>chr11_51006709_54488056</td>
+                <td>8,099</td>
+                <td>~538bp (43 monomers)</td>
+                <td>~679bp (27 monomers)</td>
+                <td style="color: var(--error);">1.8M</td>
+            </tr>
+        </table>
+
+        <h4>Strong Inference: Alternative Hypotheses</h4>
+        <div class="mermaid-like" style="line-height: 2.2;">
+<strong>H1: detect_and_fix_ab_pattern() didn't trigger</strong>
+The heuristic has conditions that weren't met (e.g., group sizes, CV improvement threshold).
+<span class="highlight2">Test:</span> Add verbose logging to detect_and_fix_ab_pattern(), check why it didn't merge.
+<span class="highlight2">Fix:</span> Adjust thresholds or add explicit A-B detection for this pattern.
+
+<strong>H2: Anchor produces A-B naturally, not through overcutting</strong>
+The true monomer structure IS A-B alternating (e.g., divergent HOR with A and B variants).
+<span class="highlight2">Test:</span> Align Group A and Group B monomers — are they similar or completely different?
+<span class="highlight2">Fix:</span> If truly different, keep as-is (correct decomposition). If similar, merge.
+
+<strong>H3: Wrong anchor selected</strong>
+A different anchor would produce uniform monomers without A-B split.
+<span class="highlight2">Test:</span> Try decomposition with 2nd-best anchor candidate.
+<span class="highlight2">Fix:</span> Add "A-B penalty" to anchor scoring — penalize anchors that produce bimodal lengths.
+
+<strong>H4: Distance clustering chose wrong cluster</strong>
+For multi-region anchor, we're cutting at wrong positions.
+<span class="highlight2">Test:</span> Examine cluster centers — does sum of centers match expected period?
+<span class="highlight2">Fix:</span> Use different cluster selection strategy.
+        </div>
+
+        <h4>Crucial Experiment</h4>
+        <div class="issue-box">
+            <strong>Compare Group A and Group B monomers:</strong>
+<pre style="background: #1e293b; color: #e2e8f0; padding: 0.5rem; margin-top: 0.5rem;"># Extract A (~538bp) and B (~679bp) monomers
+awk -F'\t' '$5 > 520 && $5 < 560 {print ">"NR"\n"$7}' monomers.tsv > group_a.fa
+awk -F'\t' '$5 > 660 && $5 < 700 {print ">"NR"\n"$7}' monomers.tsv > group_b.fa
+
+# Align A to B — if ED < 100, they should be merged
+needle group_a.fa group_b.fa -auto</pre>
+            <ul style="margin-top: 0.5rem;">
+                <li><strong>If A ≈ B + deletion:</strong> Merge into single ~679bp monomers (H1/H3)</li>
+                <li><strong>If A ≠ B (divergent):</strong> Keep separate, this is correct (H2)</li>
+            </ul>
+        </div>
+
+        <h3>Class 3: High Edit Distance (Poor Monomer Similarity)</h3>
+        <p>Monomers are decomposed but consecutive pairs have high ED — suggests wrong decomposition level.</p>
+
+        <table class="diff-table">
+            <tr>
+                <th>Array</th>
+                <th>Monomers</th>
+                <th>Mean ED</th>
+                <th>Mean Length</th>
+                <th>Expected</th>
+            </tr>
+            <tr>
+                <td>chr20_26925601_29521049</td>
+                <td>2,090</td>
+                <td style="color: var(--error);">496</td>
+                <td>1,241bp</td>
+                <td>~342bp?</td>
+            </tr>
+            <tr>
+                <td>chr20_32017168_32969589</td>
+                <td>940</td>
+                <td style="color: var(--error);">450</td>
+                <td>1,012bp</td>
+                <td>~171bp?</td>
+            </tr>
+            <tr>
+                <td>chrX_57816356_60593342</td>
+                <td>1,461</td>
+                <td style="color: var(--error);">252</td>
+                <td>1,899bp</td>
+                <td>~171bp?</td>
+            </tr>
+            <tr>
+                <td>chr3_91731393_92595770</td>
+                <td>1,476</td>
+                <td style="color: var(--error);">221</td>
+                <td>585bp</td>
+                <td>~171bp?</td>
+            </tr>
+        </table>
+
+        <h4>Strong Inference: Alternative Hypotheses</h4>
+        <div class="mermaid-like" style="line-height: 2.2;">
+<strong>H1: Decomposed at HOR level instead of monomer level</strong>
+Alpha satellite has hierarchy: monomer (171bp) → HOR (N×171bp). We're cutting at HOR level.
+<span class="highlight2">Test:</span> Check if mean_length / 171 ≈ integer. For chr20: 1241/171 ≈ 7.3 (not clean).
+<span class="highlight2">Fix:</span> Post-process to split HORs into monomers using 171bp periodicity.
+
+<strong>H2: Mixed HOR types in same array</strong>
+Array contains multiple HOR variants (e.g., 6-mer and 8-mer HORs interleaved).
+<span class="highlight2">Test:</span> Check monomer length distribution — is it multimodal?
+<span class="highlight2">Fix:</span> Segment array first, then decompose each segment separately.
+
+<strong>H3: High divergence is real (old centromere)</strong>
+Some centromeric regions have accumulated many mutations over time.
+<span class="highlight2">Test:</span> Compare to known reference — what's typical ED for this chromosome?
+<span class="highlight2">Fix:</span> Accept higher ED as biologically correct, adjust quality thresholds.
+
+<strong>H4: Flanks/junctions included in monomers</strong>
+Boundaries between different satellite families are incorrectly included.
+<span class="highlight2">Test:</span> Check first and last 5 monomers — do they have unusually high ED?
+<span class="highlight2">Fix:</span> Better flank detection, mark junction regions separately.
+        </div>
+
+        <h4>Crucial Experiment</h4>
+        <div class="issue-box">
+            <strong>Check if monomers can be further split:</strong>
+<pre style="background: #1e293b; color: #e2e8f0; padding: 0.5rem; margin-top: 0.5rem;"># For chr20_26925601_29521049 with mean=1241bp monomers
+# Check if these contain ~171bp repeats internally
+
+# Extract one monomer and run self-dotplot
+grep -A1 "chr20_26925601" monomers.fasta | tail -1 > single.fa
+dotter single.fa single.fa  # Look for 171bp diagonal pattern</pre>
+            <ul style="margin-top: 0.5rem;">
+                <li><strong>If 171bp pattern visible:</strong> Split HORs further (H1)</li>
+                <li><strong>If no internal pattern:</strong> This is the correct granularity (H3)</li>
+            </ul>
+        </div>
+
+        <h3>Priority Matrix for Fixes</h3>
+        <table class="diff-table">
+            <tr>
+                <th>Class</th>
+                <th>Impact</th>
+                <th>Effort</th>
+                <th>Priority</th>
+                <th>First Action</th>
+            </tr>
+            <tr>
+                <td>Class 1: No decomposition</td>
+                <td style="color: var(--error);">HIGH (complete failure)</td>
+                <td>MEDIUM</td>
+                <td><span class="tag issue">P1</span></td>
+                <td>Run verbose on chr13, identify which hypothesis</td>
+            </tr>
+            <tr>
+                <td>Class 2: A-B not merged</td>
+                <td style="color: var(--warning);">MEDIUM (bimodal CV)</td>
+                <td>LOW</td>
+                <td><span class="tag warn">P2</span></td>
+                <td>Align A vs B monomers, check if similar</td>
+            </tr>
+            <tr>
+                <td>Class 3: High ED</td>
+                <td style="color: var(--warning);">MEDIUM (wrong level?)</td>
+                <td>HIGH</td>
+                <td><span class="tag warn">P3</span></td>
+                <td>Check if HOR-level, may be correct</td>
+            </tr>
+        </table>
+    </div>
+
     <!-- CONCLUSIONS SECTION -->
     <div class="section">
         <h2>Conclusions & Next Steps</h2>
