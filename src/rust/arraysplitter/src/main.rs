@@ -17,6 +17,34 @@ use arraysplitter_rs::{
     decompose::is_canonical_orientation,
 };
 
+/// Calculate edit distance between two sequences
+fn edit_distance(s1: &str, s2: &str) -> usize {
+    let len1 = s1.len();
+    let len2 = s2.len();
+
+    if len1 == 0 { return len2; }
+    if len2 == 0 { return len1; }
+
+    let s1_chars: Vec<char> = s1.chars().collect();
+    let s2_chars: Vec<char> = s2.chars().collect();
+
+    let mut prev_row: Vec<usize> = (0..=len2).collect();
+    let mut curr_row: Vec<usize> = vec![0; len2 + 1];
+
+    for i in 1..=len1 {
+        curr_row[0] = i;
+        for j in 1..=len2 {
+            let cost = if s1_chars[i - 1] == s2_chars[j - 1] { 0 } else { 1 };
+            curr_row[j] = (prev_row[j] + 1)
+                .min(curr_row[j - 1] + 1)
+                .min(prev_row[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev_row, &mut curr_row);
+    }
+
+    prev_row[len2]
+}
+
 /// De novo decomposition of satellite DNA arrays into monomers
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -172,7 +200,7 @@ fn writer_thread(
     let mut fw_detail = BufWriter::new(File::create(&detail_file).expect("Failed to create detail file"));
     let mut fw_lengths = BufWriter::new(File::create(&lengths_file).expect("Failed to create lengths file"));
 
-    writeln!(fw_detail, "sequence_id\torientation\tindex\ttype\tlength\tis_flank\tsequence").unwrap();
+    writeln!(fw_detail, "sequence_id\torientation\tindex\ttype\tlength\tED\tsequence").unwrap();
 
     let mut processed = 0;
     let mut finished_workers = 0;
@@ -238,20 +266,38 @@ fn writer_thread(
                 let lengths: Vec<String> = decomposition.iter().map(|m| m.len().to_string()).collect();
                 writeln!(fw_lengths, "{}", lengths.join(" ")).unwrap();
 
-                // Write detail TSV
+                // Write detail TSV with ED calculation
+                // Track previous monomer for ED calculation
+                let mut prev_monomer: Option<&String> = None;
                 for (i, monomer) in decomposition.iter().enumerate() {
-                    let (piece_type, is_flank) = if i == 0 && !monomer.starts_with(cut_seq) {
-                        ("LEFT_FLANK", "TRUE")
+                    let piece_type = if i == 0 && !monomer.starts_with(cut_seq) {
+                        "LEFT_FLANK"
                     } else if i == decomposition.len() - 1 && monomer.len() < flank_threshold {
-                        ("RIGHT_FLANK", "TRUE")
+                        "RIGHT_FLANK"
                     } else {
-                        ("MONOMER", "FALSE")
+                        "MONOMER"
                     };
+
+                    // Calculate ED only between consecutive MONOMERs
+                    let ed_str = if piece_type == "MONOMER" {
+                        if let Some(prev) = prev_monomer {
+                            edit_distance(prev, monomer).to_string()
+                        } else {
+                            "-".to_string()  // First monomer, no previous
+                        }
+                    } else {
+                        "-".to_string()  // Flanks don't participate in ED
+                    };
+
+                    // Update prev_monomer only for MONOMERs
+                    if piece_type == "MONOMER" {
+                        prev_monomer = Some(monomer);
+                    }
 
                     writeln!(
                         fw_detail, "{}\t{}\t{}\t{}\t{}\t{}\t{}",
                         result.header, orientation, i, piece_type,
-                        monomer.len(), is_flank, monomer
+                        monomer.len(), ed_str, monomer
                     ).unwrap();
                 }
 

@@ -456,6 +456,17 @@ fn find_monomer_cycle(
             continue;
         }
 
+        // Require minimum number of cuts to avoid artifacts from rare anchors
+        // An anchor with only 3 cuts can have artificially low CV due to small sample size
+        const MIN_CUT_COUNT: usize = 10;
+        if cut_positions.len() < MIN_CUT_COUNT {
+            if verbose {
+                eprintln!("  Skipping '{}': only {} cuts (minimum {})",
+                    &anchor[..anchor.len().min(20)], cut_positions.len(), MIN_CUT_COUNT);
+            }
+            continue;
+        }
+
         // Calculate CV of resulting monomer lengths
         let lengths: Vec<f64> = cut_positions
             .windows(2)
@@ -554,11 +565,21 @@ fn find_monomer_cycle(
         return (Vec::new(), 0.0, f64::INFINITY, 1, Vec::new());
     }
 
-    // Sort by CV (ascending), then by n_clusters (ascending) - prefer simpler patterns
+    // Sort by CV (ascending), then by cuts (descending), then by n_clusters (ascending)
+    // Prefer: lower CV, more cuts, simpler patterns
     candidates.sort_by(|a, b| {
-        a.1.partial_cmp(&b.1)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.4.cmp(&b.4))
+        // First compare CV (lower is better)
+        let cv_cmp = a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal);
+        if cv_cmp != std::cmp::Ordering::Equal {
+            return cv_cmp;
+        }
+        // If CV is similar, prefer more cuts (more reliable)
+        let cuts_cmp = b.3.cmp(&a.3); // Note: reversed for descending
+        if cuts_cmp != std::cmp::Ordering::Equal {
+            return cuts_cmp;
+        }
+        // Finally, prefer simpler patterns (fewer clusters)
+        a.4.cmp(&b.4)
     });
 
     let (best_cycle, best_cv, best_period, _best_count, best_n_clusters, best_centers, _best_similarity) =
@@ -808,6 +829,47 @@ impl AnchorGraphDecomposer {
             return None;
         } else if verbose {
             eprintln!("Reconstruction: PERFECT");
+        }
+
+        // Calculate and report ED statistics in verbose mode
+        if verbose && monomers.len() > 1 {
+            let cut_seq = &self.cycle[0];
+            // Calculate flank threshold
+            let monomer_lengths: Vec<usize> = monomers.iter()
+                .filter(|m| m.starts_with(cut_seq))
+                .map(|m| m.len())
+                .collect();
+            let flank_threshold = if !monomer_lengths.is_empty() {
+                let avg: f64 = monomer_lengths.iter().sum::<usize>() as f64 / monomer_lengths.len() as f64;
+                (avg * 0.7) as usize
+            } else {
+                (self.estimated_period * 0.7) as usize
+            };
+
+            // Identify true monomers (not flanks) and calculate ED between consecutive pairs
+            let mut eds: Vec<usize> = Vec::new();
+            let mut prev_monomer: Option<&String> = None;
+            for (i, monomer) in monomers.iter().enumerate() {
+                let is_left_flank = i == 0 && !monomer.starts_with(cut_seq);
+                let is_right_flank = i == monomers.len() - 1 && monomer.len() < flank_threshold;
+
+                if !is_left_flank && !is_right_flank {
+                    if let Some(prev) = prev_monomer {
+                        let ed = levenshtein_exp(prev.as_bytes(), monomer.as_bytes());
+                        eds.push(ed as usize);
+                    }
+                    prev_monomer = Some(monomer);
+                }
+            }
+
+            if !eds.is_empty() {
+                let sum_ed: usize = eds.iter().sum();
+                let mean_ed: f64 = sum_ed as f64 / eds.len() as f64;
+                let max_ed = *eds.iter().max().unwrap();
+                let min_ed = *eds.iter().min().unwrap();
+                eprintln!("ED between consecutive monomers: sum={}, mean={:.1}, min={}, max={}, n_pairs={}",
+                    sum_ed, mean_ed, min_ed, max_ed, eds.len());
+            }
         }
 
         Some(GraphDecomposition {
