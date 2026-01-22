@@ -148,7 +148,7 @@ fn process_array(
         decompose_array(&working_array, effective_depth, None, verbose)
     };
 
-    let decomposition = apply_all_heuristics(&result.monomers, &result.cut_sequence, verbose);
+    let decomposition = apply_all_heuristics(&result.monomers, &result.cut_sequence, &result.alternative_anchors, verbose);
     let processing_time_ms = start.elapsed().as_millis();
 
     OutputRecord {

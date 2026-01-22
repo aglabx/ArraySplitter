@@ -808,6 +808,7 @@ const MAX_MONOMERS_FOR_ED_REFINE: usize = 5000;
 pub fn refine_by_ed(
     decomposition: &[String],
     cut_seq: &str,
+    alt_anchors: &[String],
     verbose: bool,
 ) -> Vec<String> {
     if decomposition.len() < 3 {
@@ -918,6 +919,47 @@ pub fn refine_by_ed(
                                 if best_split.is_none() || local_ed_after < best_split.unwrap().1 {
                                     best_split = Some((split_pos, local_ed_after));
                                 }
+                            }
+                        }
+                    }
+
+                    // If primary anchor failed, try alternative anchors
+                    if best_split.is_none() && !alt_anchors.is_empty() {
+                        for alt_anchor in alt_anchors {
+                            for part_idx in 1..n_parts {
+                                let expected_pos = part_idx * median_len;
+                                let search_window = median_len / 4;
+
+                                if let Some(split_pos) = find_mutant_anchor(
+                                    mono, alt_anchor, expected_pos, search_window, 2
+                                ) {
+                                    if split_pos > 0 && split_pos < mono.len() {
+                                        let part1 = &mono[..split_pos];
+                                        let part2 = &mono[split_pos..];
+
+                                        let ed_prev_new = if !new_decomposition.is_empty() {
+                                            let prev = new_decomposition.last().unwrap();
+                                            if prev.starts_with(cut_seq) {
+                                                edit_distance(prev, part1)
+                                            } else { 0 }
+                                        } else { 0 };
+
+                                        let ed_between = edit_distance(part1, part2);
+
+                                        let ed_next_new = if i + 1 < current.len() && current[i + 1].starts_with(cut_seq) {
+                                            edit_distance(part2, &current[i + 1])
+                                        } else { 0 };
+
+                                        let local_ed_after = ed_prev_new + ed_between + ed_next_new;
+
+                                        if best_split.is_none() || local_ed_after < best_split.unwrap().1 {
+                                            best_split = Some((split_pos, local_ed_after));
+                                        }
+                                    }
+                                }
+                            }
+                            if best_split.is_some() {
+                                break; // Found a good split with this alternative
                             }
                         }
                     }
@@ -1037,6 +1079,7 @@ pub fn refine_by_ed(
 pub fn apply_all_heuristics(
     decomposition: &[String],
     cut_seq: &str,
+    alt_anchors: &[String],
     verbose: bool,
 ) -> Vec<String> {
     let mut result = decomposition.to_vec();
@@ -1057,8 +1100,8 @@ pub fn apply_all_heuristics(
     // 5. Split monomers that start with popular monomer
     result = split_by_popular_prefix(&result, cut_seq, verbose);
 
-    // 6. ED-based refinement (split/merge to minimize local ED)
-    result = refine_by_ed(&result, cut_seq, verbose);
+    // 6. ED-based refinement (split/merge to minimize local ED, with alternative anchors)
+    result = refine_by_ed(&result, cut_seq, alt_anchors, verbose);
 
     result
 }

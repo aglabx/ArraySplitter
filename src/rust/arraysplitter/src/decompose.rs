@@ -27,6 +27,8 @@ pub struct Decomposition {
     pub was_reversed: bool,
     /// Coefficient of variation
     pub cv: f64,
+    /// Alternative anchors with same period (for redundant anchor refinement)
+    pub alternative_anchors: Vec<String>,
 }
 
 /// Count frequencies of items
@@ -428,7 +430,7 @@ fn decompose_with_anchor_graph(
     array: &str,
     hints: &[(usize, String, usize)],
     verbose: bool,
-) -> Option<(Vec<String>, String, usize, f64)> {
+) -> Option<(Vec<String>, String, usize, f64, Vec<String>)> {
     // Build candidates from hints
     let candidates = get_candidates_from_hints(array, hints);
 
@@ -472,7 +474,7 @@ fn decompose_with_anchor_graph(
         return None;
     }
 
-    Some((result.monomers, result.cut_sequence, result.period, result.cv))
+    Some((result.monomers, result.cut_sequence, result.period, result.cv, result.alternative_anchors))
 }
 
 /// Main decomposition function (matching Python decompose_array exactly)
@@ -560,7 +562,7 @@ pub fn decompose_array(
         hints.clone()
     };
 
-    if let Some((monomers, cut_seq, period, cv)) =
+    if let Some((monomers, cut_seq, period, cv, alt_anchors)) =
         decompose_with_anchor_graph(array, &graph_hints, verbose)
     {
         if verbose {
@@ -583,6 +585,7 @@ pub fn decompose_array(
             period,
             was_reversed: false,
             cv,
+            alternative_anchors: alt_anchors,
         };
     }
 
@@ -627,6 +630,7 @@ pub fn decompose_array(
         period: best_period,
         was_reversed: false,
         cv,
+        alternative_anchors: Vec::new(),
     }
 }
 
@@ -693,6 +697,7 @@ pub fn decompose_array_with_cuts(
             period: array.len(),
             was_reversed: false,
             cv: 0.0,
+            alternative_anchors: Vec::new(),
         };
     }
 
@@ -730,6 +735,7 @@ pub fn decompose_array_with_cuts(
         period,
         was_reversed: false,
         cv,
+        alternative_anchors: Vec::new(),
     }
 }
 

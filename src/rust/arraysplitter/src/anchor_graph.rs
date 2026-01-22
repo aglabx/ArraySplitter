@@ -56,6 +56,7 @@ pub struct GraphDecomposition {
     pub cut_sequence: String,
     pub period: usize,
     pub cv: f64,
+    pub alternative_anchors: Vec<String>,
 }
 
 // =============================================================================
@@ -407,9 +408,9 @@ fn find_monomer_cycle(
     _distances: &HashMap<(String, String), Vec<usize>>,
     hits: &[AnchorHit],
     verbose: bool,
-) -> (Vec<String>, f64, f64, usize, Vec<f64>) {
+) -> (Vec<String>, f64, f64, usize, Vec<f64>, Vec<String>) {
     if edges.is_empty() {
-        return (Vec::new(), 0.0, f64::INFINITY, 1, Vec::new());
+        return (Vec::new(), 0.0, f64::INFINITY, 1, Vec::new(), Vec::new());
     }
 
     // Two-pass approach:
@@ -514,7 +515,7 @@ fn find_monomer_cycle(
     //   2: mean_ed / log2(cuts)       (gentler confidence weighting)
     //   3: mean_ed / cuts             (linear cut weighting)
     //   4: mean_ed * (1 + 10/sqrt(cuts))  (penalty for few cuts)
-    const SCORE_MODE: usize = 1;  // Default: mean_ed / sqrt(cuts)
+    const SCORE_MODE: usize = 3;  // Best: mean_ed / cuts (FASTAN-like, linear cut weighting)
     let mut candidates: Vec<(Vec<String>, f64, f64, usize, usize, Vec<f64>, f64, f64, f64)> = Vec::new();
 
     let candidates_for_ed = pass1_candidates.iter()
@@ -637,9 +638,9 @@ fn find_monomer_cycle(
             if verbose {
                 eprintln!("  Fallback to most frequent: {}...", &start_edge[..start_edge.len().min(20)]);
             }
-            return (vec![start_edge], 0.0, f64::INFINITY, 1, Vec::new());
+            return (vec![start_edge], 0.0, f64::INFINITY, 1, Vec::new(), Vec::new());
         }
-        return (Vec::new(), 0.0, f64::INFINITY, 1, Vec::new());
+        return (Vec::new(), 0.0, f64::INFINITY, 1, Vec::new(), Vec::new());
     }
 
     // Show all candidates with ED before sorting
@@ -694,8 +695,20 @@ fn find_monomer_cycle(
         a.4.cmp(&b.4)
     });
 
+    let mut candidates_iter = candidates.into_iter();
     let (best_cycle, best_cv, best_period, _best_count, best_n_clusters, best_centers, best_mean_ed, best_std_ed, best_score) =
-        candidates.into_iter().next().unwrap();
+        candidates_iter.next().unwrap();
+
+    // Collect alternative anchors with similar period (±10%) and finite score
+    let period_min = best_period * 0.9;
+    let period_max = best_period * 1.1;
+    let alt_anchors: Vec<String> = candidates_iter
+        .filter(|(_, _, period, _, _, _, _, _, score)| {
+            score.is_finite() && *period >= period_min && *period <= period_max
+        })
+        .take(5)
+        .map(|(cycle, _, _, _, _, _, _, _, _)| cycle[0].clone())
+        .collect();
 
     if verbose {
         let cluster_info = if best_n_clusters > 1 {
@@ -710,9 +723,12 @@ fn find_monomer_cycle(
         };
         eprintln!("  Selected: {}... period={:.0}, CV={:.3}{}{}",
             &best_cycle[0][..best_cycle[0].len().min(20)], best_period, best_cv, ed_info, cluster_info);
+        if !alt_anchors.is_empty() {
+            eprintln!("  Alternative anchors (same period): {}", alt_anchors.len());
+        }
     }
 
-    (best_cycle, best_period, best_cv, best_n_clusters, best_centers)
+    (best_cycle, best_period, best_cv, best_n_clusters, best_centers, alt_anchors)
 }
 
 /// Decompose sequence into monomers based on the anchor cycle.
@@ -809,6 +825,7 @@ pub struct AnchorGraphDecomposer {
     estimated_cv: f64,
     n_clusters: usize,
     cluster_centers: Vec<f64>,
+    alternative_anchors: Vec<String>,
 }
 
 impl AnchorGraphDecomposer {
@@ -824,6 +841,7 @@ impl AnchorGraphDecomposer {
             estimated_cv: f64::INFINITY,
             n_clusters: 1,
             cluster_centers: Vec::new(),
+            alternative_anchors: Vec::new(),
         }
     }
 
@@ -887,7 +905,7 @@ impl AnchorGraphDecomposer {
         if verbose {
             eprintln!("\nFinding monomer cycle:");
         }
-        let (cycle, period, cv, n_clusters, centers) =
+        let (cycle, period, cv, n_clusters, centers, alt_anchors) =
             find_monomer_cycle(sequence, &self.edges, &self.distances, &self.hits, verbose);
 
         self.cycle = cycle;
@@ -895,6 +913,7 @@ impl AnchorGraphDecomposer {
         self.estimated_cv = cv;
         self.n_clusters = n_clusters;
         self.cluster_centers = centers;
+        self.alternative_anchors = alt_anchors;
 
         if verbose && !self.cycle.is_empty() {
             let cluster_info = if self.n_clusters > 1 {
@@ -994,6 +1013,7 @@ impl AnchorGraphDecomposer {
             cut_sequence: self.cycle[0].clone(),
             period: self.estimated_period as usize,
             cv: self.estimated_cv,
+            alternative_anchors: self.alternative_anchors.clone(),
         })
     }
 
