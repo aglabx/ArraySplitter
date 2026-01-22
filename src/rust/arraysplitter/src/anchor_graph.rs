@@ -507,8 +507,14 @@ fn find_monomer_cycle(
 
     // Pass 2: Calculate full similarity only for top candidates
     // Tuple: (cycle, cv, period, cut_count, n_clusters, centers, mean_ed, std_ed, combined_score)
-    // Combined score = mean_ed + LAMBDA * std_ed (lower is better)
-    const LAMBDA: f64 = 0.0;  // Weight for std_ed in combined score (0.0 = pure mean_ed, tested: higher values worsen results)
+    //
+    // Score formula modes (SCORE_MODE):
+    //   0: mean_ed                    (baseline)
+    //   1: mean_ed / sqrt(cuts)       (statistical confidence weighting)
+    //   2: mean_ed / log2(cuts)       (gentler confidence weighting)
+    //   3: mean_ed / cuts             (linear cut weighting)
+    //   4: mean_ed * (1 + 10/sqrt(cuts))  (penalty for few cuts)
+    const SCORE_MODE: usize = 1;  // Default: mean_ed / sqrt(cuts)
     let mut candidates: Vec<(Vec<String>, f64, f64, usize, usize, Vec<f64>, f64, f64, f64)> = Vec::new();
 
     let candidates_for_ed = pass1_candidates.iter()
@@ -561,9 +567,17 @@ fn find_monomer_cycle(
         };
 
         // Combined score: lower is better
-        // Low mean_ed = similar monomers, Low std_ed = consistent similarity (true monomers)
-        let combined_score = if mean_ed.is_finite() && std_ed.is_finite() {
-            mean_ed + LAMBDA * std_ed
+        // Uses cut count as confidence weight (more cuts = more reliable mean_ed)
+        let cuts_f64 = *cut_count as f64;
+        let combined_score = if mean_ed.is_finite() && cuts_f64 > 0.0 {
+            match SCORE_MODE {
+                0 => mean_ed,                                    // baseline
+                1 => mean_ed / cuts_f64.sqrt(),                  // sqrt weighting
+                2 => mean_ed / cuts_f64.log2().max(1.0),         // log2 weighting
+                3 => mean_ed / cuts_f64,                         // linear weighting
+                4 => mean_ed * (1.0 + 10.0 / cuts_f64.sqrt()),  // penalty for few cuts
+                _ => mean_ed,
+            }
         } else {
             f64::INFINITY
         };
@@ -630,7 +644,15 @@ fn find_monomer_cycle(
 
     // Show all candidates with ED before sorting
     if verbose && !candidates.is_empty() {
-        eprintln!("  Final candidates (before sorting, LAMBDA={:.1}):", LAMBDA);
+        let mode_name = match SCORE_MODE {
+            0 => "mean_ed",
+            1 => "mean_ed/sqrt(cuts)",
+            2 => "mean_ed/log2(cuts)",
+            3 => "mean_ed/cuts",
+            4 => "mean_ed*(1+10/sqrt(cuts))",
+            _ => "unknown",
+        };
+        eprintln!("  Final candidates (before sorting, score={}):", mode_name);
         eprintln!("  {:20} {:>8} {:>8} {:>8} {:>8} {:>8} {:>6}", "Anchor", "Period", "CV", "MeanED", "StdED", "Score", "Cuts");
         for (anchors, cv, period, cuts, _, _, mean_ed, std_ed, score) in &candidates {
             let anchor = &anchors[0];
@@ -649,12 +671,9 @@ fn find_monomer_cycle(
     }
 
     // Sort by: combined_score (ascending), then CV (ascending), then cuts (descending), then clusters (ascending)
-    // combined_score = mean_ed + LAMBDA * std_ed
-    // Rationale:
-    // - Lower mean_ed = more similar adjacent monomers
-    // - Lower std_ed = more consistent similarity (true monomers vs HOR)
-    // True monomers: low mean_ed AND low std_ed (copies of same unit)
-    // HOR monomers: moderate mean_ed AND high std_ed (different monomers A,B,C)
+    // combined_score includes cut count weighting (more cuts = more confidence in mean_ed)
+    // Rationale: FASTAN-like approach - anchors with more cuts (higher coverage)
+    // are preferred, analogous to k-mer diagonal density in FASTAN
     candidates.sort_by(|a, b| {
         // First compare combined_score (lower is better)
         let score_cmp = a.8.partial_cmp(&b.8).unwrap_or(std::cmp::Ordering::Equal);
