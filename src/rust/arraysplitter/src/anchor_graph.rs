@@ -417,9 +417,9 @@ fn find_monomer_cycle(
     // Pass 2: Full similarity calculation only for top candidates
 
     const MIN_CUT_COUNT: usize = 10;
-    const MAX_CV_FOR_ED: f64 = 1.0;  // Calculate ED for all candidates with CV < 1.0
-    const TOP_CANDIDATES_FOR_ED: usize = 5;  // Calculate ED for top N candidates by CV
-    const MIN_SIMILARITY: f64 = 0.5;
+    const MAX_CV_FOR_ED: f64 = 2.0;  // Calculate ED for all candidates (was 1.0)
+    const TOP_CANDIDATES_FOR_ED: usize = 10;  // Calculate ED for top N candidates by CV
+    const MIN_SIMILARITY: f64 = 0.3;  // Alpha satellite monomers are highly variable
     const MAX_MONOMER_FOR_ED: usize = 2000;  // Skip ED for very long monomers
 
     // Tuple for pass 1: (anchor, cv, period, cut_count, n_clusters, centers, cut_positions)
@@ -491,6 +491,18 @@ fn find_monomer_cycle(
 
     if verbose && !pass1_candidates.is_empty() {
         eprintln!("  Pass 1: {} candidates after CV/cuts filter", pass1_candidates.len());
+        eprintln!("  All candidates (sorted by CV):");
+        eprintln!("  {:20} {:>8} {:>8} {:>6} {:>8}", "Anchor", "Period", "CV", "Cuts", "Clusters");
+        for (anchor, cv, period, cuts, n_clusters, _, _) in &pass1_candidates {
+            let anchor_display = if anchor.len() > 18 {
+                format!("{}...", &anchor[..15])
+            } else {
+                anchor.clone()
+            };
+            eprintln!("  {:20} {:>8.0} {:>8.3} {:>6} {:>8}",
+                anchor_display, period, cv, cuts, n_clusters);
+        }
+        eprintln!();
     }
 
     // Pass 2: Calculate full similarity only for top candidates
@@ -598,6 +610,28 @@ fn find_monomer_cycle(
             return (vec![start_edge], 0.0, f64::INFINITY, 1, Vec::new());
         }
         return (Vec::new(), 0.0, f64::INFINITY, 1, Vec::new());
+    }
+
+    // Show all candidates with ED before sorting
+    if verbose && !candidates.is_empty() {
+        eprintln!("  Final candidates (before sorting):");
+        eprintln!("  {:20} {:>8} {:>8} {:>8} {:>6}", "Anchor", "Period", "CV", "MeanED", "Cuts");
+        for (anchors, cv, period, cuts, _, _, mean_ed) in &candidates {
+            let anchor = &anchors[0];
+            let anchor_display = if anchor.len() > 18 {
+                format!("{}...", &anchor[..15])
+            } else {
+                anchor.clone()
+            };
+            let ed_str = if mean_ed.is_finite() {
+                format!("{:.1}", mean_ed)
+            } else {
+                "N/A".to_string()
+            };
+            eprintln!("  {:20} {:>8.0} {:>8.3} {:>8} {:>6}",
+                anchor_display, period, cv, ed_str, cuts);
+        }
+        eprintln!();
     }
 
     // Sort by: mean_ed (ascending), then CV (ascending), then cuts (descending), then clusters (ascending)
