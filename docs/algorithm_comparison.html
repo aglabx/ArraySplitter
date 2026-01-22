@@ -1825,6 +1825,219 @@ dotter single.fa single.fa  # Look for 171bp diagonal pattern</pre>
         </table>
     </div>
 
+    <!-- CV vs SIMILARITY PRIORITY SECTION -->
+    <div class="section">
+        <h2>Open Question: CV vs Similarity Priority in Anchor Selection</h2>
+
+        <div class="issue-box">
+            <strong>Problem Case: chr13_15547599_17536288</strong><br>
+            Two competing candidates with different characteristics:
+        </div>
+
+        <table class="diff-table" style="margin: 1.5rem 0;">
+            <tr>
+                <th>Anchor</th>
+                <th>Period</th>
+                <th>CV</th>
+                <th>Similarity</th>
+                <th>Cuts</th>
+                <th>Interpretation</th>
+            </tr>
+            <tr style="background: #fff3cd;">
+                <td><code>GCTTCTGTCT</code></td>
+                <td><strong>619 bp</strong></td>
+                <td style="color: var(--success);"><strong>0.194</strong> ✓</td>
+                <td>0.67</td>
+                <td>3,236</td>
+                <td>Likely HOR (≈3.6 × 171)</td>
+            </tr>
+            <tr style="background: #d1ecf1;">
+                <td><code>TCCAAAT</code></td>
+                <td><strong>171 bp</strong></td>
+                <td>0.366</td>
+                <td>0.56</td>
+                <td style="color: var(--success);"><strong>9,020</strong> ✓</td>
+                <td>Classic α-satellite monomer</td>
+            </tr>
+        </table>
+
+        <p><strong>Current behavior:</strong> GCTTCTGTCT wins because CV=0.194 < CV=0.366 (lower CV is better).</p>
+        <p><strong>Biological reality:</strong> 171bp is the fundamental α-satellite monomer unit. 619bp is approximately 3-4 monomers bundled together (Higher-Order Repeat).</p>
+
+        <h3>Sorting Options Analysis</h3>
+
+        <div class="method-comparison">
+            <div class="method-card">
+                <h4 style="color: var(--rust);">Option A: CV First (Current)</h4>
+                <p>Sort by: CV → Similarity → Cuts → Clusters</p>
+                <div class="success-box" style="margin: 0.5rem 0;">
+                    <strong>Pros:</strong>
+                    <ul style="margin: 0.3rem 0 0 1rem;">
+                        <li>CV directly measures length consistency</li>
+                        <li>Lower CV = more uniform monomers</li>
+                        <li>Mathematically sound</li>
+                    </ul>
+                </div>
+                <div class="issue-box" style="margin: 0.5rem 0;">
+                    <strong>Cons:</strong>
+                    <ul style="margin: 0.3rem 0 0 1rem;">
+                        <li>May select HOR level instead of monomer</li>
+                        <li>HOR often has lower CV (larger units are more stable)</li>
+                        <li>Loses biological resolution</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="method-card">
+                <h4 style="color: var(--python);">Option B: Similarity First</h4>
+                <p>Sort by: Similarity → CV → Cuts → Clusters</p>
+                <div class="success-box" style="margin: 0.5rem 0;">
+                    <strong>Pros:</strong>
+                    <ul style="margin: 0.3rem 0 0 1rem;">
+                        <li>Prioritizes biological meaning (monomers should be copies)</li>
+                        <li>Higher similarity = real tandem repeat unit</li>
+                    </ul>
+                </div>
+                <div class="issue-box" style="margin: 0.5rem 0;">
+                    <strong>Cons:</strong>
+                    <ul style="margin: 0.3rem 0 0 1rem;">
+                        <li>In this case GCTTCTGTCT still wins (0.67 > 0.56)</li>
+                        <li>HOR can have high similarity too</li>
+                        <li>Doesn't solve the monomer vs HOR problem</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="method-comparison" style="margin-top: 1rem;">
+            <div class="method-card">
+                <h4 style="color: var(--success);">Option C: Prefer Smaller Period</h4>
+                <p>If one period is multiple of another, prefer smaller</p>
+                <div class="success-box" style="margin: 0.5rem 0;">
+                    <strong>Pros:</strong>
+                    <ul style="margin: 0.3rem 0 0 1rem;">
+                        <li>Directly addresses monomer vs HOR problem</li>
+                        <li>Smaller unit = fundamental repeat</li>
+                        <li>Biologically meaningful</li>
+                    </ul>
+                </div>
+                <div class="issue-box" style="margin: 0.5rem 0;">
+                    <strong>Cons:</strong>
+                    <ul style="margin: 0.3rem 0 0 1rem;">
+                        <li>Need to detect period multiplicity (619 ≈ 3.6 × 171)</li>
+                        <li>What tolerance for "multiple"? (±10%?)</li>
+                        <li>Some arrays genuinely have large monomers</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="method-card">
+                <h4 style="color: var(--warning);">Option D: Combined Score</h4>
+                <p>Score = CV × (1 - similarity) or CV / similarity</p>
+                <div class="success-box" style="margin: 0.5rem 0;">
+                    <strong>Pros:</strong>
+                    <ul style="margin: 0.3rem 0 0 1rem;">
+                        <li>Balances both metrics</li>
+                        <li>Single number for comparison</li>
+                    </ul>
+                </div>
+                <div class="issue-box" style="margin: 0.5rem 0;">
+                    <strong>Cons:</strong>
+                    <ul style="margin: 0.3rem 0 0 1rem;">
+                        <li>GCTTCTGTCT: 0.194/0.67 = 0.29</li>
+                        <li>TCCAAAT: 0.366/0.56 = 0.65</li>
+                        <li>Still doesn't solve the problem!</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="method-comparison" style="margin-top: 1rem;">
+            <div class="method-card">
+                <h4 style="color: #6f42c1;">Option E: Cuts-Weighted CV</h4>
+                <p>Penalize low cut count: effective_CV = CV × (1000 / cuts)</p>
+                <div class="success-box" style="margin: 0.5rem 0;">
+                    <strong>Pros:</strong>
+                    <ul style="margin: 0.3rem 0 0 1rem;">
+                        <li>More cuts = more statistical power</li>
+                        <li>GCTTCTGTCT: 0.194 × (1000/3236) = 0.060</li>
+                        <li>TCCAAAT: 0.366 × (1000/9020) = 0.041 ✓ WINS!</li>
+                    </ul>
+                </div>
+                <div class="issue-box" style="margin: 0.5rem 0;">
+                    <strong>Cons:</strong>
+                    <ul style="margin: 0.3rem 0 0 1rem;">
+                        <li>Arbitrary scaling factor (1000)</li>
+                        <li>May over-penalize valid anchors with moderate cuts</li>
+                        <li>Needs calibration</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="method-card">
+                <h4 style="color: #20c997;">Option F: Multi-Level Decomposition</h4>
+                <p>Decompose at all levels, let user choose</p>
+                <div class="success-box" style="margin: 0.5rem 0;">
+                    <strong>Pros:</strong>
+                    <ul style="margin: 0.3rem 0 0 1rem;">
+                        <li>Preserves all information</li>
+                        <li>User decides monomer vs HOR</li>
+                        <li>Can analyze hierarchy</li>
+                    </ul>
+                </div>
+                <div class="issue-box" style="margin: 0.5rem 0;">
+                    <strong>Cons:</strong>
+                    <ul style="margin: 0.3rem 0 0 1rem;">
+                        <li>More complex output</li>
+                        <li>Requires user expertise</li>
+                        <li>Harder to automate downstream</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <h3>Recommendation for Discussion</h3>
+        <div class="warning-box">
+            <strong>Option E (Cuts-Weighted CV)</strong> appears most promising:
+            <ul style="margin-top: 0.5rem;">
+                <li>Statistical justification: more observations = more reliable CV estimate</li>
+                <li>Naturally prefers fundamental unit (more cuts per array length)</li>
+                <li>In chr13 case: 9020 cuts for 171bp vs 3236 cuts for 619bp correctly identifies monomer</li>
+                <li>Formula: <code>effective_CV = CV × sqrt(median_cuts / actual_cuts)</code></li>
+            </ul>
+            <p style="margin-top: 0.5rem;"><strong>Alternative formula:</strong> <code>score = CV / log10(cuts)</code> — logarithmic scaling is gentler.</p>
+        </div>
+
+        <h3>Test Case Verification</h3>
+        <table class="diff-table">
+            <tr>
+                <th>Anchor</th>
+                <th>CV</th>
+                <th>Cuts</th>
+                <th>CV × (1000/cuts)</th>
+                <th>CV / log10(cuts)</th>
+                <th>Winner?</th>
+            </tr>
+            <tr>
+                <td><code>GCTTCTGTCT</code></td>
+                <td>0.194</td>
+                <td>3,236</td>
+                <td>0.060</td>
+                <td>0.055</td>
+                <td></td>
+            </tr>
+            <tr style="background: #d4edda;">
+                <td><code>TCCAAAT</code></td>
+                <td>0.366</td>
+                <td>9,020</td>
+                <td><strong>0.041</strong></td>
+                <td><strong>0.093</strong></td>
+                <td>✓ (linear)<br>✗ (log)</td>
+            </tr>
+        </table>
+        <p style="margin-top: 0.5rem; color: var(--text-muted);">Linear scaling (1000/cuts) correctly selects TCCAAAT. Logarithmic scaling still prefers GCTTCTGTCT.</p>
+    </div>
+
     <!-- CONCLUSIONS SECTION -->
     <div class="section">
         <h2>Conclusions & Next Steps</h2>

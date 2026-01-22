@@ -407,9 +407,18 @@ fn find_monomer_cycle(
         return (Vec::new(), 0.0, f64::INFINITY, 1, Vec::new());
     }
 
-    // Collect candidate anchors with cluster analysis
-    // Tuple: (cycle, cv, period, cut_count, n_clusters, centers, similarity)
-    let mut candidates: Vec<(Vec<String>, f64, f64, usize, usize, Vec<f64>, f64)> = Vec::new();
+    // Two-pass approach:
+    // Pass 1: Quick filtering by CV and cut count (no expensive ED calculation)
+    // Pass 2: Full similarity calculation only for top candidates
+
+    const MIN_CUT_COUNT: usize = 10;
+    const MAX_CV_FOR_ED: f64 = 0.5;  // Only calculate ED for candidates with CV < 0.5
+    const TOP_CANDIDATES_FOR_ED: usize = 5;  // Calculate ED for top N candidates by CV
+    const MIN_SIMILARITY: f64 = 0.5;
+    const MAX_MONOMER_FOR_ED: usize = 2000;  // Skip ED for very long monomers
+
+    // Tuple for pass 1: (anchor, cv, period, cut_count, n_clusters, centers, cut_positions)
+    let mut pass1_candidates: Vec<(String, f64, f64, usize, usize, Vec<f64>, Vec<usize>)> = Vec::new();
 
     // Get unique anchors from graph with self-loops
     let mut anchors_to_try: HashSet<String> = HashSet::new();
@@ -422,8 +431,8 @@ fn find_monomer_cycle(
         }
     }
 
+    // Pass 1: Calculate CV and filter by cut count (fast)
     for anchor in &anchors_to_try {
-        // Find ALL positions for this anchor
         let mut positions: Vec<usize> = hits
             .iter()
             .filter(|h| &h.anchor == anchor)
@@ -435,7 +444,6 @@ fn find_monomer_cycle(
         }
         positions.sort();
 
-        // Calculate distances between ALL consecutive positions of this anchor
         let dist_list: Vec<f64> = positions
             .windows(2)
             .map(|w| (w[1] - w[0]) as f64)
@@ -445,20 +453,10 @@ fn find_monomer_cycle(
             continue;
         }
 
-        // Analyze distance distribution - detect multi-region patterns
         let (n_clusters, centers, true_period) = analyze_distance_distribution(&dist_list, false);
-
-        // Classify positions and get cut positions
         let labels = classify_positions_by_distance(&positions, &centers);
         let cut_positions = select_cut_positions_by_cluster(&positions, &labels, false);
 
-        if cut_positions.len() < 2 {
-            continue;
-        }
-
-        // Require minimum number of cuts to avoid artifacts from rare anchors
-        // An anchor with only 3 cuts can have artificially low CV due to small sample size
-        const MIN_CUT_COUNT: usize = 10;
         if cut_positions.len() < MIN_CUT_COUNT {
             if verbose {
                 eprintln!("  Skipping '{}': only {} cuts (minimum {})",
@@ -467,7 +465,6 @@ fn find_monomer_cycle(
             continue;
         }
 
-        // Calculate CV of resulting monomer lengths
         let lengths: Vec<f64> = cut_positions
             .windows(2)
             .map(|w| (w[1] - w[0]) as f64)
@@ -478,77 +475,99 @@ fn find_monomer_cycle(
         }
 
         let mean_len: f64 = lengths.iter().sum::<f64>() / lengths.len() as f64;
+        let variance: f64 = lengths.iter().map(|&x| (x - mean_len).powi(2)).sum::<f64>() / lengths.len() as f64;
+        let cv = if mean_len > 0.0 { variance.sqrt() / mean_len } else { f64::INFINITY };
 
-        // Check monomer similarity: consecutive monomers should be similar (copies with mutations)
-        // Sample up to 10 consecutive pairs and check edit distance
-        // Rationale: random DNA sequences have ~25% similarity by chance (1/4 nucleotides match)
-        // Real satellite monomers are copies with mutations, typically >70% similar
-        // We use 50% as minimum to allow for highly diverged repeats while filtering nonsense
-        const MIN_SIMILARITY: f64 = 0.5;
-        const MAX_MONOMER_FOR_ED: usize = 2000;  // Skip ED for very long monomers
-        const SAMPLE_PAIRS: usize = 10;
+        pass1_candidates.push((anchor.clone(), cv, true_period, cut_positions.len(), n_clusters, centers, cut_positions));
+    }
 
+    // Sort pass1 by CV to select top candidates for ED calculation
+    pass1_candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    if verbose && !pass1_candidates.is_empty() {
+        eprintln!("  Pass 1: {} candidates after CV/cuts filter", pass1_candidates.len());
+    }
+
+    // Pass 2: Calculate full similarity only for top candidates
+    // Tuple: (cycle, cv, period, cut_count, n_clusters, centers, similarity)
+    let mut candidates: Vec<(Vec<String>, f64, f64, usize, usize, Vec<f64>, f64)> = Vec::new();
+
+    let candidates_for_ed = pass1_candidates.iter()
+        .filter(|(_, cv, _, _, _, _, _)| *cv <= MAX_CV_FOR_ED)
+        .take(TOP_CANDIDATES_FOR_ED)
+        .collect::<Vec<_>>();
+
+    // Also include candidates with CV > MAX_CV_FOR_ED but skip ED for them
+    let remaining_candidates = pass1_candidates.iter()
+        .filter(|(_, cv, _, _, _, _, _)| *cv > MAX_CV_FOR_ED)
+        .collect::<Vec<_>>();
+
+    // Calculate full ED for top candidates
+    for (anchor, cv, true_period, cut_count, n_clusters, centers, cut_positions) in &candidates_for_ed {
         let mut similarity_sum = 0.0;
         let mut similarity_count = 0;
 
-        // Extract sample monomers and compute similarity
-        let num_pairs = (cut_positions.len() - 1).min(SAMPLE_PAIRS);
-        for i in 0..num_pairs {
+        // Calculate ED for ALL consecutive pairs (not just 10)
+        for i in 0..(cut_positions.len().saturating_sub(2)) {
             let start1 = cut_positions[i];
             let end1 = cut_positions[i + 1];
             let monomer1 = &sequence[start1..end1];
 
-            // Get next monomer if available
-            if i + 2 < cut_positions.len() {
-                let start2 = cut_positions[i + 1];
-                let end2 = cut_positions[i + 2];
-                let monomer2 = &sequence[start2..end2];
+            let start2 = cut_positions[i + 1];
+            let end2 = cut_positions[i + 2];
+            let monomer2 = &sequence[start2..end2];
 
-                // Skip very long monomers (ED is O(n*m))
-                if monomer1.len() <= MAX_MONOMER_FOR_ED && monomer2.len() <= MAX_MONOMER_FOR_ED {
-                    let sim = sequence_similarity(monomer1, monomer2);
-                    similarity_sum += sim;
-                    similarity_count += 1;
-                }
+            // Skip very long monomers (ED is O(n*m))
+            if monomer1.len() <= MAX_MONOMER_FOR_ED && monomer2.len() <= MAX_MONOMER_FOR_ED {
+                let sim = sequence_similarity(monomer1, monomer2);
+                similarity_sum += sim;
+                similarity_count += 1;
             }
         }
 
-        // Check if monomers are similar enough
-        if similarity_count > 0 {
-            let mean_similarity = similarity_sum / similarity_count as f64;
-            if mean_similarity < MIN_SIMILARITY {
-                if verbose {
-                    eprintln!("  Skipping '{}': monomers too dissimilar (similarity={:.2} < {:.2})",
-                        &anchor[..anchor.len().min(20)], mean_similarity, MIN_SIMILARITY);
-                }
-                continue;
-            }
-        }
-
-        let variance: f64 = lengths.iter().map(|&x| (x - mean_len).powi(2)).sum::<f64>() / lengths.len() as f64;
-        let cv = if mean_len > 0.0 { variance.sqrt() / mean_len } else { f64::INFINITY };
-
-        // Calculate mean similarity for reporting
         let mean_similarity = if similarity_count > 0 {
             similarity_sum / similarity_count as f64
         } else {
-            1.0  // Assume perfect if we couldn't measure
+            1.0
         };
 
-        candidates.push((vec![anchor.clone()], cv, true_period, cut_positions.len(), n_clusters, centers, mean_similarity));
+        // Filter by minimum similarity
+        if mean_similarity < MIN_SIMILARITY {
+            if verbose {
+                eprintln!("  Skipping '{}': monomers too dissimilar (sim={:.2} < {:.2})",
+                    &anchor[..anchor.len().min(20)], mean_similarity, MIN_SIMILARITY);
+            }
+            continue;
+        }
 
         if verbose {
-            let cluster_info = if n_clusters > 1 {
+            let cluster_info = if *n_clusters > 1 {
                 format!(" ({} clusters)", n_clusters)
             } else {
                 String::new()
             };
-            eprintln!("  Candidate: {}... period={:.0}, CV={:.3}, sim={:.2}, cuts={}{}",
-                &anchor[..anchor.len().min(20)], true_period, cv, mean_similarity, cut_positions.len(), cluster_info);
+            eprintln!("  Candidate: {}... period={:.0}, CV={:.3}, sim={:.2}, cuts={}{} [full ED]",
+                &anchor[..anchor.len().min(20)], true_period, cv, mean_similarity, cut_count, cluster_info);
         }
+
+        candidates.push((vec![anchor.clone()], *cv, *true_period, *cut_count, *n_clusters, centers.clone(), mean_similarity));
     }
 
-    // Select best candidate by CV
+    // Add remaining candidates without full ED (assume sim=1.0 but they won't win by CV anyway)
+    for (anchor, cv, true_period, cut_count, n_clusters, centers, _cut_positions) in &remaining_candidates {
+        if verbose {
+            let cluster_info = if *n_clusters > 1 {
+                format!(" ({} clusters)", n_clusters)
+            } else {
+                String::new()
+            };
+            eprintln!("  Candidate: {}... period={:.0}, CV={:.3}, sim=N/A, cuts={}{} [no ED - high CV]",
+                &anchor[..anchor.len().min(20)], true_period, cv, cut_count, cluster_info);
+        }
+        candidates.push((vec![anchor.clone()], *cv, *true_period, *cut_count, *n_clusters, centers.clone(), 1.0));
+    }
+
+    // Select best candidate
     if candidates.is_empty() {
         // Fallback: most frequent edge
         if !edges.is_empty() {
@@ -565,16 +584,20 @@ fn find_monomer_cycle(
         return (Vec::new(), 0.0, f64::INFINITY, 1, Vec::new());
     }
 
-    // Sort by CV (ascending), then by cuts (descending), then by n_clusters (ascending)
-    // Prefer: lower CV, more cuts, simpler patterns
+    // Sort by: CV (ascending), then similarity (descending), then cuts (descending), then clusters (ascending)
     candidates.sort_by(|a, b| {
         // First compare CV (lower is better)
         let cv_cmp = a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal);
         if cv_cmp != std::cmp::Ordering::Equal {
             return cv_cmp;
         }
-        // If CV is similar, prefer more cuts (more reliable)
-        let cuts_cmp = b.3.cmp(&a.3); // Note: reversed for descending
+        // If CV is similar, prefer higher similarity
+        let sim_cmp = b.6.partial_cmp(&a.6).unwrap_or(std::cmp::Ordering::Equal);
+        if sim_cmp != std::cmp::Ordering::Equal {
+            return sim_cmp;
+        }
+        // Then prefer more cuts (more reliable)
+        let cuts_cmp = b.3.cmp(&a.3);
         if cuts_cmp != std::cmp::Ordering::Equal {
             return cuts_cmp;
         }
