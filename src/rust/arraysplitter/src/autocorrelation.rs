@@ -143,34 +143,59 @@ pub fn find_period(seq: &[u8], min_d: usize, max_d: usize) -> Option<(usize, f64
     Some((best_period, best_autocorr, best_excess))
 }
 
-/// Find the best period with harmonic refinement.
-/// After finding the raw peak, checks if half-period has similar excess
-/// (which would indicate the true period is the half).
-/// Also checks multiples to ensure we have the fundamental period.
+/// Find the best period with harmonic/sub-period refinement.
+/// After finding the raw peak, checks all small divisors of the period
+/// to find the fundamental (shortest period with similar autocorrelation).
+/// This handles cases like TTAGGG (period 6) where the raw scan might
+/// find d=30 (5×6) if min_d > 6.
 pub fn find_period_refined(seq: &[u8], min_d: usize, max_d: usize) -> Option<(usize, f64, f64)> {
     let result = find_period(seq, min_d, max_d)?;
-    let (period, _autocorr, _excess) = result;
+    let (period, _autocorr, excess) = result;
 
     let random_exp = random_expectation(seq);
 
-    // Check if half-period is also a strong peak (harmonic detection)
-    if period >= min_d * 2 {
-        let half = period / 2;
-        if half >= min_d {
-            let half_ac = autocorrelation(seq, half);
-            let half_excess = half_ac - random_exp;
+    // Check all divisors of period from smallest to largest
+    // If a sub-period has similar autocorrelation, it's the fundamental
+    let mut best_sub = period;
+    let mut best_sub_ac = _autocorr;
+    let mut best_sub_excess = excess;
 
-            // If half-period has ≥80% of the full period's excess, it's likely the fundamental
-            if half_excess >= _excess * 0.8 && half_excess >= 0.05 {
-                // But verify by checking if period is ~2×half
-                if (period as f64 / half as f64 - 2.0).abs() < 0.1 {
-                    return Some((half, half_ac, half_excess));
-                }
+    // Check divisors: 2, 3, 4, 5, ... up to sqrt(period)
+    // For each divisor d, check both d and period/d
+    let mut divisors: Vec<usize> = Vec::new();
+    let mut i = 2;
+    while i * i <= period {
+        if period % i == 0 {
+            divisors.push(i);
+            if i != period / i {
+                divisors.push(period / i);
             }
+        }
+        i += 1;
+    }
+    divisors.sort();
+
+    for sub_p in divisors {
+        if sub_p < min_d {
+            continue;
+        }
+        if sub_p >= best_sub {
+            break; // Already found a smaller fundamental
+        }
+
+        let sub_ac = autocorrelation(seq, sub_p);
+        let sub_excess = sub_ac - random_exp;
+
+        // If sub-period has ≥80% of the full period's excess, it's the fundamental
+        if sub_excess >= excess * 0.8 && sub_excess >= 0.05 {
+            best_sub = sub_p;
+            best_sub_ac = sub_ac;
+            best_sub_excess = sub_excess;
+            break; // Take the smallest valid sub-period
         }
     }
 
-    Some(result)
+    Some((best_sub, best_sub_ac, best_sub_excess))
 }
 
 #[cfg(test)]
@@ -288,6 +313,49 @@ mod tests {
         // Period should be 8 (or a harmonic like 16, 24 in rare cases)
         assert!(period % 8 == 0, "Expected period to be multiple of 8, got {}", period);
         assert!(excess > 0.05); // Should be detectable
+    }
+
+    #[test]
+    fn test_find_period_refined_telomere() {
+        // TTAGGG repeated 100 times → period should be 6, not 30 or 12
+        let unit = b"TTAGGG";
+        let mut seq = Vec::new();
+        for _ in 0..100 {
+            seq.extend_from_slice(unit);
+        }
+        let result = find_period_refined(&seq, 5, 200);
+        assert!(result.is_some());
+        let (period, autocorr, _) = result.unwrap();
+        assert_eq!(period, 6, "Telomere period should be 6, got {}", period);
+        assert!((autocorr - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_find_period_refined_aatgg() {
+        // AATGG repeated → period should be 5, not 30
+        let unit = b"AATGG";
+        let mut seq = Vec::new();
+        for _ in 0..100 {
+            seq.extend_from_slice(unit);
+        }
+        let result = find_period_refined(&seq, 5, 200);
+        assert!(result.is_some());
+        let (period, _, _) = result.unwrap();
+        assert_eq!(period, 5, "AATGG period should be 5, got {}", period);
+    }
+
+    #[test]
+    fn test_find_period_refined_no_false_subperiod() {
+        // "ACGTTAGC" (period 8) should NOT be reduced to period 4 or 2
+        let unit = b"ACGTTAGC";
+        let mut seq = Vec::new();
+        for _ in 0..50 {
+            seq.extend_from_slice(unit);
+        }
+        let result = find_period_refined(&seq, 5, 200);
+        assert!(result.is_some());
+        let (period, _, _) = result.unwrap();
+        assert_eq!(period, 8, "ACGTTAGC period should be 8, got {}", period);
     }
 
     #[test]

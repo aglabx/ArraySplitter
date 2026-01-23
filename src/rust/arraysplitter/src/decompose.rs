@@ -773,7 +773,7 @@ pub fn decompose_array_autocorr(
     verbose: bool,
 ) -> Decomposition {
     let seq = array.as_bytes();
-    let min_period = 30;
+    let min_period = 5;
     let max_period = (array.len() / 3).min(5000); // Need at least 3 copies, cap at 5000bp
 
     // Step 1: Autocorrelation period detection

@@ -50,12 +50,15 @@ pub fn find_anchor_by_period(
     let freq_min = (n_expected as f64 * 0.5) as usize;
     let freq_max = (n_expected as f64 * 1.5) as usize;
 
-    let effective_max_k = max_k.min(period / 2); // anchor shouldn't be longer than half the period
+    // For short periods (e.g., TTAGGG=6bp), allow k up to period-1
+    // For long periods, cap at max_k (typically 15)
+    let effective_max_k = max_k.min(period.saturating_sub(1));
+    let effective_min_k = min_k.min(effective_max_k);
 
     let mut best_result: Option<AnchorResult> = None;
     let mut best_combined_score: f64 = 0.0;
 
-    for k in min_k..=effective_max_k {
+    for k in effective_min_k..=effective_max_k {
         if k > seq.len() {
             break;
         }
