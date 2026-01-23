@@ -57,6 +57,105 @@ fn edit_distance(s1: &str, s2: &str) -> usize {
     prev_row[len2]
 }
 
+/// Compute consensus sequence and Phred-like quality string from monomers.
+///
+/// Quality encodes the fraction of monomers supporting the consensus base:
+/// Q = -10 * log10(1 - support_fraction), capped at 93.
+/// Encoded as ASCII char = Q + 33 (same as Illumina Phred+33).
+///
+/// Examples: 100% support → '~' (Q=93), 90% → '+' (Q=10), 50% → '$' (Q=3)
+/// Compute consensus from aligned monomers.
+/// Returns (consensus_with_case, iupac, quality_digits):
+/// - consensus_with_case: majority-vote base; UPPERCASE if support ≥ 80%, lowercase if variable
+/// - iupac: IUPAC ambiguity code (bases with frequency ≥ 20% included)
+/// - quality_digits: digit 0-9 per position representing support fraction (9 = 100%, 5 = 50-59%)
+fn compute_consensus(monomers: &[&str]) -> (String, String, String) {
+    if monomers.is_empty() {
+        return (String::new(), String::new(), String::new());
+    }
+
+    // Use median length as consensus length
+    let mut lengths: Vec<usize> = monomers.iter().map(|m| m.len()).collect();
+    lengths.sort();
+    let consensus_len = lengths[lengths.len() / 2];
+
+    let mut consensus = String::with_capacity(consensus_len);
+    let mut iupac = String::with_capacity(consensus_len);
+    let mut quality = String::with_capacity(consensus_len);
+
+    for pos in 0..consensus_len {
+        let mut counts = [0u32; 4]; // A, C, G, T
+        let mut total = 0u32;
+
+        for monomer in monomers {
+            let bytes = monomer.as_bytes();
+            if pos < bytes.len() {
+                match bytes[pos] {
+                    b'A' | b'a' => { counts[0] += 1; total += 1; },
+                    b'C' | b'c' => { counts[1] += 1; total += 1; },
+                    b'G' | b'g' => { counts[2] += 1; total += 1; },
+                    b'T' | b't' => { counts[3] += 1; total += 1; },
+                    _ => {},
+                }
+            }
+        }
+
+        if total == 0 {
+            consensus.push('N');
+            iupac.push('N');
+            quality.push('0');
+            continue;
+        }
+
+        // Find most common base for consensus
+        let (best_idx, &best_count) = counts.iter().enumerate()
+            .max_by_key(|(_, &c)| c)
+            .unwrap();
+
+        let support = best_count as f64 / total as f64;
+
+        // Consensus: uppercase if conserved (≥80%), lowercase if variable
+        let base_upper = match best_idx {
+            0 => 'A', 1 => 'C', 2 => 'G', 3 => 'T', _ => 'N',
+        };
+        if support >= 0.8 {
+            consensus.push(base_upper);
+        } else {
+            consensus.push(base_upper.to_ascii_lowercase());
+        }
+
+        // Quality: digit 0-9 representing support fraction
+        // 9 = 90-100%, 8 = 80-89%, ..., 0 = 0-9%
+        let digit = (support * 10.0).min(9.99) as u8;
+        quality.push((b'0' + digit) as char);
+
+        // IUPAC: include bases with frequency ≥ 20%
+        let threshold = (total as f64 * 0.2) as u32;
+        let present: Vec<usize> = (0..4)
+            .filter(|&i| counts[i] >= threshold.max(1))
+            .collect();
+
+        let iupac_char = match present.as_slice() {
+            [0] => 'A', [1] => 'C', [2] => 'G', [3] => 'T',
+            [0, 2] => 'R', // A+G purine
+            [1, 3] => 'Y', // C+T pyrimidine
+            [1, 2] => 'S', // G+C strong
+            [0, 3] => 'W', // A+T weak
+            [2, 3] => 'K', // G+T keto
+            [0, 1] => 'M', // A+C amino
+            [1, 2, 3] => 'B', // not A
+            [0, 2, 3] => 'D', // not C
+            [0, 1, 3] => 'H', // not G
+            [0, 1, 2] => 'V', // not T
+            [0, 1, 2, 3] => 'N',
+            _ => 'N',
+        };
+        iupac.push(iupac_char);
+    }
+
+    (consensus, iupac, quality)
+}
+
 /// De novo decomposition of satellite DNA arrays into monomers
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -308,7 +407,7 @@ fn writer_thread(
     let mut fw_timings = BufWriter::new(File::create(&timings_file).expect("Failed to create timings file"));
 
     // New TSV header
-    writeln!(fw_detail, "array_id\ttype\tidx\tlength\tsource\ted_tmpl\ted_prev\ted_next\tperiod\tautocorr\tn_expected\ted_per_bp\tcv\tcut_sequence\torientation\tsequence").unwrap();
+    writeln!(fw_detail, "array_id\ttype\tidx\tlength\tsource\ted_tmpl\ted_prev\ted_next\tperiod\tautocorr\tn_expected\ted_per_bp\tcv\tcut_sequence\torientation\tsequence\tiupac\tquality").unwrap();
     writeln!(fw_timings, "array_id\tarray_len\tn_monomers\ttime_sec").unwrap();
 
     let mut processed = 0;
@@ -477,7 +576,7 @@ fn writer_thread(
 
                 // Write pred_array row
                 writeln!(
-                    fw_detail, "{}\tpred_array\t-\t{}\t-\t-\t-\t-\t{}\t{}\t{}\t-\t-\t-\t{}\t-",
+                    fw_detail, "{}\tpred_array\t-\t{}\t-\t-\t-\t-\t{}\t{}\t{}\t-\t-\t-\t{}\t-\t-\t-",
                     result.header,
                     result.array_len,
                     result.autocorr_period.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string()),
@@ -502,7 +601,7 @@ fn writer_thread(
                     let ed_next_str = ed_nexts[i].map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
 
                     writeln!(
-                        fw_detail, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t-\t-\t-\t-\t-\t-\t{}\t{}",
+                        fw_detail, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t-\t-\t-\t-\t-\t-\t{}\t{}\t-\t-",
                         result.header, row_type, i, monomer.len(),
                         source, ed_tmpl_str, ed_prev_str, ed_next_str,
                         orientation, monomer
@@ -511,7 +610,7 @@ fn writer_thread(
 
                 // Write array summary row
                 writeln!(
-                    fw_detail, "{}\tarray\t-\t{}\t-\t-\t-\t-\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t-",
+                    fw_detail, "{}\tarray\t-\t{}\t-\t-\t-\t-\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t-\t-\t-",
                     result.header,
                     result.array_len,
                     result.period,
@@ -522,6 +621,30 @@ fn writer_thread(
                     cut_seq,
                     orientation,
                 ).unwrap();
+
+                // Compute and write consensus row (all monomers except flanks)
+                let consensus_monomers: Vec<&str> = decomposition
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| piece_types[*i] == "monomer")
+                    .map(|(_, m)| m.as_str())
+                    .collect();
+
+                if consensus_monomers.len() >= 2 {
+                    let (consensus_seq, iupac_str, quality_str) = compute_consensus(&consensus_monomers);
+                    writeln!(
+                        fw_detail, "{}\tconsensus\t-\t{}\t-\t-\t-\t-\t{}\t{}\t{}\t-\t-\t-\t{}\t{}\t{}\t{}",
+                        result.header,
+                        consensus_seq.len(),
+                        result.period,
+                        autocorr_str,
+                        consensus_monomers.len(),
+                        orientation,
+                        consensus_seq,
+                        iupac_str,
+                        quality_str,
+                    ).unwrap();
+                }
 
                 // Write FASTA (same format as before)
                 let header_info = format!(
