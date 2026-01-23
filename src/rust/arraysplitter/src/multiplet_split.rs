@@ -198,6 +198,9 @@ fn split_single_multiplet(
 /// - Search in a ±P/4 window around the expected position
 /// - Slide the template and compute ED at each candidate position
 /// - Choose position with minimum ED between the template and the subsequence
+///
+/// Optimization: for periods > 200bp, only compare the first COMPARE_PREFIX bytes
+/// of template and candidate to keep ED computation O(prefix²) instead of O(period²).
 fn find_split_positions_by_ed(
     seq: &[u8],
     start: usize,
@@ -208,7 +211,15 @@ fn find_split_positions_by_ed(
 ) -> Vec<usize> {
     let segment_len = end - start;
     let search_window = period / 4;
-    let tmpl_len = template.len();
+
+    // For large periods, truncate comparison to prefix for speed
+    const COMPARE_PREFIX: usize = 200;
+    let effective_tmpl = if template.len() > COMPARE_PREFIX {
+        &template[..COMPARE_PREFIX]
+    } else {
+        template
+    };
+    let compare_len = effective_tmpl.len();
 
     let mut split_positions: Vec<usize> = Vec::new();
 
@@ -227,20 +238,19 @@ fn find_split_positions_by_ed(
             continue;
         }
 
-        // Find position with minimum ED between template and the monomer that would start there
+        // Find position with minimum ED between template prefix and the candidate prefix
         let mut best_pos = expected_abs;
         let mut best_ed = usize::MAX;
 
         for pos in window_start..=window_end {
-            // The monomer starting at pos would be seq[pos..pos+tmpl_len] (approximately)
-            let monomer_end = (pos + tmpl_len).min(end);
+            let monomer_end = (pos + compare_len).min(end);
             let candidate = &seq[pos..monomer_end];
 
             if candidate.is_empty() {
                 continue;
             }
 
-            let ed = fast_edit_distance_bounded(template, candidate, best_ed);
+            let ed = fast_edit_distance_bounded(effective_tmpl, candidate, best_ed);
             if ed < best_ed {
                 best_ed = ed;
                 best_pos = pos;
