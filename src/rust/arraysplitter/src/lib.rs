@@ -26,6 +26,9 @@ pub mod fs_tree;
 pub mod anchor_graph;
 pub mod decompose;
 pub mod heuristics;
+pub mod autocorrelation;
+pub mod anchor_by_period;
+pub mod multiplet_split;
 
 // Re-exports for convenient access
 pub use sequence::{
@@ -75,8 +78,27 @@ pub use decompose::{
     Decomposition,
     decompose_array,
     decompose_array_with_cuts,
+    decompose_array_autocorr,
     is_canonical_orientation,
     rotate_monomers_to_cut,
+};
+
+pub use autocorrelation::{
+    autocorrelation as compute_autocorrelation,
+    random_expectation,
+    find_period,
+    find_period_refined,
+};
+
+pub use anchor_by_period::{
+    AnchorResult,
+    find_anchor_by_period,
+    find_anchor_by_period_with_fallback,
+};
+
+pub use multiplet_split::{
+    MonomerBoundary,
+    split_multiplets,
 };
 
 pub use heuristics::{

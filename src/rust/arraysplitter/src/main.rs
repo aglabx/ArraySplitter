@@ -14,8 +14,8 @@ use std::time::Instant;
 use sysinfo::{System, Pid, ProcessRefreshKind};
 
 use arraysplitter_rs::{
-    decompose_array, decompose_array_with_cuts, apply_all_heuristics,
-    parse_cuts, get_revcomp,
+    decompose_array, decompose_array_with_cuts, decompose_array_autocorr,
+    apply_all_heuristics, parse_cuts, get_revcomp,
     decompose::is_canonical_orientation,
 };
 
@@ -96,6 +96,10 @@ struct Args {
     /// Maximum monomer length for ED calculation [default: 10000]
     #[arg(long, default_value = "10000")]
     max_ed_len: usize,
+
+    /// Decomposition method: autocorr (new pipeline), classic (old), both (run both for comparison)
+    #[arg(long, default_value = "autocorr")]
+    method: String,
 }
 
 /// Input record for workers
@@ -113,6 +117,10 @@ struct OutputRecord {
     period: usize,
     processing_time_ms: u128,
     array_len: usize,
+    autocorr_period: Option<usize>,
+    autocorr_value: Option<f64>,
+    monomer_sources: Vec<String>,
+    method: String,
 }
 
 /// Process a single array
@@ -122,6 +130,7 @@ fn process_array(
     predefined_cuts: &Option<Vec<String>>,
     depth: usize,
     verbose: bool,
+    method: &str,
 ) -> OutputRecord {
     let start = Instant::now();
     let array_len = array.len();
@@ -133,32 +142,67 @@ fn process_array(
         (get_revcomp(array), true)
     };
 
-    // Adaptive depth for long sequences
-    let effective_depth = if working_array.len() > 100_000 {
-        depth.min(30)
-    } else if working_array.len() > 50_000 {
-        depth.min(50)
-    } else {
-        depth
-    };
+    let (decomposition, cut_sequence, period, autocorr_period, autocorr_value, monomer_sources) =
+        match method {
+            "autocorr" => {
+                let result = decompose_array_autocorr(&working_array, verbose);
+                // No heuristics for autocorr method (it handles its own splitting)
+                (
+                    result.monomers,
+                    result.cut_sequence,
+                    result.period,
+                    result.autocorr_period,
+                    result.autocorr_value,
+                    result.monomer_sources,
+                )
+            }
+            _ => {
+                // Classic method
+                let effective_depth = if working_array.len() > 100_000 {
+                    depth.min(30)
+                } else if working_array.len() > 50_000 {
+                    depth.min(50)
+                } else {
+                    depth
+                };
 
-    let result = if let Some(cuts) = predefined_cuts {
-        decompose_array_with_cuts(&working_array, cuts, verbose)
-    } else {
-        decompose_array(&working_array, effective_depth, None, verbose)
-    };
+                let result = if let Some(cuts) = predefined_cuts {
+                    decompose_array_with_cuts(&working_array, cuts, verbose)
+                } else {
+                    decompose_array(&working_array, effective_depth, None, verbose)
+                };
 
-    let decomposition = apply_all_heuristics(&result.monomers, &result.cut_sequence, &result.alternative_anchors, verbose);
+                let decomposition = apply_all_heuristics(
+                    &result.monomers,
+                    &result.cut_sequence,
+                    &result.alternative_anchors,
+                    verbose,
+                );
+                (
+                    decomposition,
+                    result.cut_sequence,
+                    result.period,
+                    None,
+                    None,
+                    Vec::new(),
+                )
+            }
+        };
+
     let processing_time_ms = start.elapsed().as_millis();
 
     OutputRecord {
         header: id.to_string(),
         decomposition,
-        cut_sequence: result.cut_sequence,
+        cut_sequence,
         was_reversed,
-        period: result.period,
+        period,
         processing_time_ms,
         array_len,
+        autocorr_period,
+        autocorr_value,
+        monomer_sources,
+        method: method.to_string(),
     }
 }
 
@@ -263,7 +307,8 @@ fn writer_thread(
     let mut fw_lengths = BufWriter::new(File::create(&lengths_file).expect("Failed to create lengths file"));
     let mut fw_timings = BufWriter::new(File::create(&timings_file).expect("Failed to create timings file"));
 
-    writeln!(fw_detail, "sequence_id\torientation\tindex\ttype\tlength\tED\tsequence").unwrap();
+    // New TSV header
+    writeln!(fw_detail, "array_id\ttype\tidx\tlength\tsource\ted_tmpl\ted_prev\ted_next\tperiod\tautocorr\tn_expected\ted_per_bp\tcv\tcut_sequence\torientation\tsequence").unwrap();
     writeln!(fw_timings, "array_id\tarray_len\tn_monomers\ttime_sec").unwrap();
 
     let mut processed = 0;
@@ -284,47 +329,205 @@ fn writer_thread(
                 let orientation = if result.was_reversed { "rev" } else { "fwd" };
 
                 // Calculate flank threshold
-                let all_monomer_lengths: Vec<usize> = decomposition
+                let monomer_lengths: Vec<usize> = decomposition
                     .iter()
-                    .filter(|m| m.starts_with(cut_seq))
                     .map(|m| m.len())
                     .collect();
 
-                let flank_threshold = if !all_monomer_lengths.is_empty() {
-                    let avg: f64 = all_monomer_lengths.iter().sum::<usize>() as f64
-                        / all_monomer_lengths.len() as f64;
+                let flank_threshold = if !monomer_lengths.is_empty() && result.period > 0 {
+                    (result.period as f64 * 0.7) as usize
+                } else if !monomer_lengths.is_empty() {
+                    let avg: f64 = monomer_lengths.iter().sum::<usize>() as f64
+                        / monomer_lengths.len() as f64;
                     (avg * 0.7) as usize
                 } else {
-                    result.period * 50 / 100
+                    0
                 };
 
-                // Count internal monomers
-                let mut internal_lengths: Vec<usize> = Vec::new();
-                for (i, m) in decomposition.iter().enumerate() {
-                    if m.starts_with(cut_seq) {
-                        if i == decomposition.len() - 1 && m.len() < flank_threshold {
-                            continue;
+                // Determine monomer vs flank for each segment
+                let mut piece_types: Vec<&str> = Vec::new();
+                for (i, monomer) in decomposition.iter().enumerate() {
+                    let source = if i < result.monomer_sources.len() {
+                        result.monomer_sources[i].as_str()
+                    } else {
+                        ""
+                    };
+
+                    let piece_type = if source.contains("flank") {
+                        "flank"
+                    } else if source == "no_period" || source == "no_anchor" {
+                        "monomer"
+                    } else if result.method == "autocorr" {
+                        // For autocorr method, use source labels
+                        if monomer.len() < flank_threshold && (i == 0 || i == decomposition.len() - 1) {
+                            "flank"
+                        } else {
+                            "monomer"
                         }
-                        internal_lengths.push(m.len());
+                    } else {
+                        // Classic method
+                        if i == 0 && !cut_seq.is_empty() && !monomer.starts_with(cut_seq) {
+                            "flank"
+                        } else if i == decomposition.len() - 1 && monomer.len() < flank_threshold {
+                            "flank"
+                        } else {
+                            "monomer"
+                        }
+                    };
+                    piece_types.push(piece_type);
+                }
+
+                // Select template monomer (median length among non-flanks)
+                let mut non_flank_lengths: Vec<(usize, usize)> = decomposition
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| piece_types[*i] == "monomer")
+                    .map(|(i, m)| (i, m.len()))
+                    .collect();
+                non_flank_lengths.sort_by_key(|(_, len)| *len);
+
+                let template_idx = if !non_flank_lengths.is_empty() {
+                    let mid = non_flank_lengths.len() / 2;
+                    Some(non_flank_lengths[mid].0)
+                } else {
+                    None
+                };
+
+                let template_monomer = template_idx.map(|idx| &decomposition[idx]);
+
+                // Compute EDs: ed_tmpl, ed_prev, ed_next
+                let mut ed_tmpls: Vec<Option<usize>> = vec![None; decomposition.len()];
+                let mut ed_prevs: Vec<Option<usize>> = vec![None; decomposition.len()];
+                let mut ed_nexts: Vec<Option<usize>> = vec![None; decomposition.len()];
+
+                for (i, monomer) in decomposition.iter().enumerate() {
+                    if piece_types[i] != "monomer" {
+                        continue;
+                    }
+
+                    // ED to template
+                    if let Some(tmpl) = template_monomer {
+                        if template_idx == Some(i) {
+                            ed_tmpls[i] = Some(0);
+                        } else {
+                            ed_tmpls[i] = Some(edit_distance(tmpl, monomer));
+                        }
+                    }
+
+                    // ED to previous monomer
+                    if i > 0 && piece_types[i - 1] == "monomer" {
+                        ed_prevs[i] = Some(edit_distance(&decomposition[i - 1], monomer));
+                    }
+
+                    // ED to next monomer
+                    if i + 1 < decomposition.len() && piece_types[i + 1] == "monomer" {
+                        ed_nexts[i] = Some(edit_distance(monomer, &decomposition[i + 1]));
                     }
                 }
 
-                let header_info = if !internal_lengths.is_empty() {
-                    let min_len = *internal_lengths.iter().min().unwrap();
-                    let max_len = *internal_lengths.iter().max().unwrap();
-                    let avg_len: f64 = internal_lengths.iter().sum::<usize>() as f64
-                        / internal_lengths.len() as f64;
-                    format!(
-                        "{} cut={} orientation={} n_monomers={} range={}-{} avg={:.1}",
-                        result.header, cut_seq, orientation, internal_lengths.len(),
-                        min_len, max_len, avg_len
-                    )
+                // Compute array-level statistics
+                let n_monomers = piece_types.iter().filter(|&&t| t == "monomer").count();
+                let ed_prev_values: Vec<f64> = ed_prevs
+                    .iter()
+                    .filter_map(|e| e.map(|v| v as f64))
+                    .collect();
+                let monomer_len_values: Vec<f64> = decomposition
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| piece_types[*i] == "monomer")
+                    .map(|(_, m)| m.len() as f64)
+                    .collect();
+
+                let mean_ed_prev = if !ed_prev_values.is_empty() {
+                    ed_prev_values.iter().sum::<f64>() / ed_prev_values.len() as f64
                 } else {
-                    format!("{} cut={} orientation={} n_monomers=0",
-                        result.header, cut_seq, orientation)
+                    0.0
+                };
+                let mean_monomer_len = if !monomer_len_values.is_empty() {
+                    monomer_len_values.iter().sum::<f64>() / monomer_len_values.len() as f64
+                } else {
+                    0.0
+                };
+                let ed_per_bp = if mean_monomer_len > 0.0 {
+                    mean_ed_prev / mean_monomer_len
+                } else {
+                    0.0
                 };
 
-                // Write FASTA
+                // CV of monomer lengths
+                let cv = if monomer_len_values.len() > 1 && mean_monomer_len > 0.0 {
+                    let variance: f64 = monomer_len_values
+                        .iter()
+                        .map(|&x| (x - mean_monomer_len).powi(2))
+                        .sum::<f64>()
+                        / monomer_len_values.len() as f64;
+                    variance.sqrt() / mean_monomer_len
+                } else {
+                    0.0
+                };
+
+                let autocorr_str = result.autocorr_value
+                    .map(|v| format!("{:.4}", v))
+                    .unwrap_or_else(|| "-".to_string());
+                let n_expected_str = if result.period > 0 {
+                    format!("{}", result.array_len / result.period)
+                } else {
+                    "-".to_string()
+                };
+
+                // Write pred_array row
+                writeln!(
+                    fw_detail, "{}\tpred_array\t-\t{}\t-\t-\t-\t-\t{}\t{}\t{}\t-\t-\t-\t{}\t-",
+                    result.header,
+                    result.array_len,
+                    result.autocorr_period.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string()),
+                    autocorr_str,
+                    n_expected_str,
+                    orientation,
+                ).unwrap();
+
+                // Write individual monomer/flank rows
+                for (i, monomer) in decomposition.iter().enumerate() {
+                    let row_type = piece_types[i];
+                    let source = if i < result.monomer_sources.len() {
+                        result.monomer_sources[i].as_str()
+                    } else if result.method == "classic" {
+                        if row_type == "flank" { "classic" } else { "anchor_graph" }
+                    } else {
+                        "-"
+                    };
+
+                    let ed_tmpl_str = ed_tmpls[i].map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
+                    let ed_prev_str = ed_prevs[i].map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
+                    let ed_next_str = ed_nexts[i].map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
+
+                    writeln!(
+                        fw_detail, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t-\t-\t-\t-\t-\t-\t{}\t{}",
+                        result.header, row_type, i, monomer.len(),
+                        source, ed_tmpl_str, ed_prev_str, ed_next_str,
+                        orientation, monomer
+                    ).unwrap();
+                }
+
+                // Write array summary row
+                writeln!(
+                    fw_detail, "{}\tarray\t-\t{}\t-\t-\t-\t-\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t-",
+                    result.header,
+                    result.array_len,
+                    result.period,
+                    autocorr_str,
+                    n_monomers,
+                    ed_per_bp,
+                    cv,
+                    cut_seq,
+                    orientation,
+                ).unwrap();
+
+                // Write FASTA (same format as before)
+                let header_info = format!(
+                    "{} cut={} orientation={} n_monomers={} period={} method={}",
+                    result.header, cut_seq, orientation, n_monomers, result.period, result.method
+                );
                 writeln!(fw, ">{}", header_info).unwrap();
                 writeln!(fw, "{}", decomposition.join(" ")).unwrap();
 
@@ -335,60 +538,22 @@ fn writer_thread(
 
                 // Write timings
                 writeln!(fw_timings, "{}\t{}\t{}\t{:.3}",
-                    result.header, result.array_len, decomposition.len(),
+                    result.header, result.array_len, n_monomers,
                     result.processing_time_ms as f64 / 1000.0
                 ).unwrap();
 
-                // Collect stats for this array (lengths and EDs, no sequences)
+                // Collect stats for this array
                 let mut array_lengths: Vec<usize> = Vec::new();
                 let mut array_eds: Vec<usize> = Vec::new();
-
-                // Write detail TSV with ED calculation
-                // Track previous monomer for ED calculation
-                let mut prev_monomer: Option<&String> = None;
                 for (i, monomer) in decomposition.iter().enumerate() {
-                    let piece_type = if i == 0 && !monomer.starts_with(cut_seq) {
-                        "LEFT_FLANK"
-                    } else if i == decomposition.len() - 1 && monomer.len() < flank_threshold {
-                        "RIGHT_FLANK"
-                    } else {
-                        "MONOMER"
-                    };
-
-                    // Calculate ED only between consecutive MONOMERs
-                    let ed_val: Option<usize> = if piece_type == "MONOMER" {
-                        if let Some(prev) = prev_monomer {
-                            Some(edit_distance(prev, monomer))
-                        } else {
-                            None  // First monomer, no previous
-                        }
-                    } else {
-                        None  // Flanks don't participate in ED
-                    };
-
-                    let ed_str = ed_val.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
-
-                    // Collect stats for MONOMERs only
-                    if piece_type == "MONOMER" {
+                    if piece_types[i] == "monomer" {
                         array_lengths.push(monomer.len());
-                        if let Some(ed) = ed_val {
+                        if let Some(ed) = ed_prevs[i] {
                             array_eds.push(ed);
                         }
                     }
-
-                    // Update prev_monomer only for MONOMERs
-                    if piece_type == "MONOMER" {
-                        prev_monomer = Some(monomer);
-                    }
-
-                    writeln!(
-                        fw_detail, "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                        result.header, orientation, i, piece_type,
-                        monomer.len(), ed_str, monomer
-                    ).unwrap();
                 }
 
-                // Store stats if collecting
                 if collect_stats && !array_lengths.is_empty() {
                     all_stats.push(ArrayStats {
                         id: result.header.clone(),
@@ -423,7 +588,6 @@ fn writer_thread(
     if collect_stats && !all_stats.is_empty() {
         eprintln!("\n=== Statistics ===");
 
-        // Calculate RCV and mean ED for each array
         let mut stats_with_rcv: Vec<(String, usize, usize, f64, f64)> = all_stats.iter().map(|s| {
             let rcv = robust_cv(&s.lengths);
             let median_len = {
@@ -439,7 +603,6 @@ fn writer_thread(
             (s.id.clone(), s.n_monomers, median_len, rcv, mean_ed)
         }).collect();
 
-        // Quality breakdown
         let excellent = stats_with_rcv.iter().filter(|s| s.3 <= 0.05).count();
         let moderate = stats_with_rcv.iter().filter(|s| s.3 > 0.05 && s.3 <= 0.20).count();
         let poor = stats_with_rcv.iter().filter(|s| s.3 > 0.20).count();
@@ -451,7 +614,6 @@ fn writer_thread(
         eprintln!("  Moderate  (5-20%):     {:>4} ({:>2}%)", moderate, 100 * moderate / total_arrays);
         eprintln!("  Poor      (> 20%):     {:>4} ({:>2}%)", poor, 100 * poor / total_arrays);
 
-        // Sort by RCV descending for outliers
         stats_with_rcv.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
 
         eprintln!("\nTop {} outliers (highest RCV):", top_outliers.min(stats_with_rcv.len()));
@@ -460,7 +622,6 @@ fn writer_thread(
             eprintln!("{:<55} {:>5} {:>7} {:>7.3} {:>8.1}", id, n, median, rcv, mean_ed);
         }
 
-        // Also show best performers
         stats_with_rcv.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
         eprintln!("\nTop {} best (lowest RCV):", top_outliers.min(stats_with_rcv.len()));
         eprintln!("{:<55} {:>5} {:>7} {:>7} {:>8}", "Array", "N", "Median", "RCV", "MeanED");
@@ -498,6 +659,14 @@ fn main() {
     if let Some(ref cuts) = predefined_cuts {
         eprintln!("Using predefined cuts: {:?}", cuts);
     }
+
+    // Validate method
+    let method = args.method.clone();
+    if !["autocorr", "classic", "both"].contains(&method.as_str()) {
+        eprintln!("Error: --method must be 'autocorr', 'classic', or 'both'");
+        std::process::exit(1);
+    }
+    eprintln!("Method: {}", method);
 
     // Set global MAX_ED_LEN from CLI
     MAX_ED_LEN.store(args.max_ed_len, Ordering::Relaxed);
@@ -551,6 +720,7 @@ fn main() {
         let rx = Arc::clone(&input_rx);
         let tx = output_tx.clone();
         let cuts = predefined_cuts.clone();
+        let worker_method = method.clone();
 
         let handle = thread::spawn(move || {
             loop {
@@ -567,6 +737,7 @@ fn main() {
                             &cuts,
                             depth,
                             verbose,
+                            &worker_method,
                         );
                         tx.send(Some(result)).expect("Failed to send result");
                     }

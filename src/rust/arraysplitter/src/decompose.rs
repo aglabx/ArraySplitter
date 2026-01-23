@@ -11,6 +11,9 @@ use std::collections::HashMap;
 use crate::sequence::find_gcd_of_list;
 use crate::fs_tree::iterate_hints;
 use crate::anchor_graph::AnchorGraphDecomposer;
+use crate::autocorrelation;
+use crate::anchor_by_period;
+use crate::multiplet_split;
 
 /// Result of array decomposition
 #[derive(Debug, Clone)]
@@ -29,6 +32,12 @@ pub struct Decomposition {
     pub cv: f64,
     /// Alternative anchors with same period (for redundant anchor refinement)
     pub alternative_anchors: Vec<String>,
+    /// Period detected by autocorrelation (new pipeline)
+    pub autocorr_period: Option<usize>,
+    /// Autocorrelation value at detected period
+    pub autocorr_value: Option<f64>,
+    /// Source label per monomer: "anchor", "split_2x", "anchor_graph", "fs_tree", etc.
+    pub monomer_sources: Vec<String>,
 }
 
 /// Count frequencies of items
@@ -586,6 +595,9 @@ pub fn decompose_array(
             was_reversed: false,
             cv,
             alternative_anchors: alt_anchors,
+            autocorr_period: None,
+            autocorr_value: None,
+            monomer_sources: Vec::new(),
         };
     }
 
@@ -631,6 +643,9 @@ pub fn decompose_array(
         was_reversed: false,
         cv,
         alternative_anchors: Vec::new(),
+        autocorr_period: None,
+        autocorr_value: None,
+        monomer_sources: Vec::new(),
     }
 }
 
@@ -698,6 +713,9 @@ pub fn decompose_array_with_cuts(
             was_reversed: false,
             cv: 0.0,
             alternative_anchors: Vec::new(),
+            autocorr_period: None,
+            autocorr_value: None,
+            monomer_sources: Vec::new(),
         };
     }
 
@@ -736,7 +754,187 @@ pub fn decompose_array_with_cuts(
         was_reversed: false,
         cv,
         alternative_anchors: Vec::new(),
+        autocorr_period: None,
+        autocorr_value: None,
+        monomer_sources: Vec::new(),
     }
+}
+
+/// Decompose array using the new autocorrelation-based pipeline.
+///
+/// Pipeline:
+/// 1. Detect orientation (canonical form)
+/// 2. Autocorrelation → find period
+/// 3. Anchor by period → find anchor k-mer and positions
+/// 4. Multiplet split → split segments spanning multiple periods
+/// 5. Extract monomer sequences from boundaries
+pub fn decompose_array_autocorr(
+    array: &str,
+    verbose: bool,
+) -> Decomposition {
+    let seq = array.as_bytes();
+    let min_period = 30;
+    let max_period = (array.len() / 3).min(5000); // Need at least 3 copies, cap at 5000bp
+
+    // Step 1: Autocorrelation period detection
+    let period_result = autocorrelation::find_period_refined(seq, min_period, max_period);
+
+    let (period, autocorr_value) = match period_result {
+        Some((p, ac, _excess)) => (p, ac),
+        None => {
+            if verbose {
+                eprintln!("  Autocorrelation: no periodicity detected");
+            }
+            // Return whole array as single "monomer"
+            return Decomposition {
+                monomers: vec![array.to_string()],
+                cut_sequence: String::new(),
+                score: 0.0,
+                period: array.len(),
+                was_reversed: false,
+                cv: 0.0,
+                alternative_anchors: Vec::new(),
+                autocorr_period: None,
+                autocorr_value: None,
+                monomer_sources: vec!["no_period".to_string()],
+            };
+        }
+    };
+
+    if verbose {
+        eprintln!("  Autocorrelation: period={}, autocorr={:.4}", period, autocorr_value);
+    }
+
+    // Step 2: Find anchor k-mer using the period constraint
+    let anchor_result = anchor_by_period::find_anchor_by_period_with_fallback(seq, period);
+
+    let (anchor_kmer, anchor_positions) = match anchor_result {
+        Some(result) => {
+            if verbose {
+                eprintln!(
+                    "  Anchor: k-mer={}, k={}, positions={}, score={:.3} (uniq={:.3}, reg={:.3})",
+                    result.kmer, result.k, result.positions.len(),
+                    result.score, result.uniqueness, result.regularity
+                );
+            }
+            (result.kmer, result.positions)
+        }
+        None => {
+            if verbose {
+                eprintln!("  Anchor: no suitable anchor found, using even split");
+            }
+            // Fallback: even split based on period
+            let n_monomers = array.len() / period;
+            let mut monomers = Vec::new();
+            let mut sources = Vec::new();
+            for i in 0..n_monomers {
+                let start = i * period;
+                let end = if i == n_monomers - 1 { array.len() } else { (i + 1) * period };
+                monomers.push(array[start..end].to_string());
+                sources.push("even_split".to_string());
+            }
+
+            let cv = compute_cv_from_lengths(&monomers.iter().map(|m| m.len()).collect::<Vec<_>>());
+
+            return Decomposition {
+                monomers,
+                cut_sequence: String::new(),
+                score: 0.0,
+                period,
+                was_reversed: false,
+                cv,
+                alternative_anchors: Vec::new(),
+                autocorr_period: Some(period),
+                autocorr_value: Some(autocorr_value),
+                monomer_sources: sources,
+            };
+        }
+    };
+
+    // Step 3: Multiplet splitting
+    let boundaries = multiplet_split::split_multiplets(seq, &anchor_positions, period);
+
+    if verbose {
+        let n_anchor = boundaries.iter().filter(|b| b.source == "anchor").count();
+        let n_split: usize = boundaries.iter().filter(|b| b.source.starts_with("split_")).count();
+        let n_flank = boundaries.iter().filter(|b| b.source.contains("flank")).count();
+        eprintln!(
+            "  Multiplet split: {} monomers ({} anchor, {} split, {} flank)",
+            boundaries.len(), n_anchor, n_split, n_flank
+        );
+    }
+
+    // Step 4: Extract monomer sequences and build result
+    let mut monomers: Vec<String> = Vec::new();
+    let mut monomer_sources: Vec<String> = Vec::new();
+
+    for boundary in &boundaries {
+        let monomer_seq = &array[boundary.start..boundary.end];
+        monomers.push(monomer_seq.to_string());
+        monomer_sources.push(boundary.source.clone());
+    }
+
+    // Verify reconstruction
+    let reconstructed: String = monomers.join("");
+    if reconstructed != array {
+        if verbose {
+            eprintln!(
+                "  WARNING: Reconstruction mismatch! array={} vs reconstructed={}",
+                array.len(), reconstructed.len()
+            );
+        }
+    }
+
+    // Compute CV from monomer lengths (excluding flanks)
+    let monomer_lengths: Vec<usize> = boundaries
+        .iter()
+        .zip(monomers.iter())
+        .filter(|(b, _)| !b.source.contains("flank"))
+        .map(|(_, m)| m.len())
+        .collect();
+
+    let cv = compute_cv_from_lengths(&monomer_lengths);
+
+    // Score: fraction of boundaries from anchors (high = good)
+    let anchor_count = boundaries.iter().filter(|b| b.source == "anchor").count();
+    let score = if boundaries.is_empty() {
+        0.0
+    } else {
+        anchor_count as f64 / boundaries.len() as f64
+    };
+
+    Decomposition {
+        monomers,
+        cut_sequence: anchor_kmer,
+        score,
+        period,
+        was_reversed: false,
+        cv,
+        alternative_anchors: Vec::new(),
+        autocorr_period: Some(period),
+        autocorr_value: Some(autocorr_value),
+        monomer_sources,
+    }
+}
+
+/// Compute coefficient of variation from a list of lengths
+fn compute_cv_from_lengths(lengths: &[usize]) -> f64 {
+    if lengths.len() < 2 {
+        return 0.0;
+    }
+
+    let mean: f64 = lengths.iter().sum::<usize>() as f64 / lengths.len() as f64;
+    if mean == 0.0 {
+        return f64::INFINITY;
+    }
+
+    let variance: f64 = lengths
+        .iter()
+        .map(|&x| (x as f64 - mean).powi(2))
+        .sum::<f64>()
+        / lengths.len() as f64;
+
+    variance.sqrt() / mean
 }
 
 #[cfg(test)]
