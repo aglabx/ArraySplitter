@@ -422,6 +422,7 @@ fn find_monomer_cycle(
     const TOP_CANDIDATES_FOR_ED: usize = 10;  // Calculate ED for top N candidates by CV
     const MIN_SIMILARITY: f64 = 0.3;  // Alpha satellite monomers are highly variable
     const MAX_MONOMER_FOR_ED: usize = 2000;  // Skip ED for very long monomers
+    const MIN_PERIOD: f64 = 30.0;  // Skip sub-word noise (real sat monomers are >30bp)
 
     // Tuple for pass 1: (anchor, cv, period, cut_count, n_clusters, centers, cut_positions)
     let mut pass1_candidates: Vec<(String, f64, f64, usize, usize, Vec<f64>, Vec<usize>)> = Vec::new();
@@ -471,6 +472,16 @@ fn find_monomer_cycle(
             continue;
         }
 
+        // Skip candidates with very short period (sub-word noise, not real monomers)
+        let monomer_len_est = true_period / (n_clusters as f64).max(1.0);
+        if monomer_len_est < MIN_PERIOD {
+            if verbose {
+                eprintln!("  Skipping '{}': period too short ({:.0}bp < {:.0}bp)",
+                    &anchor[..anchor.len().min(20)], monomer_len_est, MIN_PERIOD);
+            }
+            continue;
+        }
+
         let lengths: Vec<f64> = cut_positions
             .windows(2)
             .map(|w| (w[1] - w[0]) as f64)
@@ -515,7 +526,7 @@ fn find_monomer_cycle(
     //   2: mean_ed / log2(cuts)       (gentler confidence weighting)
     //   3: mean_ed / cuts             (linear cut weighting)
     //   4: mean_ed * (1 + 10/sqrt(cuts))  (penalty for few cuts)
-    const SCORE_MODE: usize = 3;  // Best: mean_ed / cuts (FASTAN-like, linear cut weighting)
+    const SCORE_MODE: usize = 3;  // mean_ed / cuts (best overall)
     let mut candidates: Vec<(Vec<String>, f64, f64, usize, usize, Vec<f64>, f64, f64, f64)> = Vec::new();
 
     let candidates_for_ed = pass1_candidates.iter()
@@ -569,14 +580,17 @@ fn find_monomer_cycle(
 
         // Combined score: lower is better
         // Uses cut count as confidence weight (more cuts = more reliable mean_ed)
+        // Normalizes ED by actual monomer length (period/n_clusters) to compare across lengths
         let cuts_f64 = *cut_count as f64;
-        let combined_score = if mean_ed.is_finite() && cuts_f64 > 0.0 {
+        let monomer_len = *true_period / (*n_clusters as f64).max(1.0);
+        let combined_score = if mean_ed.is_finite() && cuts_f64 > 0.0 && monomer_len > 0.0 {
             match SCORE_MODE {
                 0 => mean_ed,                                    // baseline
                 1 => mean_ed / cuts_f64.sqrt(),                  // sqrt weighting
                 2 => mean_ed / cuts_f64.log2().max(1.0),         // log2 weighting
-                3 => mean_ed / cuts_f64,                         // linear weighting
+                3 => mean_ed / cuts_f64,                         // linear weighting (old best)
                 4 => mean_ed * (1.0 + 10.0 / cuts_f64.sqrt()),  // penalty for few cuts
+                5 => (mean_ed / monomer_len) / cuts_f64,         // ed_per_bp / cuts
                 _ => mean_ed,
             }
         } else {
@@ -594,6 +608,16 @@ fn find_monomer_cycle(
             if verbose {
                 eprintln!("  Skipping '{}': monomers too dissimilar (sim={:.2} < {:.2})",
                     &anchor[..anchor.len().min(20)], mean_similarity, MIN_SIMILARITY);
+            }
+            continue;
+        }
+
+        // Filter by ed_per_bp: if ED > monomer length, these are not real repeats
+        let ed_per_bp = mean_ed / monomer_len;
+        if ed_per_bp > 1.0 {
+            if verbose {
+                eprintln!("  Skipping '{}': ed_per_bp={:.2} > 1.0 (ED exceeds monomer length, not a repeat)",
+                    &anchor[..anchor.len().min(20)], ed_per_bp);
             }
             continue;
         }
@@ -651,6 +675,7 @@ fn find_monomer_cycle(
             2 => "mean_ed/log2(cuts)",
             3 => "mean_ed/cuts",
             4 => "mean_ed*(1+10/sqrt(cuts))",
+            5 => "(mean_ed/period)/cuts",
             _ => "unknown",
         };
         eprintln!("  Final candidates (before sorting, score={}):", mode_name);
