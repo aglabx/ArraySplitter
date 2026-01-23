@@ -993,4 +993,153 @@ mod tests {
         // For perfect repeat, period should be cut length
         assert!(period >= 1);
     }
+
+    // === Edge case tests for autocorr pipeline ===
+
+    #[test]
+    fn test_autocorr_no_tandem_repeat() {
+        // Random non-periodic sequence (LCG-generated)
+        let mut seq = Vec::with_capacity(2000);
+        let mut state: u64 = 42;
+        for _ in 0..2000 {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let nucleotide = match (state >> 33) % 4 {
+                0 => 'A', 1 => 'C', 2 => 'G', _ => 'T',
+            };
+            seq.push(nucleotide);
+        }
+        let array: String = seq.into_iter().collect();
+
+        let result = decompose_array_autocorr(&array, true);
+
+        // Should return single "monomer" = whole array, source = "no_period"
+        assert_eq!(result.monomers.len(), 1, "Non-periodic should give 1 monomer");
+        assert_eq!(result.monomer_sources[0], "no_period");
+        assert_eq!(result.monomers[0], array);
+    }
+
+    #[test]
+    fn test_autocorr_two_different_repeats() {
+        // TTAGGG×100 followed by AATGG×120 (mixed telomere + satIII)
+        let mut array = String::new();
+        for _ in 0..100 {
+            array.push_str("TTAGGG");
+        }
+        for _ in 0..120 {
+            array.push_str("AATGG");
+        }
+        // Total: 600 + 600 = 1200bp
+
+        let result = decompose_array_autocorr(&array, true);
+
+        assert!(!result.monomers.is_empty(), "Should produce at least 1 monomer");
+        eprintln!("Two repeats: period={}, n_monomers={}, sources={:?}",
+            result.period, result.monomers.len(),
+            result.monomer_sources.iter().take(5).collect::<Vec<_>>());
+
+        // For chimeric array: period=30 = LCM(5,6) is the correct shared period.
+        // Both halves have AC=1.0 at d=30, while d=5 and d=6 only work for half.
+        // This is the expected limitation: chimeric arrays need pre-splitting.
+        assert!(result.period == 5 || result.period == 6 || result.period == 30,
+            "Period should be 5, 6, or 30 (LCM), got {}", result.period);
+    }
+
+    #[test]
+    fn test_autocorr_alternating_ab_pattern() {
+        // A-block B-block A-block B-block (A=ACGTTAGC ×10, B=TTGGCCAA ×10)
+        let unit_a = "ACGTTAGC"; // period 8
+        let unit_b = "TTGGCCAA"; // different 8bp unit
+        let mut array = String::new();
+        for _ in 0..3 {
+            for _ in 0..10 { array.push_str(unit_a); }
+            for _ in 0..10 { array.push_str(unit_b); }
+        }
+        // 3 × (80 + 80) = 480bp, super-period = 160bp
+
+        let result = decompose_array_autocorr(&array, true);
+
+        assert!(!result.monomers.is_empty());
+        eprintln!("A-B-A-B: period={}, n_monomers={}, cv={:.3}",
+            result.period, result.monomers.len(), result.cv);
+
+        // Should detect either period=8 (fundamental) or period=160 (super-period)
+        // Both are valid interpretations
+        assert!(result.period == 8 || result.period == 160 || result.period == 80,
+            "Period should be 8, 80, or 160, got {}", result.period);
+    }
+
+    #[test]
+    fn test_autocorr_abc_a_pattern() {
+        // A B C A: different units concatenated, A repeats
+        // This tests what happens with non-uniform structure
+        let unit_a = "ACGTACGTACGTACGT"; // 16bp
+        let unit_b = "TTTTGGGGCCCCAAAA"; // 16bp different
+        let unit_c = "AACCGGTTAACCGGTT"; // 16bp different
+        let mut array = String::new();
+        // A×20 + B×20 + C×20 + A×20 = 1280bp
+        for _ in 0..20 { array.push_str(unit_a); }
+        for _ in 0..20 { array.push_str(unit_b); }
+        for _ in 0..20 { array.push_str(unit_c); }
+        for _ in 0..20 { array.push_str(unit_a); }
+
+        let result = decompose_array_autocorr(&array, true);
+
+        assert!(!result.monomers.is_empty());
+        eprintln!("A-B-C-A: period={}, n_monomers={}, cv={:.3}",
+            result.period, result.monomers.len(), result.cv);
+
+        // Each unit has internal period of 4 (ACGT, TTTT|GGGG|CCCC|AAAA, AACCGGTT)
+        // or period 8 (AACCGGTT). The overall array might detect 4 or 16 or something else.
+        // Main check: doesn't crash, produces reasonable output
+        assert!(result.period <= 320, "Period should be reasonable, got {}", result.period);
+    }
+
+    #[test]
+    fn test_autocorr_repeat_with_gap() {
+        // A-repeat, then unique gap, then A-repeat again
+        // ACGTTAGC×20 + random_50bp + ACGTTAGC×20
+        let unit = "ACGTTAGC";
+        let mut array = String::new();
+        for _ in 0..20 { array.push_str(unit); }
+        // 50bp "gap" (non-periodic)
+        array.push_str("TGCAATGCAATTTGGGCCCAAAGGGCCCAAATTTGGGCCCAAAGGGCCCTT");
+        for _ in 0..20 { array.push_str(unit); }
+        // Total: 160 + 50 + 160 = 370bp
+
+        let result = decompose_array_autocorr(&array, true);
+
+        assert!(!result.monomers.is_empty());
+        eprintln!("Repeat-gap-repeat: period={}, n_monomers={}, cv={:.3}",
+            result.period, result.monomers.len(), result.cv);
+
+        // Should detect period=8 (dominant repeat), gap will be a multiplet
+        assert_eq!(result.period, 8,
+            "Should detect period 8 through the gap, got {}", result.period);
+    }
+
+    #[test]
+    fn test_autocorr_telomere_simple() {
+        // Simple TTAGGG×200
+        let mut array = String::new();
+        for _ in 0..200 {
+            array.push_str("TTAGGG");
+        }
+
+        let result = decompose_array_autocorr(&array, true);
+
+        assert_eq!(result.period, 6, "Telomere period should be 6, got {}", result.period);
+        // Should produce ~200 monomers (+ possible short flanks from anchor offset)
+        let n = result.monomers.len();
+        assert!(n >= 195 && n <= 210,
+            "Expected ~200 monomers, got {}", n);
+        // Most monomers should be 6bp; first/last may be flanks (shorter)
+        let full_monomers: Vec<_> = result.monomers.iter()
+            .filter(|m| m.len() >= 5 && m.len() <= 7)
+            .collect();
+        assert!(full_monomers.len() >= 195,
+            "Expected >=195 full-size monomers, got {}", full_monomers.len());
+        // Total sequence length should be preserved
+        let total_len: usize = result.monomers.iter().map(|m| m.len()).sum();
+        assert_eq!(total_len, 1200, "Total length should be 1200bp");
+    }
 }
