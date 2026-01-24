@@ -19,6 +19,7 @@ MHContext* mh_init(void) {
     ctx->level1_threshold = LEVEL1_THRESHOLD;
     ctx->level2_threshold = LEVEL2_THRESHOLD;
     ctx->level3_threshold = LEVEL3_THRESHOLD;
+    ctx->synteny_threshold = SYNTENY_THRESHOLD;
     ctx->num_threads = 1;
     ctx->verbose = true;
 
@@ -191,11 +192,18 @@ int mh_write_results(MHContext *ctx, const char *prefix) {
         MHMonomer *m = &ctx->monomers[i];
         const char *type_str = m->type == 0 ? "LEFT_FLANK" :
                                m->type == 1 ? "MONOMER" : "RIGHT_FLANK";
-        fprintf(f, "%u\t%s\t%s\t%u\t%s\t%u\t%u\t%u\t%u\t%s\n",
-                m->id, m->sequence_id, m->orientation, m->index,
-                type_str, m->length,
-                m->subfamily_id, m->family_id, m->superfamily_id,
-                m->sequence);
+        /* Print -1 for unassigned (flanks) */
+        if (m->subfamily_id == UINT32_MAX) {
+            fprintf(f, "%u\t%s\t%s\t%u\t%s\t%u\t-1\t-1\t-1\t%s\n",
+                    m->id, m->sequence_id, m->orientation, m->index,
+                    type_str, m->length, m->sequence);
+        } else {
+            fprintf(f, "%u\t%s\t%s\t%u\t%s\t%u\t%u\t%u\t%u\t%s\n",
+                    m->id, m->sequence_id, m->orientation, m->index,
+                    type_str, m->length,
+                    m->subfamily_id, m->family_id, m->superfamily_id,
+                    m->sequence);
+        }
     }
     fclose(f);
 
@@ -251,6 +259,7 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  -1 FLOAT   Level 1 threshold (default: %.2f)\n", LEVEL1_THRESHOLD);
     fprintf(stderr, "  -2 FLOAT   Level 2 threshold (default: %.2f)\n", LEVEL2_THRESHOLD);
     fprintf(stderr, "  -3 FLOAT   Level 3 threshold (default: %.2f)\n", LEVEL3_THRESHOLD);
+    fprintf(stderr, "  -s FLOAT   Synteny threshold for adjacent monomers (default: %.2f)\n", SYNTENY_THRESHOLD);
     fprintf(stderr, "  -q         Quiet mode\n");
     fprintf(stderr, "  -h         Show this help\n");
 }
@@ -261,11 +270,12 @@ int main(int argc, char *argv[]) {
     float t1 = LEVEL1_THRESHOLD;
     float t2 = LEVEL2_THRESHOLD;
     float t3 = LEVEL3_THRESHOLD;
+    float ts = SYNTENY_THRESHOLD;
     int num_threads = 1;
     bool quiet = false;
 
     int opt;
-    while ((opt = getopt(argc, argv, "i:o:t:1:2:3:qh")) != -1) {
+    while ((opt = getopt(argc, argv, "i:o:t:1:2:3:s:qh")) != -1) {
         switch (opt) {
             case 'i': input = optarg; break;
             case 'o': output = optarg; break;
@@ -273,6 +283,7 @@ int main(int argc, char *argv[]) {
             case '1': t1 = atof(optarg); break;
             case '2': t2 = atof(optarg); break;
             case '3': t3 = atof(optarg); break;
+            case 's': ts = atof(optarg); break;
             case 'q': quiet = true; break;
             case 'h':
             default:
@@ -290,6 +301,7 @@ int main(int argc, char *argv[]) {
     ctx->level1_threshold = t1;
     ctx->level2_threshold = t2;
     ctx->level3_threshold = t3;
+    ctx->synteny_threshold = ts;
     ctx->num_threads = num_threads > 0 ? num_threads : 1;
     ctx->verbose = !quiet;
 

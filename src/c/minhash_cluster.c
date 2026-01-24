@@ -17,6 +17,85 @@
 /* Forward declaration */
 void lsh_build(MHContext *ctx, uint32_t *ids, uint32_t count);
 
+/* ==================== Array Grouping ==================== */
+
+/* Group of monomers belonging to one array */
+typedef struct {
+    char *array_id;           /* sequence_id string */
+    uint32_t *monomer_ids;    /* monomer IDs in this array */
+    uint32_t count;
+    uint32_t capacity;
+} ArrayGroup;
+
+/* Collection of all array groups */
+typedef struct {
+    ArrayGroup *groups;
+    uint32_t count;
+    uint32_t capacity;
+} ArrayGroups;
+
+/* Initialize array groups */
+static void array_groups_init(ArrayGroups *ag) {
+    ag->capacity = 256;
+    ag->groups = malloc(ag->capacity * sizeof(ArrayGroup));
+    ag->count = 0;
+}
+
+/* Free array groups */
+static void array_groups_free(ArrayGroups *ag) {
+    for (uint32_t i = 0; i < ag->count; i++) {
+        free(ag->groups[i].array_id);
+        free(ag->groups[i].monomer_ids);
+    }
+    free(ag->groups);
+}
+
+/* Find or create group for array_id */
+static ArrayGroup* array_groups_get(ArrayGroups *ag, const char *array_id) {
+    /* Linear search (could use hash table for many arrays) */
+    for (uint32_t i = 0; i < ag->count; i++) {
+        if (strcmp(ag->groups[i].array_id, array_id) == 0) {
+            return &ag->groups[i];
+        }
+    }
+
+    /* Create new group */
+    if (ag->count >= ag->capacity) {
+        ag->capacity *= 2;
+        ag->groups = realloc(ag->groups, ag->capacity * sizeof(ArrayGroup));
+    }
+
+    ArrayGroup *g = &ag->groups[ag->count++];
+    g->array_id = strdup(array_id);
+    g->capacity = 64;
+    g->monomer_ids = malloc(g->capacity * sizeof(uint32_t));
+    g->count = 0;
+
+    return g;
+}
+
+/* Add monomer to its array group */
+static void array_groups_add(ArrayGroups *ag, const char *array_id, uint32_t monomer_id) {
+    ArrayGroup *g = array_groups_get(ag, array_id);
+
+    if (g->count >= g->capacity) {
+        g->capacity *= 2;
+        g->monomer_ids = realloc(g->monomer_ids, g->capacity * sizeof(uint32_t));
+    }
+    g->monomer_ids[g->count++] = monomer_id;
+}
+
+/* Group monomers by their sequence_id (array) */
+static void group_monomers_by_array(MHContext *ctx, uint32_t *ids, uint32_t count, ArrayGroups *ag) {
+    array_groups_init(ag);
+
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t id = ids[i];
+        const char *array_id = ctx->monomers[id].sequence_id;
+        array_groups_add(ag, array_id, id);
+    }
+}
+
 /*
  * Select centroid for a cluster
  *
@@ -327,6 +406,103 @@ void cluster_level(MHContext *ctx, float threshold, uint32_t *ids, uint32_t coun
 }
 
 /*
+ * Array-local clustering: cluster each array independently
+ *
+ * This respects the biological reality that monomers within an array
+ * are more related (concerted evolution) and should cluster together.
+ * Cross-array clustering happens at higher levels (families, superfamilies).
+ */
+void cluster_array_local(MHContext *ctx, float threshold, uint32_t *ids, uint32_t count,
+                         MHCluster **out_clusters, uint32_t *out_count) {
+    if (count == 0) {
+        *out_clusters = NULL;
+        *out_count = 0;
+        return;
+    }
+
+    /* Group monomers by array */
+    ArrayGroups ag;
+    group_monomers_by_array(ctx, ids, count, &ag);
+
+    if (ctx->verbose) {
+        fprintf(stderr, "  Array-local clustering: %u arrays, %u monomers\n", ag.count, count);
+    }
+
+    /* Allocate result arrays */
+    uint32_t total_clusters = 0;
+    uint32_t clusters_capacity = 1024;
+    MHCluster *all_clusters = malloc(clusters_capacity * sizeof(MHCluster));
+
+    /* Process each array */
+    for (uint32_t a = 0; a < ag.count; a++) {
+        ArrayGroup *g = &ag.groups[a];
+
+        MHCluster *array_clusters = NULL;
+        uint32_t array_cluster_count = 0;
+
+        if (g->count < 3) {
+            /* Small array: put all in one cluster */
+            array_cluster_count = 1;
+            array_clusters = malloc(sizeof(MHCluster));
+            array_clusters[0].id = 0;
+            array_clusters[0].level = 1;
+            array_clusters[0].member_count = g->count;
+            array_clusters[0].member_capacity = g->count;
+            array_clusters[0].members = malloc(g->count * sizeof(uint32_t));
+            memcpy(array_clusters[0].members, g->monomer_ids, g->count * sizeof(uint32_t));
+            array_clusters[0].representative_id = g->monomer_ids[0];
+        } else {
+            /* Build LSH index for this array only */
+            lsh_build(ctx, g->monomer_ids, g->count);
+
+            /* Run greedy clustering within array */
+            cluster_level_greedy(ctx, threshold, g->monomer_ids, g->count,
+                                 &array_clusters, &array_cluster_count);
+        }
+
+        /* Copy array clusters to global list with renumbered IDs */
+        for (uint32_t c = 0; c < array_cluster_count; c++) {
+            if (total_clusters >= clusters_capacity) {
+                clusters_capacity *= 2;
+                all_clusters = realloc(all_clusters, clusters_capacity * sizeof(MHCluster));
+            }
+
+            MHCluster *dst = &all_clusters[total_clusters];
+            MHCluster *src = &array_clusters[c];
+
+            dst->id = total_clusters;
+            dst->level = 1;
+            dst->member_count = src->member_count;
+            dst->member_capacity = src->member_capacity;
+            dst->members = src->members;  /* Transfer ownership */
+            dst->representative_id = src->representative_id;
+            dst->avg_similarity = 0.0f;
+
+            total_clusters++;
+        }
+
+        /* Free array_clusters array (members transferred) */
+        free(array_clusters);
+
+        /* Progress */
+        if (ctx->verbose && (a + 1) % 1000 == 0) {
+            fprintf(stderr, "\r    Processed %u/%u arrays, %u clusters    ",
+                    a + 1, ag.count, total_clusters);
+        }
+    }
+
+    if (ctx->verbose) {
+        fprintf(stderr, "\r    Processed %u arrays -> %u clusters        \n",
+                ag.count, total_clusters);
+    }
+
+    array_groups_free(&ag);
+
+    *out_clusters = all_clusters;
+    *out_count = total_clusters;
+}
+
+/*
  * Extract clusters from Union-Find
  * Returns array of cluster structs
  */
@@ -385,24 +561,226 @@ static MHCluster* extract_clusters(MHContext *ctx, uint32_t *ids, uint32_t count
     return clusters;
 }
 
+/* Comparison function for sorting monomers by sequence_id + index */
+static MHContext *sort_ctx;  /* Global for qsort comparison */
+
+static int cmp_monomers_by_position(const void *a, const void *b) {
+    uint32_t id_a = *(const uint32_t*)a;
+    uint32_t id_b = *(const uint32_t*)b;
+    MHMonomer *ma = &sort_ctx->monomers[id_a];
+    MHMonomer *mb = &sort_ctx->monomers[id_b];
+
+    int cmp = strcmp(ma->sequence_id, mb->sequence_id);
+    if (cmp != 0) return cmp;
+    return (int)ma->index - (int)mb->index;
+}
+
 /*
- * Level 1: Find subfamilies (high stringency) - Greedy Cover
+ * Level 1: Find subfamilies (high stringency) - Greedy Cover with Syntenic Scaffolding
  */
 void find_subfamilies(MHContext *ctx) {
     if (ctx->verbose) {
-        fprintf(stderr, "\n=== Level 1: Subfamilies (threshold %.2f) ===\n",
-                ctx->level1_threshold);
+        fprintf(stderr, "\n=== Level 1: Subfamilies (threshold %.2f, synteny %.2f) ===\n",
+                ctx->level1_threshold, ctx->synteny_threshold);
     }
 
-    /* All monomers participate */
+    /* Only non-flank monomers with length >= MINHASH_K participate */
     uint32_t *all_ids = malloc(ctx->monomer_count * sizeof(uint32_t));
+    uint32_t non_flank_count = 0;
+    uint32_t flank_count = 0;
+    uint32_t short_count = 0;
     for (uint32_t i = 0; i < ctx->monomer_count; i++) {
-        all_ids[i] = i;
+        if (ctx->monomers[i].type != 1) {
+            /* Mark flanks as unassigned (-1) */
+            ctx->monomers[i].subfamily_id = UINT32_MAX;
+            ctx->monomers[i].family_id = UINT32_MAX;
+            ctx->monomers[i].superfamily_id = UINT32_MAX;
+            flank_count++;
+        } else if (ctx->monomers[i].length < MINHASH_K) {
+            /* Mark short monomers as unassigned (< k, can't produce valid MinHash) */
+            ctx->monomers[i].subfamily_id = UINT32_MAX;
+            ctx->monomers[i].family_id = UINT32_MAX;
+            ctx->monomers[i].superfamily_id = UINT32_MAX;
+            short_count++;
+        } else {
+            /* Valid monomer for clustering */
+            all_ids[non_flank_count++] = i;
+        }
     }
 
-    /* Greedy clustering */
-    cluster_level_greedy(ctx, ctx->level1_threshold, all_ids, ctx->monomer_count,
-                         &ctx->subfamilies, &ctx->subfamily_count);
+    if (ctx->verbose) {
+        fprintf(stderr, "  Valid monomers: %u (flanks: %u, short < %d bp: %u)\n",
+                non_flank_count, flank_count, MINHASH_K, short_count);
+    }
+
+    /* === Syntenic Scaffolding: Pre-union adjacent monomers === */
+    if (ctx->synteny_threshold > 0 && non_flank_count > 1) {
+        if (ctx->verbose) {
+            fprintf(stderr, "  Syntenic scaffolding: sorting by position...\n");
+        }
+
+        /* Sort by sequence_id + index */
+        sort_ctx = ctx;
+        qsort(all_ids, non_flank_count, sizeof(uint32_t), cmp_monomers_by_position);
+
+        /* Initialize Union-Find for pre-union */
+        uf_init(&ctx->uf, ctx->monomer_count);
+
+        uint32_t synteny_unions = 0;
+        uint32_t synteny_checked = 0;
+
+        if (ctx->verbose) {
+            fprintf(stderr, "  Pre-unioning adjacent monomers...\n");
+        }
+
+        /* Pre-union adjacent monomers in same array */
+        for (uint32_t i = 0; i < non_flank_count - 1; i++) {
+            uint32_t id_a = all_ids[i];
+            uint32_t id_b = all_ids[i + 1];
+            MHMonomer *ma = &ctx->monomers[id_a];
+            MHMonomer *mb = &ctx->monomers[id_b];
+
+            /* Check if same array and adjacent (flanks already filtered) */
+            if (strcmp(ma->sequence_id, mb->sequence_id) == 0 &&
+                mb->index == ma->index + 1) {
+
+                synteny_checked++;
+
+                /* Check similarity with low threshold */
+                float sim = minhash_similarity(&ma->signature, &mb->signature);
+                if (sim >= ctx->synteny_threshold) {
+                    uf_union(&ctx->uf, id_a, id_b);
+                    synteny_unions++;
+                }
+            }
+        }
+
+        if (ctx->verbose) {
+            fprintf(stderr, "    Checked: %u adjacent pairs, United: %u (%.1f%%)\n",
+                    synteny_checked, synteny_unions,
+                    synteny_checked > 0 ? 100.0 * synteny_unions / synteny_checked : 0);
+        }
+
+        /* Now run greedy clustering, but respect pre-unions */
+        /* We modify greedy to check uf_find before creating new clusters */
+    }
+
+    /* Array-local clustering: cluster each array independently */
+    cluster_array_local(ctx, ctx->level1_threshold, all_ids, non_flank_count,
+                        &ctx->subfamilies, &ctx->subfamily_count);
+
+    /* === Merge clusters based on synteny pre-unions === */
+    if (ctx->synteny_threshold > 0 && ctx->subfamily_count > 1) {
+        if (ctx->verbose) {
+            fprintf(stderr, "  Merging clusters by synteny...\n");
+        }
+
+        /* Build monomer_id -> cluster_id mapping */
+        uint32_t *mono_to_cluster = malloc(ctx->monomer_count * sizeof(uint32_t));
+        for (uint32_t i = 0; i < ctx->subfamily_count; i++) {
+            for (uint32_t j = 0; j < ctx->subfamilies[i].member_count; j++) {
+                mono_to_cluster[ctx->subfamilies[i].members[j]] = i;
+            }
+        }
+
+        /* Use Union-Find on clusters */
+        uint32_t *cluster_parent = malloc(ctx->subfamily_count * sizeof(uint32_t));
+        for (uint32_t i = 0; i < ctx->subfamily_count; i++) {
+            cluster_parent[i] = i;
+        }
+
+        /* Find with path compression (inline) */
+        #define CFIND(x) ({ \
+            uint32_t _r = (x); \
+            while (cluster_parent[_r] != _r) { \
+                cluster_parent[_r] = cluster_parent[cluster_parent[_r]]; \
+                _r = cluster_parent[_r]; \
+            } \
+            _r; \
+        })
+
+        /* For each monomer, check if its synteny-root is in a different cluster */
+        uint32_t synteny_merges = 0;
+        for (uint32_t i = 0; i < ctx->monomer_count; i++) {
+            uint32_t root = uf_find(&ctx->uf, i);
+            if (root != i) {
+                uint32_t cluster_i = mono_to_cluster[i];
+                uint32_t cluster_root = mono_to_cluster[root];
+
+                uint32_t ci = CFIND(cluster_i);
+                uint32_t cr = CFIND(cluster_root);
+
+                if (ci != cr) {
+                    cluster_parent[cr] = ci;
+                    synteny_merges++;
+                }
+            }
+        }
+
+        if (ctx->verbose) {
+            fprintf(stderr, "    Synteny-based cluster merges: %u\n", synteny_merges);
+        }
+
+        /* Rebuild clusters if merges happened */
+        if (synteny_merges > 0) {
+            /* Count final clusters */
+            uint32_t final_count = 0;
+            uint32_t *new_id = malloc(ctx->subfamily_count * sizeof(uint32_t));
+            for (uint32_t i = 0; i < ctx->subfamily_count; i++) {
+                if (CFIND(i) == i) {
+                    new_id[i] = final_count++;
+                }
+            }
+            for (uint32_t i = 0; i < ctx->subfamily_count; i++) {
+                new_id[i] = new_id[CFIND(i)];
+            }
+
+            /* Create merged clusters */
+            MHCluster *merged = calloc(final_count, sizeof(MHCluster));
+            for (uint32_t i = 0; i < final_count; i++) {
+                merged[i].id = i;
+                merged[i].level = 1;
+                merged[i].member_capacity = 64;
+                merged[i].members = malloc(64 * sizeof(uint32_t));
+                merged[i].member_count = 0;
+            }
+
+            /* Move members to merged clusters */
+            for (uint32_t i = 0; i < ctx->subfamily_count; i++) {
+                uint32_t dest = new_id[i];
+                MHCluster *src = &ctx->subfamilies[i];
+                MHCluster *dst = &merged[dest];
+
+                for (uint32_t m = 0; m < src->member_count; m++) {
+                    if (dst->member_count >= dst->member_capacity) {
+                        dst->member_capacity *= 2;
+                        dst->members = realloc(dst->members, dst->member_capacity * sizeof(uint32_t));
+                    }
+                    dst->members[dst->member_count++] = src->members[m];
+                }
+
+                if (CFIND(i) == i) {
+                    dst->representative_id = src->representative_id;
+                }
+
+                free(src->members);
+            }
+            free(ctx->subfamilies);
+            free(new_id);
+
+            ctx->subfamilies = merged;
+            ctx->subfamily_count = final_count;
+
+            if (ctx->verbose) {
+                fprintf(stderr, "    After synteny merge: %u subfamilies\n", final_count);
+            }
+        }
+
+        #undef CFIND
+        free(cluster_parent);
+        free(mono_to_cluster);
+        uf_free(&ctx->uf);
+    }
 
     /* Assign subfamily IDs to monomers */
     for (uint32_t i = 0; i < ctx->subfamily_count; i++) {

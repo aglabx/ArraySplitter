@@ -27,11 +27,53 @@ static void init_hash_seeds(void) {
 }
 
 /*
+ * Check if k-mer has low complexity (should be filtered)
+ * Returns true if k-mer should be SKIPPED
+ *
+ * Criteria:
+ * 1. Less than 3 distinct nucleotides
+ * 2. Any single nucleotide > 75% of k-mer
+ */
+static inline bool is_low_complexity_kmer(uint64_t kmer, int k) {
+    int counts[4] = {0, 0, 0, 0};  /* A, C, G, T */
+
+    /* Count each nucleotide */
+    uint64_t tmp = kmer;
+    for (int i = 0; i < k; i++) {
+        counts[tmp & 3]++;
+        tmp >>= 2;
+    }
+
+    /* Check distinct count */
+    int distinct = (counts[0] > 0) + (counts[1] > 0) +
+                   (counts[2] > 0) + (counts[3] > 0);
+    if (distinct < 3) {
+        return true;  /* Filter: only 1-2 nucleotide types */
+    }
+
+    /* Check for dominant nucleotide (>75%) */
+    int threshold = (k * 3) / 4;  /* 75% of k */
+    for (int i = 0; i < 4; i++) {
+        if (counts[i] > threshold) {
+            return true;  /* Filter: one nucleotide dominates */
+        }
+    }
+
+    return false;  /* Keep this k-mer */
+}
+
+/* Global statistics for low-complexity filter */
+static uint64_t total_kmers_processed = 0;
+static uint64_t total_kmers_filtered = 0;
+static pthread_mutex_t stats_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+/*
  * Compute MinHash signature for a monomer
  *
  * For each of 128 hash functions:
  *   - Hash all canonical k-mers in sequence
  *   - Keep minimum hash value
+ *   - Skip low-complexity k-mers (AT-rich, homopolymers)
  */
 void compute_minhash(MHMonomer *mono) {
     init_hash_seeds();
@@ -50,6 +92,9 @@ void compute_minhash(MHMonomer *mono) {
     const char *seq = mono->sequence;
     int num_kmers = mono->length - MINHASH_K + 1;
 
+    uint32_t local_total = 0;
+    uint32_t local_filtered = 0;
+
     for (int pos = 0; pos < num_kmers; pos++) {
         /* Check for N in k-mer window */
         bool has_n = false;
@@ -63,11 +108,19 @@ void compute_minhash(MHMonomer *mono) {
         }
         if (has_n) continue;
 
+        local_total++;
+
         /* Encode k-mer */
         uint64_t kmer = encode_kmer(seq + pos, MINHASH_K);
 
         /* Get canonical form */
         uint64_t canon = canonical_kmer(kmer, MINHASH_K);
+
+        /* Filter low-complexity k-mers */
+        if (is_low_complexity_kmer(canon, MINHASH_K)) {
+            local_filtered++;
+            continue;  /* Skip AT-rich, homopolymer-like k-mers */
+        }
 
         /* Update minimum for each hash function */
         for (int i = 0; i < MINHASH_SIZE; i++) {
@@ -77,6 +130,26 @@ void compute_minhash(MHMonomer *mono) {
             }
         }
     }
+
+    /* Update global statistics (thread-safe) */
+    pthread_mutex_lock(&stats_mutex);
+    total_kmers_processed += local_total;
+    total_kmers_filtered += local_filtered;
+    pthread_mutex_unlock(&stats_mutex);
+}
+
+/* Get filter statistics */
+void get_kmer_filter_stats(uint64_t *processed, uint64_t *filtered) {
+    *processed = total_kmers_processed;
+    *filtered = total_kmers_filtered;
+}
+
+/* Reset filter statistics */
+void reset_kmer_filter_stats(void) {
+    pthread_mutex_lock(&stats_mutex);
+    total_kmers_processed = 0;
+    total_kmers_filtered = 0;
+    pthread_mutex_unlock(&stats_mutex);
 }
 
 /* Thread work for parallel signature computation */
@@ -144,5 +217,14 @@ void compute_all_signatures(MHContext *ctx) {
 
     if (ctx->verbose) {
         fprintf(stderr, "\r  Signatures: 100%% (%u/%u)\n", ctx->monomer_count, ctx->monomer_count);
+
+        /* Print low-complexity filter statistics */
+        uint64_t processed, filtered;
+        get_kmer_filter_stats(&processed, &filtered);
+        if (processed > 0) {
+            fprintf(stderr, "  Low-complexity k-mers filtered: %llu / %llu (%.1f%%)\n",
+                    (unsigned long long)filtered, (unsigned long long)processed,
+                    100.0 * filtered / processed);
+        }
     }
 }

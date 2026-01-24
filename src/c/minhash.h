@@ -27,6 +27,7 @@
 #define LEVEL1_THRESHOLD 0.80       /* Subfamilies */
 #define LEVEL2_THRESHOLD 0.50       /* Families */
 #define LEVEL3_THRESHOLD 0.20       /* Superfamilies */
+#define SYNTENY_THRESHOLD 0.30      /* Adjacent monomers in same array */
 
 /* Hash table sizes (prime numbers for better distribution) */
 #define LSH_BUCKETS 100003
@@ -123,6 +124,7 @@ typedef struct {
     float level1_threshold;
     float level2_threshold;
     float level3_threshold;
+    float synteny_threshold;        /* Low threshold for adjacent monomers */
     int num_threads;
     bool verbose;
 } MHContext;
@@ -244,6 +246,8 @@ static inline void uf_free(UnionFind *uf) {
 /* minhash_sig.c - Signature computation */
 void compute_minhash(MHMonomer *mono);
 void compute_all_signatures(MHContext *ctx);
+void get_kmer_filter_stats(uint64_t *processed, uint64_t *filtered);
+void reset_kmer_filter_stats(void);
 
 /* minhash_lsh.c - LSH indexing */
 void lsh_init(LSHIndex *lsh);
