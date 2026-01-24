@@ -114,15 +114,11 @@ fn compute_consensus(monomers: &[&str]) -> (String, String, String) {
 
         let support = best_count as f64 / total as f64;
 
-        // Consensus: uppercase if conserved (≥80%), lowercase if variable
+        // Consensus: always uppercase (quality digits show conservation)
         let base_upper = match best_idx {
             0 => 'A', 1 => 'C', 2 => 'G', 3 => 'T', _ => 'N',
         };
-        if support >= 0.8 {
-            consensus.push(base_upper);
-        } else {
-            consensus.push(base_upper.to_ascii_lowercase());
-        }
+        consensus.push(base_upper);
 
         // Quality: digit 0-9 representing support fraction
         // 9 = 90-100%, 8 = 80-89%, ..., 0 = 0-9%
@@ -671,15 +667,15 @@ fn writer_thread(
                 // Write consensus row (all columns filled, semantics depend on row type):
                 // idx = n_monomers used for consensus
                 // source = quality digits (0-9 per-position support fraction)
-                // ed_tmpl = number of conserved positions (UPPER, ≥80% support)
-                // ed_prev = number of variable positions (lower, <80% support)
+                // ed_tmpl = number of conserved positions (quality ≥ 8, i.e. ≥80% support)
+                // ed_prev = number of variable positions (quality < 8)
                 // ed_next = number of IUPAC-ambiguous positions (2+ bases ≥20%)
                 // ed_per_bp = array divergence, cv = array CV
                 // cut_sequence = IUPAC ambiguity codes
-                // sequence = case-encoded consensus
+                // sequence = consensus (uppercase)
                 if !result.consensus_seq.is_empty() {
-                    let conserved = result.consensus_seq.chars().filter(|c| c.is_uppercase()).count();
-                    let variable = result.consensus_seq.chars().filter(|c| c.is_lowercase()).count();
+                    let conserved = result.quality_str.chars().filter(|c| *c >= '8').count();
+                    let variable = result.quality_str.chars().filter(|c| *c < '8').count();
                     let ambiguous = result.iupac_str.chars()
                         .filter(|c| !matches!(c, 'A' | 'C' | 'G' | 'T'))
                         .count();
@@ -699,7 +695,7 @@ fn writer_thread(
                         result.cv,
                         result.iupac_str,       // cut_sequence → IUPAC
                         orientation,
-                        result.consensus_seq,   // sequence → case-encoded consensus
+                        result.consensus_seq,   // sequence → consensus
                     ).unwrap();
                 }
 
