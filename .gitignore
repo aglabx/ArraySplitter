@@ -191,6 +191,7 @@ src/rust/arraysplitter/target/
 # Compiled binaries
 bin/
 src/c/*_c
+src/c/kmer_enrichment
 src/c/*.o
 
 # Analysis results (keep in labjournal)
