@@ -251,11 +251,14 @@ fn process_array(
     let start = Instant::now();
     let array_len = array.len();
 
-    let is_canonical = is_canonical_orientation(array);
+    // Normalize to uppercase for consistent processing
+    let array_upper = array.to_uppercase();
+
+    let is_canonical = is_canonical_orientation(&array_upper);
     let (working_array, was_reversed) = if is_canonical {
-        (array.to_string(), false)
+        (array_upper, false)
     } else {
-        (get_revcomp(array), true)
+        (get_revcomp(&array_upper), true)
     };
 
     let (decomposition, cut_sequence, period, autocorr_period, autocorr_value, monomer_sources) =
