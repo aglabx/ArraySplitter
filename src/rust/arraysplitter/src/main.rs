@@ -551,6 +551,35 @@ fn robust_cv(vals: &[usize]) -> f64 {
     mad as f64 / median as f64
 }
 
+/// Parse array header to extract (chromosome, start_position) for sorting.
+/// Header format: "chr10_39459378_39491926_32549_172_MONO" or similar.
+/// Returns (chr_num, start_pos) where chr_num is parsed from chrN (N as number, X=23, Y=24, M=25).
+fn parse_header_for_sort(header: &str) -> (u32, u64) {
+    let parts: Vec<&str> = header.split('_').collect();
+    if parts.len() < 2 {
+        return (u32::MAX, 0);
+    }
+
+    // Parse chromosome number
+    let chr_str = parts[0];
+    let chr_num = if chr_str.starts_with("chr") {
+        let chr_part = &chr_str[3..];
+        match chr_part {
+            "X" => 23,
+            "Y" => 24,
+            "M" | "MT" => 25,
+            _ => chr_part.parse::<u32>().unwrap_or(u32::MAX),
+        }
+    } else {
+        chr_str.parse::<u32>().unwrap_or(u32::MAX)
+    };
+
+    // Parse start position
+    let start_pos = parts[1].parse::<u64>().unwrap_or(0);
+
+    (chr_num, start_pos)
+}
+
 /// Writer thread: receives results and writes to files
 fn writer_thread(
     rx: Receiver<Option<OutputRecord>>,
@@ -576,177 +605,21 @@ fn writer_thread(
 
     let mut processed = 0;
     let mut finished_workers = 0;
-    let mut total_monomers = 0;
 
-    // Collect per-array stats if requested
-    let mut all_stats: Vec<ArrayStats> = Vec::new();
+    // Collect all results for sorting
+    let mut all_results: Vec<OutputRecord> = Vec::new();
 
+    // Receive all results from workers
     loop {
         match rx.recv() {
             Ok(Some(result)) => {
                 processed += 1;
-                total_monomers += result.monomers.len();
-
-                let cut_seq = &result.cut_sequence;
-                let orientation = if result.was_reversed { "rev" } else { "fwd" };
-
-                let autocorr_str = result.autocorr_value
-                    .map(|v| format!("{:.4}", v))
-                    .unwrap_or_else(|| "-".to_string());
-                let n_expected_str = if result.period > 0 {
-                    format!("{}", result.array_len / result.period)
-                } else {
-                    "-".to_string()
-                };
-
-                // Write pred_array row
-                // source=method, ed_tmpl=excess over random (detection confidence)
-                let excess_str = result.autocorr_excess
-                    .map(|v| format!("{:.4}", v))
-                    .unwrap_or_else(|| "0".to_string());
-                writeln!(
-                    fw_detail, "{}\tpred_array\t{}\t{}\t{}\t{}\t0\t0\t{}\t{}\t{}\t0\t0\t-\t{}\t-",
-                    result.header,
-                    n_expected_str,                 // idx → expected monomer count
-                    result.array_len,
-                    result.method,                  // source → detection method
-                    excess_str,                     // ed_tmpl → autocorr excess (confidence)
-                    result.autocorr_period.map(|p| p.to_string()).unwrap_or_else(|| "0".to_string()),
-                    autocorr_str,
-                    n_expected_str,
-                    orientation,
-                ).unwrap();
-
-                // Write individual monomer/flank rows
-                // Reuse columns: period=array period, autocorr=ed_tmpl/len,
-                // n_expected=1, ed_per_bp=ed_prev/len, cv=size_deviation, cut_sequence=anchor
-                for (i, mono) in result.monomers.iter().enumerate() {
-                    let ed_tmpl_str = mono.ed_tmpl.map(|v| v.to_string()).unwrap_or_else(|| "0".to_string());
-                    let ed_prev_str = mono.ed_prev.map(|v| v.to_string()).unwrap_or_else(|| "0".to_string());
-                    let ed_next_str = mono.ed_next.map(|v| v.to_string()).unwrap_or_else(|| "0".to_string());
-
-                    let mono_len = mono.sequence.len() as f64;
-                    let mono_ed_per_bp = mono.ed_prev
-                        .map(|ed| if mono_len > 0.0 { ed as f64 / mono_len } else { 0.0 })
-                        .unwrap_or(0.0);
-                    let size_dev = if result.period > 0 {
-                        (mono_len - result.period as f64).abs() / result.period as f64
-                    } else { 0.0 };
-
-                    writeln!(
-                        fw_detail, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t1\t{:.4}\t{:.4}\t{}\t{}\t{}",
-                        result.header, mono.piece_type, i, mono.sequence.len(),
-                        mono.source, ed_tmpl_str, ed_prev_str, ed_next_str,
-                        result.period,              // period → array period
-                        mono.ed_tmpl.map(|ed| ed as f64 / mono_len).unwrap_or(0.0), // autocorr → ed_tmpl/len
-                        mono_ed_per_bp,             // ed_per_bp → ed_prev/len
-                        size_dev,                   // cv → size deviation from period
-                        cut_seq,                    // cut_sequence → anchor
-                        orientation,
-                        mono.sequence
-                    ).unwrap();
-                }
-
-                // Write array summary row
-                // source=method, ed_tmpl/prev/next=means, sequence="-"
-                writeln!(
-                    fw_detail, "{}\tarray\t{}\t{}\t{}\t{:.1}\t{:.1}\t{:.1}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t-",
-                    result.header,
-                    result.n_monomers,              // idx → actual monomer count
-                    result.array_len,
-                    result.method,                  // source → method used
-                    result.mean_ed_tmpl,            // ed_tmpl → mean ED to template
-                    result.mean_ed_prev,            // ed_prev → mean ED to previous
-                    result.mean_ed_next,            // ed_next → mean ED to next
-                    result.period,
-                    autocorr_str,
-                    result.n_monomers,
-                    result.ed_per_bp,
-                    result.cv,
-                    cut_seq,
-                    orientation,
-                ).unwrap();
-
-                // Write consensus row (all columns filled, semantics depend on row type):
-                // idx = n_monomers used for consensus
-                // source = quality digits (0-9 per-position support fraction)
-                // ed_tmpl = number of conserved positions (quality ≥ 8, i.e. ≥80% support)
-                // ed_prev = number of variable positions (quality < 8)
-                // ed_next = number of IUPAC-ambiguous positions (2+ bases ≥20%)
-                // ed_per_bp = array divergence, cv = array CV
-                // cut_sequence = IUPAC ambiguity codes
-                // sequence = consensus (uppercase)
-                if !result.consensus_seq.is_empty() {
-                    let conserved = result.quality_str.chars().filter(|c| *c >= '8').count();
-                    let variable = result.quality_str.chars().filter(|c| *c < '8').count();
-                    let ambiguous = result.iupac_str.chars()
-                        .filter(|c| !matches!(c, 'A' | 'C' | 'G' | 'T'))
-                        .count();
-                    writeln!(
-                        fw_detail, "{}\tconsensus\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t{}",
-                        result.header,
-                        result.n_monomers,      // idx
-                        result.consensus_seq.len(),
-                        result.quality_str,     // source → quality digits
-                        conserved,              // ed_tmpl → conserved positions
-                        variable,               // ed_prev → variable positions
-                        ambiguous,              // ed_next → ambiguous IUPAC positions
-                        result.period,
-                        autocorr_str,
-                        result.n_monomers,
-                        result.ed_per_bp,
-                        result.cv,
-                        result.iupac_str,       // cut_sequence → IUPAC
-                        orientation,
-                        result.consensus_seq,   // sequence → consensus
-                    ).unwrap();
-                }
-
-                // Write FASTA
-                let header_info = format!(
-                    "{} cut={} orientation={} n_monomers={} period={} method={}",
-                    result.header, cut_seq, orientation, result.n_monomers, result.period, result.method
-                );
-                writeln!(fw, ">{}", header_info).unwrap();
-                let seqs: Vec<&str> = result.monomers.iter().map(|m| m.sequence.as_str()).collect();
-                writeln!(fw, "{}", seqs.join(" ")).unwrap();
-
-                // Write lengths
-                writeln!(fw_lengths, ">{}", header_info).unwrap();
-                let lengths: Vec<String> = result.monomers.iter().map(|m| m.sequence.len().to_string()).collect();
-                writeln!(fw_lengths, "{}", lengths.join(" ")).unwrap();
-
-                // Write timings
-                writeln!(fw_timings, "{}\t{}\t{}\t{:.3}",
-                    result.header, result.array_len, result.n_monomers,
-                    result.processing_time_ms as f64 / 1000.0
-                ).unwrap();
-
-                // Collect stats for this array
-                let mut array_lengths: Vec<usize> = Vec::new();
-                let mut array_eds: Vec<usize> = Vec::new();
-                for mono in &result.monomers {
-                    if mono.piece_type == "monomer" {
-                        array_lengths.push(mono.sequence.len());
-                        if let Some(ed) = mono.ed_prev {
-                            array_eds.push(ed);
-                        }
-                    }
-                }
-
-                if collect_stats && !array_lengths.is_empty() {
-                    all_stats.push(ArrayStats {
-                        id: result.header.clone(),
-                        n_monomers: array_lengths.len(),
-                        lengths: array_lengths,
-                        eds: array_eds,
-                    });
-                }
+                all_results.push(result);
 
                 // Progress output
                 let total = total_count.load(Ordering::SeqCst);
                 if total > 0 {
-                    eprint!("\rProcessed: {}/{} ({:.1}%)",
+                    eprint!("\rReceived: {}/{} ({:.1}%)",
                         processed, total, (processed as f64 / total as f64) * 100.0);
                 }
             }
@@ -760,8 +633,173 @@ fn writer_thread(
         }
     }
 
+    // Sort results by chromosome and start position
+    eprintln!("\rSorting {} arrays by genomic position...", all_results.len());
+    all_results.sort_by(|a, b| {
+        let (chr_a, pos_a) = parse_header_for_sort(&a.header);
+        let (chr_b, pos_b) = parse_header_for_sort(&b.header);
+        (chr_a, pos_a).cmp(&(chr_b, pos_b))
+    });
+
+    // Write sorted results
+    eprintln!("Writing sorted output...");
+    let mut total_monomers = 0;
+
+    // Collect per-array stats if requested
+    let mut all_stats: Vec<ArrayStats> = Vec::new();
+
+    for result in &all_results {
+        total_monomers += result.monomers.len();
+
+        let cut_seq = &result.cut_sequence;
+        let orientation = if result.was_reversed { "rev" } else { "fwd" };
+
+        let autocorr_str = result.autocorr_value
+            .map(|v| format!("{:.4}", v))
+            .unwrap_or_else(|| "-".to_string());
+        let n_expected_str = if result.period > 0 {
+            format!("{}", result.array_len / result.period)
+        } else {
+            "-".to_string()
+        };
+
+        // Write pred_array row
+        let excess_str = result.autocorr_excess
+            .map(|v| format!("{:.4}", v))
+            .unwrap_or_else(|| "0".to_string());
+        writeln!(
+            fw_detail, "{}\tpred_array\t{}\t{}\t{}\t{}\t0\t0\t{}\t{}\t{}\t0\t0\t-\t{}\t-",
+            result.header,
+            n_expected_str,
+            result.array_len,
+            result.method,
+            excess_str,
+            result.autocorr_period.map(|p| p.to_string()).unwrap_or_else(|| "0".to_string()),
+            autocorr_str,
+            n_expected_str,
+            orientation,
+        ).unwrap();
+
+        // Write individual monomer/flank rows
+        for (i, mono) in result.monomers.iter().enumerate() {
+            let ed_tmpl_str = mono.ed_tmpl.map(|v| v.to_string()).unwrap_or_else(|| "0".to_string());
+            let ed_prev_str = mono.ed_prev.map(|v| v.to_string()).unwrap_or_else(|| "0".to_string());
+            let ed_next_str = mono.ed_next.map(|v| v.to_string()).unwrap_or_else(|| "0".to_string());
+
+            let mono_len = mono.sequence.len() as f64;
+            let mono_ed_per_bp = mono.ed_prev
+                .map(|ed| if mono_len > 0.0 { ed as f64 / mono_len } else { 0.0 })
+                .unwrap_or(0.0);
+            let size_dev = if result.period > 0 {
+                (mono_len - result.period as f64).abs() / result.period as f64
+            } else { 0.0 };
+
+            writeln!(
+                fw_detail, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t1\t{:.4}\t{:.4}\t{}\t{}\t{}",
+                result.header, mono.piece_type, i, mono.sequence.len(),
+                mono.source, ed_tmpl_str, ed_prev_str, ed_next_str,
+                result.period,
+                mono.ed_tmpl.map(|ed| ed as f64 / mono_len).unwrap_or(0.0),
+                mono_ed_per_bp,
+                size_dev,
+                cut_seq,
+                orientation,
+                mono.sequence
+            ).unwrap();
+        }
+
+        // Write array summary row
+        writeln!(
+            fw_detail, "{}\tarray\t{}\t{}\t{}\t{:.1}\t{:.1}\t{:.1}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t-",
+            result.header,
+            result.n_monomers,
+            result.array_len,
+            result.method,
+            result.mean_ed_tmpl,
+            result.mean_ed_prev,
+            result.mean_ed_next,
+            result.period,
+            autocorr_str,
+            result.n_monomers,
+            result.ed_per_bp,
+            result.cv,
+            cut_seq,
+            orientation,
+        ).unwrap();
+
+        // Write consensus row
+        if !result.consensus_seq.is_empty() {
+            let conserved = result.quality_str.chars().filter(|c| *c >= '8').count();
+            let variable = result.quality_str.chars().filter(|c| *c < '8').count();
+            let ambiguous = result.iupac_str.chars()
+                .filter(|c| !matches!(c, 'A' | 'C' | 'G' | 'T'))
+                .count();
+            writeln!(
+                fw_detail, "{}\tconsensus\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t{}",
+                result.header,
+                result.n_monomers,
+                result.consensus_seq.len(),
+                result.quality_str,
+                conserved,
+                variable,
+                ambiguous,
+                result.period,
+                autocorr_str,
+                result.n_monomers,
+                result.ed_per_bp,
+                result.cv,
+                result.iupac_str,
+                orientation,
+                result.consensus_seq,
+            ).unwrap();
+        }
+
+        // Write FASTA
+        let header_info = format!(
+            "{} cut={} orientation={} n_monomers={} period={} method={}",
+            result.header, cut_seq, orientation, result.n_monomers, result.period, result.method
+        );
+        writeln!(fw, ">{}", header_info).unwrap();
+        let seqs: Vec<&str> = result.monomers.iter().map(|m| m.sequence.as_str()).collect();
+        writeln!(fw, "{}", seqs.join(" ")).unwrap();
+
+        // Write lengths
+        writeln!(fw_lengths, ">{}", header_info).unwrap();
+        let lengths: Vec<String> = result.monomers.iter().map(|m| m.sequence.len().to_string()).collect();
+        writeln!(fw_lengths, "{}", lengths.join(" ")).unwrap();
+
+        // Write timings
+        writeln!(fw_timings, "{}\t{}\t{}\t{:.3}",
+            result.header, result.array_len, result.n_monomers,
+            result.processing_time_ms as f64 / 1000.0
+        ).unwrap();
+
+        // Collect stats for this array
+        if collect_stats {
+            let mut array_lengths: Vec<usize> = Vec::new();
+            let mut array_eds: Vec<usize> = Vec::new();
+            for mono in &result.monomers {
+                if mono.piece_type == "monomer" {
+                    array_lengths.push(mono.sequence.len());
+                    if let Some(ed) = mono.ed_prev {
+                        array_eds.push(ed);
+                    }
+                }
+            }
+
+            if !array_lengths.is_empty() {
+                all_stats.push(ArrayStats {
+                    id: result.header.clone(),
+                    n_monomers: array_lengths.len(),
+                    lengths: array_lengths,
+                    eds: array_eds,
+                });
+            }
+        }
+    }
+
     let total = total_count.load(Ordering::SeqCst);
-    eprintln!("\rProcessed: {}/{} (100.0%)", processed, total);
+    eprintln!("Processed: {}/{} (100.0%)", processed, total);
     eprintln!("Total monomers: {}", total_monomers);
 
     // Output statistics if requested
