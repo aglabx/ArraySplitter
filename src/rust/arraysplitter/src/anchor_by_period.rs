@@ -73,8 +73,8 @@ pub fn find_anchor_by_period(
             }
         }
 
-        // Filter by frequency
-        let candidates: Vec<(&[u8], &Vec<usize>)> = kmer_positions
+        // Filter by frequency and sort for deterministic iteration
+        let mut candidates: Vec<(&[u8], &Vec<usize>)> = kmer_positions
             .iter()
             .filter(|(_, positions)| {
                 let freq = positions.len();
@@ -82,6 +82,9 @@ pub fn find_anchor_by_period(
             })
             .map(|(kmer, positions)| (*kmer, positions))
             .collect();
+
+        // Sort by k-mer bytes for deterministic tie-breaking
+        candidates.sort_by_key(|(kmer, _)| *kmer);
 
         for (kmer_bytes, positions) in candidates {
             let uniqueness = compute_uniqueness(positions, period);
