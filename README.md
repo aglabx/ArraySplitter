@@ -9,53 +9,33 @@ Decomposes satellite DNA arrays into monomers within telomere-to-telomere (T2T) 
 - Autocorrelation-based period detection for robust periodicity analysis
 - Automatic orientation to canonical form (A>T, C>G)
 - Deterministic output sorted by genomic coordinates
-- Multi-threaded processing (16+ threads)
-- Classification of arrays into repeat families
+- Multi-threaded processing
 
-**Performance:**
-- **Rust implementation:** CHM13v2.0 assembly (~1300 arrays) processes in **~3.5 minutes** (16 threads)
-- **Python implementation:** Same dataset in ~3 hours (single-threaded)
+**Performance:** CHM13v2.0 assembly (~1300 alpha satellite arrays) processes in ~3.5 minutes (16 threads)
 
 ## Installation
-
-### Rust Implementation (Recommended)
-
-```bash
-cd src/rust/arraysplitter
-cargo build --release
-```
-
-Binary will be at `target/release/arraysplitter_rs`
-
-### Python Implementation
 
 ```bash
 pip install arraysplitter
 ```
 
-## Quick Start
-
-### Rust CLI
-
+Or build from source:
 ```bash
-# Basic decomposition (autocorrelation method, recommended)
-arraysplitter_rs -i arrays.fa -o output_prefix -t 16
-
-# With predefined cut sequences
-arraysplitter_rs -i arrays.fa -o output_prefix -c ATG,CGCG -t 16
-
-# Classic frequency-tree method
-arraysplitter_rs -i arrays.fa -o output_prefix --method classic -t 16
+cd src/rust/arraysplitter
+cargo build --release
 ```
 
-### Python CLI
+## Quick Start
 
 ```bash
 # Basic decomposition
-arraysplitter split -i arrays.fa -o output_prefix
+arraysplitter -i arrays.fa -o output_prefix -t 16
 
-# Classify arrays into families
-arraysplitter classify -i output_prefix.lengths -o classification
+# With predefined cut sequences
+arraysplitter -i arrays.fa -o output_prefix -c ATG,CGCG -t 16
+
+# Show version
+arraysplitter --version
 ```
 
 ## Output Files
@@ -161,19 +141,10 @@ Uses frequency suffix tree approach. Better for:
 
 Tries autocorrelation first, falls back to classic if autocorr fails.
 
-## Performance
+## Command Line Options
 
-| Dataset | Arrays | Rust (16 threads) | Python |
-|---------|--------|-------------------|--------|
-| CHM13v2.0 alpha satellite | ~1300 | 3.5 min | ~3 hours |
-| Full CHM13v2.0 (>1kb) | ~13000 | ~35 min | ~30 hours |
-
-Memory usage scales with array size. Typical: 500-600 MB for large datasets.
-
-## Advanced Options
-
-```bash
-arraysplitter_rs --help
+```
+arraysplitter --help
 
 Options:
   -i, --input <FILE>       Input FASTA file
@@ -185,50 +156,7 @@ Options:
   --max-ed-len <N>         Max monomer length for edit distance [default: 10000]
   --stats                  Print detailed statistics
   --top-outliers <N>       Number of outliers to show [default: 10]
-```
-
-## Python Tools
-
-### `arraysplitter classify`
-
-Groups arrays into families based on cut sequences and patterns.
-
-```bash
-arraysplitter classify -i output.lengths -o families -s 0.9
-```
-
-**Output:**
-- `.families.tsv` - Array assignments
-- `.family_stats.tsv` - Per-family statistics
-- `.family_summary.tsv` - Structural importance scores
-
-### `arraysplitter rotate`
-
-Rotates monomers to start with specific sequence.
-
-```bash
-arraysplitter rotate -i monomers.fa -o rotated.fa -s ATTCC
-```
-
-### `arraysplitter extract`
-
-Extracts unique monomers with frequencies.
-
-```bash
-arraysplitter extract -i monomers.fa -o stats
-```
-
-## Complete Workflow
-
-```bash
-# Step 1: Decompose arrays (Rust, fast)
-arraysplitter_rs -i centromere_arrays.fa -o centromere -t 16
-
-# Step 2: Classify into families (Python)
-arraysplitter classify -i centromere.lengths -o centromere_families
-
-# Step 3: Extract unique monomers (optional)
-arraysplitter extract -i centromere.decomposed.fasta -o centromere_monomers
+  -V, --version            Print version
 ```
 
 ## Citation
