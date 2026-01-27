@@ -212,7 +212,6 @@ src/c/*.o
 *.components.tsv
 *.component_stats.tsv
 *.regions.tsv
-*.timings.tsv
 zf_*.tsv
 zebra_finch_*
 docs/*.html

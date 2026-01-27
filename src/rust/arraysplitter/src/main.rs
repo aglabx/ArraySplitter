@@ -220,7 +220,6 @@ struct OutputRecord {
     cut_sequence: String,
     was_reversed: bool,
     period: usize,
-    processing_time_ms: u128,
     array_len: usize,
     autocorr_period: Option<usize>,
     autocorr_value: Option<f64>,
@@ -248,7 +247,6 @@ fn process_array(
     verbose: bool,
     method: &str,
 ) -> OutputRecord {
-    let start = Instant::now();
     let array_len = array.len();
 
     // Normalize to uppercase for consistent processing
@@ -443,15 +441,12 @@ fn process_array(
         }
     }).collect();
 
-    let processing_time_ms = start.elapsed().as_millis();
-
     OutputRecord {
         header: id.to_string(),
         monomers,
         cut_sequence,
         was_reversed,
         period,
-        processing_time_ms,
         array_len,
         autocorr_period,
         autocorr_value,
@@ -592,16 +587,13 @@ fn writer_thread(
     let output_file = format!("{}.decomposed.fasta", output_prefix);
     let detail_file = format!("{}.monomers.tsv", output_prefix);
     let lengths_file = format!("{}.lengths", output_prefix);
-    let timings_file = format!("{}.timings.tsv", output_prefix);
 
     let mut fw = BufWriter::new(File::create(&output_file).expect("Failed to create output file"));
     let mut fw_detail = BufWriter::new(File::create(&detail_file).expect("Failed to create detail file"));
     let mut fw_lengths = BufWriter::new(File::create(&lengths_file).expect("Failed to create lengths file"));
-    let mut fw_timings = BufWriter::new(File::create(&timings_file).expect("Failed to create timings file"));
 
     // New TSV header
     writeln!(fw_detail, "array_id\ttype\tidx\tlength\tsource\ted_tmpl\ted_prev\ted_next\tperiod\tautocorr\tn_expected\ted_per_bp\tcv\tcut_sequence\torientation\tsequence").unwrap();
-    writeln!(fw_timings, "array_id\tarray_len\tn_monomers\ttime_sec").unwrap();
 
     let mut processed = 0;
     let mut finished_workers = 0;
@@ -767,12 +759,6 @@ fn writer_thread(
         writeln!(fw_lengths, ">{}", header_info).unwrap();
         let lengths: Vec<String> = result.monomers.iter().map(|m| m.sequence.len().to_string()).collect();
         writeln!(fw_lengths, "{}", lengths.join(" ")).unwrap();
-
-        // Write timings
-        writeln!(fw_timings, "{}\t{}\t{}\t{:.3}",
-            result.header, result.array_len, result.n_monomers,
-            result.processing_time_ms as f64 / 1000.0
-        ).unwrap();
 
         // Collect stats for this array
         if collect_stats {

@@ -47,7 +47,6 @@ All output is **deterministically sorted by chromosome and genomic position** (c
 | `.decomposed.fasta` | Monomers with orientation info in headers |
 | `.monomers.tsv` | Detailed table with metrics per monomer |
 | `.lengths` | Fragment lengths for each array |
-| `.timings.tsv` | Processing time per array |
 
 ### TSV Columns
 
