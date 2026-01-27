@@ -191,6 +191,12 @@ src/rust/arraysplitter/target/
 # macOS
 .DS_Store
 
+# Logs
+*.log
+
+# Distribution artifacts
+dist/
+
 # Compiled binaries
 bin/
 src/c/*_c
