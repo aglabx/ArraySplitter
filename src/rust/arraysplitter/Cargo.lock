@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "arraysplitter_rs"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "bio",
  "clap",

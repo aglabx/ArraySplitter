@@ -5,6 +5,11 @@
 # @author: Aleksey Komissarov
 # @contact: ad3002@gmail.com
 
-__version__ = "1.4.0"
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version("ArraySplitter")
+except PackageNotFoundError:
+    __version__ = "dev"
 
 # __all__ = []
