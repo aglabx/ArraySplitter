@@ -777,7 +777,10 @@ pub fn decompose_array_autocorr(
     let max_period = (array.len() / 3).min(5000); // Need at least 3 copies, cap at 5000bp
 
     // Step 1: Autocorrelation period detection
-    let period_result = autocorrelation::find_period_refined(seq, min_period, max_period);
+    // Use find_period (not find_period_refined) to preserve HOR structure.
+    // find_period returns the period with maximum autocorrelation excess,
+    // while find_period_refined would "refine" down to smaller sub-periods.
+    let period_result = autocorrelation::find_period(seq, min_period, max_period);
 
     let (period, autocorr_value) = match period_result {
         Some((p, ac, _excess)) => (p, ac),
