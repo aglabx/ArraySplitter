@@ -29,6 +29,7 @@ pub mod heuristics;
 pub mod autocorrelation;
 pub mod anchor_by_period;
 pub mod multiplet_split;
+pub mod recursive_hor;
 
 // Re-exports for convenient access
 pub use sequence::{
@@ -109,4 +110,12 @@ pub use heuristics::{
     split_duplicate_halves,
     split_by_popular_prefix,
     apply_all_heuristics,
+};
+
+pub use recursive_hor::{
+    BaseMonomer,
+    RecursiveResult,
+    decompose_hors_to_base,
+    DEFAULT_MIN_SUBMONOMER_LEN,
+    DEFAULT_AUTOCORR_THRESHOLD,
 };

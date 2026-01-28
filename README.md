@@ -45,10 +45,13 @@ All output is **deterministically sorted by chromosome and genomic position** (c
 | File | Description |
 |------|-------------|
 | `.decomposed.fasta` | Monomers with orientation info in headers |
-| `.monomers.tsv` | Detailed table with metrics per monomer |
+| `.hors.tsv` | HOR-level decomposition with metrics per HOR monomer |
+| `.monomers.tsv` | Base-level monomers from recursive HOR decomposition |
 | `.lengths` | Fragment lengths for each array |
 
-### TSV Columns
+### HORs TSV Columns (`.hors.tsv`)
+
+Contains the primary decomposition into HOR (Higher Order Repeat) monomers.
 
 | Column | Description |
 |--------|-------------|
@@ -64,6 +67,22 @@ All output is **deterministically sorted by chromosome and genomic position** (c
 | `autocorr` | Autocorrelation value at period |
 | `cut_sequence` | Anchor sequence used for splitting |
 | `orientation` | `fwd` or `rev` (reverse complemented) |
+| `sequence` | Actual DNA sequence |
+
+### Monomers TSV Columns (`.monomers.tsv`)
+
+Contains base-level monomers after recursive decomposition of HORs. Each HOR is recursively decomposed until no further periodicity is detected (autocorrelation ≤ 0.5) or minimum length (5bp) is reached.
+
+| Column | Description |
+|--------|-------------|
+| `array_id` | Array identifier |
+| `hor_idx` | Index of parent HOR from primary decomposition |
+| `sub_idx` | Index within parent HOR (hierarchical for nested decomposition) |
+| `level` | Recursion depth (1 = direct child of HOR) |
+| `length` | Sequence length |
+| `period` | Detected period at this level (0 if base monomer) |
+| `autocorr` | Autocorrelation value at detected period |
+| `source` | `recursive_anchor`, `recursive_split`, `base`, `recursive_flank` |
 | `sequence` | Actual DNA sequence |
 
 ## Algorithm

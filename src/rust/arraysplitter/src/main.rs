@@ -17,6 +17,7 @@ use arraysplitter_rs::{
     decompose_array, decompose_array_with_cuts, decompose_array_autocorr,
     apply_all_heuristics, parse_cuts, get_revcomp,
     decompose::is_canonical_orientation,
+    recursive_hor::{BaseMonomer, decompose_hors_to_base, DEFAULT_MIN_SUBMONOMER_LEN, DEFAULT_AUTOCORR_THRESHOLD},
 };
 
 /// Global maximum monomer length for ED calculation (set from CLI)
@@ -236,6 +237,8 @@ struct OutputRecord {
     consensus_seq: String,
     iupac_str: String,
     quality_str: String,
+    // Recursive HOR decomposition:
+    base_monomers: Vec<BaseMonomer>,
 }
 
 /// Process a single array
@@ -422,6 +425,24 @@ fn process_array(
         (String::new(), String::new(), String::new())
     };
 
+    // Recursive HOR decomposition: decompose each HOR monomer into base-level monomers
+    let hor_monomer_seqs: Vec<String> = decomposition.iter()
+        .enumerate()
+        .filter(|(i, _)| piece_types[*i] == "monomer")
+        .map(|(_, m)| m.clone())
+        .collect();
+
+    let base_monomers = if !hor_monomer_seqs.is_empty() {
+        let recursive_result = decompose_hors_to_base(
+            &hor_monomer_seqs,
+            DEFAULT_MIN_SUBMONOMER_LEN,
+            DEFAULT_AUTOCORR_THRESHOLD,
+        );
+        recursive_result.base_monomers
+    } else {
+        Vec::new()
+    };
+
     // Build MonomerOutput vec
     let monomers: Vec<MonomerOutput> = decomposition.into_iter().enumerate().map(|(i, seq)| {
         let source = if i < monomer_sources.len() {
@@ -461,6 +482,7 @@ fn process_array(
         consensus_seq,
         iupac_str,
         quality_str,
+        base_monomers,
     }
 }
 
@@ -585,15 +607,20 @@ fn writer_thread(
     top_outliers: usize,
 ) {
     let output_file = format!("{}.decomposed.fasta", output_prefix);
-    let detail_file = format!("{}.monomers.tsv", output_prefix);
+    let hors_file = format!("{}.hors.tsv", output_prefix);
+    let monomers_file = format!("{}.monomers.tsv", output_prefix);
     let lengths_file = format!("{}.lengths", output_prefix);
 
     let mut fw = BufWriter::new(File::create(&output_file).expect("Failed to create output file"));
-    let mut fw_detail = BufWriter::new(File::create(&detail_file).expect("Failed to create detail file"));
+    let mut fw_hors = BufWriter::new(File::create(&hors_file).expect("Failed to create HORs file"));
+    let mut fw_monomers = BufWriter::new(File::create(&monomers_file).expect("Failed to create monomers file"));
     let mut fw_lengths = BufWriter::new(File::create(&lengths_file).expect("Failed to create lengths file"));
 
-    // New TSV header
-    writeln!(fw_detail, "array_id\ttype\tidx\tlength\tsource\ted_tmpl\ted_prev\ted_next\tperiod\tautocorr\tn_expected\ted_per_bp\tcv\tcut_sequence\torientation\tsequence").unwrap();
+    // HORs TSV header (same as old monomers.tsv)
+    writeln!(fw_hors, "array_id\ttype\tidx\tlength\tsource\ted_tmpl\ted_prev\ted_next\tperiod\tautocorr\tn_expected\ted_per_bp\tcv\tcut_sequence\torientation\tsequence").unwrap();
+
+    // Monomers TSV header (new base-level monomers)
+    writeln!(fw_monomers, "array_id\thor_idx\tsub_idx\tlevel\tlength\tperiod\tautocorr\tsource\tsequence").unwrap();
 
     let mut processed = 0;
     let mut finished_workers = 0;
@@ -660,7 +687,7 @@ fn writer_thread(
             .map(|v| format!("{:.4}", v))
             .unwrap_or_else(|| "0".to_string());
         writeln!(
-            fw_detail, "{}\tpred_array\t{}\t{}\t{}\t{}\t0\t0\t{}\t{}\t{}\t0\t0\t-\t{}\t-",
+            fw_hors, "{}\tpred_array\t{}\t{}\t{}\t{}\t0\t0\t{}\t{}\t{}\t0\t0\t-\t{}\t-",
             result.header,
             n_expected_str,
             result.array_len,
@@ -687,7 +714,7 @@ fn writer_thread(
             } else { 0.0 };
 
             writeln!(
-                fw_detail, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t1\t{:.4}\t{:.4}\t{}\t{}\t{}",
+                fw_hors, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t1\t{:.4}\t{:.4}\t{}\t{}\t{}",
                 result.header, mono.piece_type, i, mono.sequence.len(),
                 mono.source, ed_tmpl_str, ed_prev_str, ed_next_str,
                 result.period,
@@ -702,7 +729,7 @@ fn writer_thread(
 
         // Write array summary row
         writeln!(
-            fw_detail, "{}\tarray\t{}\t{}\t{}\t{:.1}\t{:.1}\t{:.1}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t-",
+            fw_hors, "{}\tarray\t{}\t{}\t{}\t{:.1}\t{:.1}\t{:.1}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t-",
             result.header,
             result.n_monomers,
             result.array_len,
@@ -727,7 +754,7 @@ fn writer_thread(
                 .filter(|c| !matches!(c, 'A' | 'C' | 'G' | 'T'))
                 .count();
             writeln!(
-                fw_detail, "{}\tconsensus\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t{}",
+                fw_hors, "{}\tconsensus\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t{}",
                 result.header,
                 result.n_monomers,
                 result.consensus_seq.len(),
@@ -743,6 +770,22 @@ fn writer_thread(
                 result.iupac_str,
                 orientation,
                 result.consensus_seq,
+            ).unwrap();
+        }
+
+        // Write base-level monomers from recursive HOR decomposition
+        for base_mono in &result.base_monomers {
+            writeln!(
+                fw_monomers, "{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t{}\t{}",
+                result.header,
+                base_mono.hor_idx,
+                base_mono.sub_idx,
+                base_mono.level,
+                base_mono.sequence.len(),
+                base_mono.period,
+                base_mono.autocorr,
+                base_mono.source,
+                base_mono.sequence
             ).unwrap();
         }
 
