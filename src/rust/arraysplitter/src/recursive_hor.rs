@@ -5,7 +5,8 @@
 //! splits until reaching base monomers (no detectable periodicity).
 
 use crate::autocorrelation::{find_period_refined, random_expectation, autocorrelation};
-use crate::decompose::decompose_array_autocorr;
+use crate::anchor_by_period::find_anchor_by_period_with_fallback;
+use crate::multiplet_split::split_multiplets;
 
 /// A base-level monomer after recursive decomposition
 #[derive(Debug, Clone)]
@@ -208,34 +209,38 @@ fn decompose_single_hor(
     }
 }
 
-/// Decompose a HOR sequence by its detected period
+/// Decompose a HOR sequence using already-detected period (no re-detection)
 fn decompose_hor_by_period(hor_seq: &str, period: usize, _autocorr: f64) -> Vec<(String, String)> {
     let seq_len = hor_seq.len();
+    let seq_bytes = hor_seq.as_bytes();
 
-    if seq_len < 50 {
-        // For very short sequences, use simple even-split
-        even_split(hor_seq, period)
-    } else {
-        // For longer sequences, try anchor-based decomposition
-        let result = decompose_array_autocorr(hor_seq, false);
+    // For very short sequences or period too large, use even-split
+    if seq_len < 50 || period >= seq_len / 2 {
+        return even_split(hor_seq, period);
+    }
 
-        if result.monomers.len() > 1 {
-            // Successful decomposition
-            result.monomers.into_iter()
-                .zip(result.monomer_sources.into_iter().chain(std::iter::repeat("recursive_anchor".to_string())))
-                .map(|(seq, src)| {
-                    let source = if src.contains("flank") {
-                        "recursive_flank".to_string()
-                    } else {
-                        "recursive_anchor".to_string()
-                    };
-                    (seq, source)
-                })
-                .collect()
-        } else {
-            // Fallback to even split
-            even_split(hor_seq, period)
+    // Find anchor using the known period (no autocorr re-detection)
+    match find_anchor_by_period_with_fallback(seq_bytes, period) {
+        Some(anchor_result) if anchor_result.positions.len() >= 2 => {
+            let boundaries = split_multiplets(seq_bytes, &anchor_result.positions, period);
+
+            if boundaries.len() > 1 {
+                boundaries.iter()
+                    .map(|b| {
+                        let seq = hor_seq[b.start..b.end].to_string();
+                        let source = if b.source.contains("flank") {
+                            "recursive_flank".to_string()
+                        } else {
+                            "recursive_anchor".to_string()
+                        };
+                        (seq, source)
+                    })
+                    .collect()
+            } else {
+                even_split(hor_seq, period)
+            }
         }
+        _ => even_split(hor_seq, period),
     }
 }
 
