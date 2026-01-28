@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ArraySplitter"
-version = "1.6.0"
+version = "1.7.0"
 description = "De Novo Decomposition of Satellite DNA Arrays into Monomers within Telomere-to-Telomere Assemblies"
 readme = "README.md"
 license = {text = "MIT"}

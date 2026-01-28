@@ -45,45 +45,137 @@ All output is **deterministically sorted by chromosome and genomic position** (c
 | File | Description |
 |------|-------------|
 | `.decomposed.fasta` | Monomers with orientation info in headers |
-| `.hors.tsv` | HOR-level decomposition with metrics per HOR monomer |
-| `.monomers.tsv` | Base-level monomers from recursive HOR decomposition |
+| `.hors.tsv` | HOR-level decomposition (16 columns) |
+| `.monomers.tsv` | Base-level monomers from recursive decomposition (17 columns) |
+| `.summary.tsv` | One-row-per-array summary with HOR and monomer statistics (23 columns) |
 | `.lengths` | Fragment lengths for each array |
+
+### Summary TSV Columns (`.summary.tsv`)
+
+One row per array combining HOR-level and monomer-level statistics. Useful for overview analysis.
+
+| Column | Description |
+|--------|-------------|
+| `array_id` | Array identifier (chr_start_end_len_period_type) |
+| `array_length` | Total array length in bp |
+| `orientation` | `fwd` or `rev` (reverse complemented to canonical) |
+| `method` | Detection method used (`autocorr`, `classic`) |
+| **HOR-level stats** | |
+| `hor_period` | Detected HOR period in bp |
+| `hor_autocorr` | Autocorrelation at HOR period |
+| `hor_n_monomers` | Number of HOR-level monomers |
+| `hor_mean_ed_tmpl` | Mean edit distance to HOR consensus |
+| `hor_mean_ed_prev` | Mean edit distance between adjacent HORs |
+| `hor_cv` | Coefficient of variation for HOR lengths |
+| `hor_consensus` | Consensus sequence at HOR level |
+| `hor_iupac` | IUPAC ambiguity codes (bases ≥20% frequency) |
+| `hor_quality` | Per-position support (digit 0-9, 9=90-100%) |
+| **Monomer-level stats** | |
+| `mono_period` | Median base monomer period |
+| `mono_autocorr` | Mean autocorrelation at monomer level |
+| `mono_n_monomers` | Total number of base monomers |
+| `mono_mean_ed_tmpl` | Mean edit distance to monomer consensus |
+| `mono_mean_ed_prev` | Mean edit distance between adjacent monomers |
+| `mono_cv` | Mean coefficient of variation |
+| `mono_consensus` | Consensus sequence at monomer level |
+| `mono_iupac` | IUPAC ambiguity codes |
+| `mono_quality` | Per-position support |
+| `cut_sequence` | Anchor k-mer used for splitting |
 
 ### HORs TSV Columns (`.hors.tsv`)
 
-Contains the primary decomposition into HOR (Higher Order Repeat) monomers.
+Contains the primary decomposition into HOR (Higher Order Repeat) monomers. Multiple rows per array.
+
+**Row types** (in order):
+1. `pred_array` - Array-level prediction/header row
+2. `flank` - Terminal fragments <70% of period
+3. `monomer` - Full HOR monomers (sorted by idx)
+4. `array` - Summary statistics row
+5. `consensus` - Consensus sequence row
 
 | Column | Description |
 |--------|-------------|
 | `array_id` | Array identifier (chr_start_end_len_period_type) |
 | `type` | `pred_array`, `monomer`, `flank`, `array`, `consensus` |
-| `idx` | Monomer index within array |
-| `length` | Sequence length |
-| `source` | Detection method (`anchor`, `split_2x`, etc.) |
+| `idx` | Monomer index within array (0-based) |
+| `length` | Sequence length in bp |
+| `source` | Detection method: `anchor`, `split_2x`, `split_3x`, `left_flank`, `right_flank` |
 | `ed_tmpl` | Edit distance to consensus template |
 | `ed_prev` | Edit distance to previous monomer |
 | `ed_next` | Edit distance to next monomer |
-| `period` | Detected repeat period |
-| `autocorr` | Autocorrelation value at period |
+| `period` | Detected repeat period in bp |
+| `autocorr` | Autocorrelation value at detected period |
+| `n_expected` | Expected count of monomers (array_len / period) |
+| `ed_per_bp` | Normalized edit distance (ed / length) |
+| `cv` | Coefficient of variation for lengths |
 | `cut_sequence` | Anchor sequence used for splitting |
 | `orientation` | `fwd` or `rev` (reverse complemented) |
-| `sequence` | Actual DNA sequence |
+| `sequence` | Actual DNA sequence (or `-` for pred_array/array rows) |
 
 ### Monomers TSV Columns (`.monomers.tsv`)
 
-Contains base-level monomers after recursive decomposition of HORs. Each HOR is recursively decomposed until no further periodicity is detected (autocorrelation ≤ 0.5) or minimum length (5bp) is reached.
+Contains base-level monomers after recursive HOR decomposition. **Unified format** matching `.hors.tsv` plus `parent_idx`.
+
+Each HOR is recursively decomposed until:
+- No further periodicity detected (autocorrelation ≤ 0.5)
+- Minimum length (5bp) reached
+
+**Row types** (in order):
+1. `pred_array` - Array-level summary row
+2. `base_monomer` - Base-level monomers from recursive decomposition
+3. `monomer` - Non-decomposable monomers (e.g., telomeres)
 
 | Column | Description |
 |--------|-------------|
 | `array_id` | Array identifier |
-| `hor_idx` | Index of parent HOR from primary decomposition |
-| `sub_idx` | Index within parent HOR (hierarchical for nested decomposition) |
-| `level` | Recursion depth (1 = direct child of HOR) |
-| `length` | Sequence length |
-| `period` | Detected period at this level (0 if base monomer) |
-| `autocorr` | Autocorrelation value at detected period |
+| `type` | `pred_array`, `base_monomer`, `monomer` |
+| `idx` | Global index within array (0-based) |
+| `length` | Sequence length in bp |
 | `source` | `recursive_anchor`, `recursive_split`, `base`, `recursive_flank` |
+| `ed_tmpl` | Edit distance to submonomer consensus |
+| `ed_prev` | Edit distance to previous base monomer |
+| `ed_next` | Edit distance to next base monomer |
+| `period` | Detected period at this level (0 if base) |
+| `autocorr` | Autocorrelation value |
+| `n_expected` | Always 1 for individual monomers |
+| `ed_per_bp` | Normalized edit distance |
+| `cv` | Coefficient of variation within parent group |
+| `cut_sequence` | Inherited anchor sequence |
+| `orientation` | Inherited from array (`fwd`/`rev`) |
+| `parent_idx` | Index of parent HOR from `.hors.tsv` |
 | `sequence` | Actual DNA sequence |
+
+### Example: α-satellite HOR Decomposition
+
+For a typical α-satellite HOR (512bp → 3×171bp monomers):
+
+**`.hors.tsv`** - 10 HOR monomers (~512bp each):
+```
+array_id                type        idx  length  period  ...
+chr1_centromere         pred_array  10   5120    512     ...
+chr1_centromere         monomer     0    512     512     ...
+chr1_centromere         monomer     1    512     512     ...
+...
+chr1_centromere         array       10   5120    512     ...
+chr1_centromere         consensus   10   512     512     ... [consensus seq]
+```
+
+**`.monomers.tsv`** - 30 base monomers (~171bp each):
+```
+array_id                type          idx  length  parent_idx  ...
+chr1_centromere         pred_array    30   5120    -           ...
+chr1_centromere         base_monomer  0    171     0           ...
+chr1_centromere         base_monomer  1    171     0           ...
+chr1_centromere         base_monomer  2    170     0           ...
+chr1_centromere         base_monomer  3    171     1           ...
+...
+```
+
+**`.summary.tsv`** - Single row with both levels:
+```
+array_id         length  hor_period  hor_n_monomers  mono_period  mono_n_monomers  ...
+chr1_centromere  5120    512         10              171          30               ...
+```
 
 ## Algorithm
 

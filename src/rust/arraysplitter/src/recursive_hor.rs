@@ -15,6 +15,8 @@ pub struct BaseMonomer {
     pub sequence: String,
     /// Index of the parent HOR from primary decomposition
     pub hor_idx: usize,
+    /// Global index within the entire array (0, 1, 2, ...)
+    pub global_idx: usize,
     /// Index within the parent HOR (0, 1, 2, ...)
     pub sub_idx: usize,
     /// Recursion depth (1 = direct child of HOR, 2 = grandchild, etc.)
@@ -25,6 +27,16 @@ pub struct BaseMonomer {
     pub autocorr: f64,
     /// Source of this monomer: "recursive_anchor", "recursive_split", "base", "flank"
     pub source: String,
+    /// Edit distance to template (consensus of submonomers within same parent)
+    pub ed_tmpl: Option<usize>,
+    /// Edit distance to previous submonomer
+    pub ed_prev: Option<usize>,
+    /// Edit distance to next submonomer
+    pub ed_next: Option<usize>,
+    /// Normalized edit distance (ed_tmpl / length)
+    pub ed_per_bp: f64,
+    /// Coefficient of variation for length within this parent group
+    pub cv: f64,
 }
 
 /// Result of recursive HOR decomposition
@@ -34,6 +46,18 @@ pub struct RecursiveResult {
     pub base_monomers: Vec<BaseMonomer>,
     /// Maximum recursion depth reached
     pub max_depth: usize,
+    /// Total expected count of base monomers (sum across all HORs)
+    pub n_expected: usize,
+    /// Median period of base monomers
+    pub median_period: usize,
+    /// Mean autocorrelation of base monomers
+    pub mean_autocorr: f64,
+    /// Consensus sequence of base monomers
+    pub consensus_seq: String,
+    /// IUPAC ambiguity codes
+    pub iupac_str: String,
+    /// Quality string (digit 0-9 per position)
+    pub quality_str: String,
 }
 
 /// Default minimum submonomer length (bp)
@@ -41,6 +65,237 @@ pub const DEFAULT_MIN_SUBMONOMER_LEN: usize = 5;
 
 /// Default autocorrelation threshold for further decomposition
 pub const DEFAULT_AUTOCORR_THRESHOLD: f64 = 0.5;
+
+/// Maximum length for edit distance computation to avoid quadratic blowup
+const MAX_ED_LEN: usize = 10000;
+
+/// Calculate edit distance between two sequences
+fn edit_distance(s1: &str, s2: &str) -> usize {
+    let len1 = s1.len();
+    let len2 = s2.len();
+
+    // Skip ED for very long sequences
+    if len1 > MAX_ED_LEN || len2 > MAX_ED_LEN {
+        return usize::MAX / 2;
+    }
+
+    if len1 == 0 { return len2; }
+    if len2 == 0 { return len1; }
+
+    let s1_chars: Vec<char> = s1.chars().collect();
+    let s2_chars: Vec<char> = s2.chars().collect();
+
+    let mut prev_row: Vec<usize> = (0..=len2).collect();
+    let mut curr_row: Vec<usize> = vec![0; len2 + 1];
+
+    for i in 1..=len1 {
+        curr_row[0] = i;
+        for j in 1..=len2 {
+            let cost = if s1_chars[i - 1] == s2_chars[j - 1] { 0 } else { 1 };
+            curr_row[j] = (prev_row[j] + 1)
+                .min(curr_row[j - 1] + 1)
+                .min(prev_row[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev_row, &mut curr_row);
+    }
+
+    prev_row[len2]
+}
+
+/// Compute consensus sequence from a list of sequences (simple majority vote)
+/// Used internally for template building
+fn compute_consensus(sequences: &[&str]) -> String {
+    if sequences.is_empty() {
+        return String::new();
+    }
+
+    // Use median length as consensus length
+    let mut lengths: Vec<usize> = sequences.iter().map(|s| s.len()).collect();
+    lengths.sort();
+    let consensus_len = lengths[lengths.len() / 2];
+
+    let mut consensus = String::with_capacity(consensus_len);
+
+    for pos in 0..consensus_len {
+        let mut counts = [0u32; 4]; // A, C, G, T
+
+        for seq in sequences {
+            let bytes = seq.as_bytes();
+            if pos < bytes.len() {
+                match bytes[pos] {
+                    b'A' | b'a' => counts[0] += 1,
+                    b'C' | b'c' => counts[1] += 1,
+                    b'G' | b'g' => counts[2] += 1,
+                    b'T' | b't' => counts[3] += 1,
+                    _ => {},
+                }
+            }
+        }
+
+        let (best_idx, _) = counts.iter().enumerate()
+            .max_by_key(|(_, &c)| c)
+            .unwrap();
+
+        let base = match best_idx {
+            0 => 'A', 1 => 'C', 2 => 'G', 3 => 'T', _ => 'N',
+        };
+        consensus.push(base);
+    }
+
+    consensus
+}
+
+/// Compute full consensus with IUPAC codes and quality digits
+/// Returns (consensus, iupac, quality)
+pub fn compute_consensus_full(sequences: &[&str]) -> (String, String, String) {
+    if sequences.is_empty() {
+        return (String::new(), String::new(), String::new());
+    }
+
+    // Use median length as consensus length
+    let mut lengths: Vec<usize> = sequences.iter().map(|s| s.len()).collect();
+    lengths.sort();
+    let consensus_len = lengths[lengths.len() / 2];
+
+    let mut consensus = String::with_capacity(consensus_len);
+    let mut iupac = String::with_capacity(consensus_len);
+    let mut quality = String::with_capacity(consensus_len);
+
+    for pos in 0..consensus_len {
+        let mut counts = [0u32; 4]; // A, C, G, T
+        let mut total = 0u32;
+
+        for seq in sequences {
+            let bytes = seq.as_bytes();
+            if pos < bytes.len() {
+                match bytes[pos] {
+                    b'A' | b'a' => { counts[0] += 1; total += 1; },
+                    b'C' | b'c' => { counts[1] += 1; total += 1; },
+                    b'G' | b'g' => { counts[2] += 1; total += 1; },
+                    b'T' | b't' => { counts[3] += 1; total += 1; },
+                    _ => {},
+                }
+            }
+        }
+
+        if total == 0 {
+            consensus.push('N');
+            iupac.push('N');
+            quality.push('0');
+            continue;
+        }
+
+        // Find most common base
+        let (best_idx, &best_count) = counts.iter().enumerate()
+            .max_by_key(|(_, &c)| c)
+            .unwrap();
+
+        let support = best_count as f64 / total as f64;
+
+        // Consensus: uppercase
+        let base = match best_idx {
+            0 => 'A', 1 => 'C', 2 => 'G', 3 => 'T', _ => 'N',
+        };
+        consensus.push(base);
+
+        // Quality: digit 0-9
+        let digit = (support * 10.0).min(9.99) as u8;
+        quality.push((b'0' + digit) as char);
+
+        // IUPAC: bases with frequency >= 20%
+        let threshold = (total as f64 * 0.2) as u32;
+        let present: Vec<usize> = (0..4)
+            .filter(|&i| counts[i] >= threshold.max(1))
+            .collect();
+
+        let iupac_char = match present.as_slice() {
+            [0] => 'A', [1] => 'C', [2] => 'G', [3] => 'T',
+            [0, 2] => 'R', // A+G purine
+            [1, 3] => 'Y', // C+T pyrimidine
+            [1, 2] => 'S', // G+C strong
+            [0, 3] => 'W', // A+T weak
+            [2, 3] => 'K', // G+T keto
+            [0, 1] => 'M', // A+C amino
+            [1, 2, 3] => 'B', // not A
+            [0, 2, 3] => 'D', // not C
+            [0, 1, 3] => 'H', // not G
+            [0, 1, 2] => 'V', // not T
+            [0, 1, 2, 3] => 'N',
+            _ => 'N',
+        };
+        iupac.push(iupac_char);
+    }
+
+    (consensus, iupac, quality)
+}
+
+/// Compute edit distance metrics for base monomers
+/// Groups monomers by parent HOR, computes template (consensus), and calculates
+/// ed_tmpl, ed_prev, ed_next, ed_per_bp, and cv for each monomer
+pub fn compute_submonomer_metrics(base_monomers: &mut Vec<BaseMonomer>) {
+    if base_monomers.is_empty() {
+        return;
+    }
+
+    // Group monomers by hor_idx
+    let mut groups: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+    for (i, mono) in base_monomers.iter().enumerate() {
+        groups.entry(mono.hor_idx).or_default().push(i);
+    }
+
+    // Process each group
+    for (_hor_idx, indices) in &groups {
+        if indices.is_empty() {
+            continue;
+        }
+
+        // Build template (consensus) for this group
+        let sequences: Vec<&str> = indices.iter()
+            .map(|&i| base_monomers[i].sequence.as_str())
+            .collect();
+        let template = compute_consensus(&sequences);
+
+        // Compute lengths for CV calculation
+        let lengths: Vec<f64> = indices.iter()
+            .map(|&i| base_monomers[i].sequence.len() as f64)
+            .collect();
+        let mean_len = if !lengths.is_empty() {
+            lengths.iter().sum::<f64>() / lengths.len() as f64
+        } else {
+            0.0
+        };
+        let cv = if lengths.len() > 1 && mean_len > 0.0 {
+            let variance: f64 = lengths.iter()
+                .map(|&x| (x - mean_len).powi(2))
+                .sum::<f64>() / lengths.len() as f64;
+            variance.sqrt() / mean_len
+        } else {
+            0.0
+        };
+
+        // Compute ed_tmpl for each monomer in group
+        for &idx in indices {
+            let ed = edit_distance(&template, &base_monomers[idx].sequence);
+            let len = base_monomers[idx].sequence.len();
+            base_monomers[idx].ed_tmpl = Some(ed);
+            base_monomers[idx].ed_per_bp = if len > 0 { ed as f64 / len as f64 } else { 0.0 };
+            base_monomers[idx].cv = cv;
+        }
+    }
+
+    // Compute ed_prev and ed_next between adjacent monomers (globally, not per group)
+    let n = base_monomers.len();
+    for i in 0..n {
+        if i > 0 {
+            let ed = edit_distance(&base_monomers[i - 1].sequence, &base_monomers[i].sequence);
+            base_monomers[i].ed_prev = Some(ed);
+        }
+        if i + 1 < n {
+            let ed = edit_distance(&base_monomers[i].sequence, &base_monomers[i + 1].sequence);
+            base_monomers[i].ed_next = Some(ed);
+        }
+    }
+}
 
 /// Decompose HOR monomers recursively into base-level monomers
 ///
@@ -71,9 +326,62 @@ pub fn decompose_hors_to_base(
         all_base_monomers.extend(base_monomers);
     }
 
+    // Assign global indices
+    for (i, mono) in all_base_monomers.iter_mut().enumerate() {
+        mono.global_idx = i;
+    }
+
+    // Compute edit distance metrics
+    compute_submonomer_metrics(&mut all_base_monomers);
+
+    // Compute summary statistics
+    let n_expected = all_base_monomers.len();
+
+    // Median period
+    let mut periods: Vec<usize> = all_base_monomers.iter()
+        .filter(|m| m.period > 0)
+        .map(|m| m.period)
+        .collect();
+    periods.sort();
+    let median_period = if !periods.is_empty() {
+        periods[periods.len() / 2]
+    } else {
+        // Use median length if no periods
+        let mut lengths: Vec<usize> = all_base_monomers.iter().map(|m| m.sequence.len()).collect();
+        lengths.sort();
+        if !lengths.is_empty() { lengths[lengths.len() / 2] } else { 0 }
+    };
+
+    // Mean autocorrelation
+    let autocorr_values: Vec<f64> = all_base_monomers.iter()
+        .filter(|m| m.autocorr > 0.0)
+        .map(|m| m.autocorr)
+        .collect();
+    let mean_autocorr = if !autocorr_values.is_empty() {
+        autocorr_values.iter().sum::<f64>() / autocorr_values.len() as f64
+    } else {
+        0.0
+    };
+
+    // Compute consensus for base monomers
+    let sequences: Vec<&str> = all_base_monomers.iter()
+        .map(|m| m.sequence.as_str())
+        .collect();
+    let (consensus_seq, iupac_str, quality_str) = if sequences.len() >= 2 {
+        compute_consensus_full(&sequences)
+    } else {
+        (String::new(), String::new(), String::new())
+    };
+
     RecursiveResult {
         base_monomers: all_base_monomers,
         max_depth,
+        n_expected,
+        median_period,
+        mean_autocorr,
+        consensus_seq,
+        iupac_str,
+        quality_str,
     }
 }
 
@@ -96,11 +404,17 @@ fn decompose_single_hor(
         return vec![BaseMonomer {
             sequence: hor_seq.to_string(),
             hor_idx,
+            global_idx: 0, // Will be assigned later
             sub_idx: 0,
             level: current_level,
             period: 0,
             autocorr: 0.0,
             source: "base".to_string(),
+            ed_tmpl: None,
+            ed_prev: None,
+            ed_next: None,
+            ed_per_bp: 0.0,
+            cv: 0.0,
         }];
     }
 
@@ -119,11 +433,17 @@ fn decompose_single_hor(
                 return vec![BaseMonomer {
                     sequence: hor_seq.to_string(),
                     hor_idx,
+                    global_idx: 0, // Will be assigned later
                     sub_idx: 0,
                     level: current_level,
                     period: 0,
                     autocorr,
                     source: "base".to_string(),
+                    ed_tmpl: None,
+                    ed_prev: None,
+                    ed_next: None,
+                    ed_per_bp: 0.0,
+                    cv: 0.0,
                 }];
             }
 
@@ -138,11 +458,17 @@ fn decompose_single_hor(
                     result.push(BaseMonomer {
                         sequence: sub_seq.clone(),
                         hor_idx,
+                        global_idx: 0, // Will be assigned later
                         sub_idx,
                         level: current_level,
                         period,
                         autocorr,
                         source: sub_source.clone(),
+                        ed_tmpl: None,
+                        ed_prev: None,
+                        ed_next: None,
+                        ed_per_bp: 0.0,
+                        cv: 0.0,
                     });
                 } else {
                     // Try to decompose further
@@ -184,11 +510,17 @@ fn decompose_single_hor(
                     result.push(BaseMonomer {
                         sequence: sub_seq.clone(),
                         hor_idx,
+                        global_idx: 0, // Will be assigned later
                         sub_idx,
                         level: current_level,
                         period,
                         autocorr: final_autocorr,
                         source: sub_source.clone(),
+                        ed_tmpl: None,
+                        ed_prev: None,
+                        ed_next: None,
+                        ed_per_bp: 0.0,
+                        cv: 0.0,
                     });
                 }
             }
@@ -199,11 +531,17 @@ fn decompose_single_hor(
             vec![BaseMonomer {
                 sequence: hor_seq.to_string(),
                 hor_idx,
+                global_idx: 0, // Will be assigned later
                 sub_idx: 0,
                 level: current_level,
                 period: 0,
                 autocorr: compute_max_autocorr(seq_bytes, min_len),
                 source: "base".to_string(),
+                ed_tmpl: None,
+                ed_prev: None,
+                ed_next: None,
+                ed_per_bp: 0.0,
+                cv: 0.0,
             }]
         }
     }
