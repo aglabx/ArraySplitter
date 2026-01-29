@@ -38,6 +38,50 @@ arraysplitter -i arrays.fa -o output_prefix -c ATG,CGCG -t 16
 arraysplitter --version
 ```
 
+## Understanding Key Metrics
+
+### `orientation` — Strand Direction
+- **`fwd`** = sequence kept as-is (canonical form: more A's than T's)
+- **`rev`** = sequence was reverse-complemented to canonical form
+
+Why it matters: Satellite arrays on opposite strands appear as different sequences. Canonical orientation ensures consistent comparison across the genome.
+
+### `ed_tmpl` — Edit Distance to Template (Consensus)
+Measures how different each monomer is from the **consensus sequence** of all monomers in the array.
+
+- **Low ed_tmpl (0-5)** = monomer is very similar to consensus → typical/canonical monomer
+- **High ed_tmpl (>20)** = monomer is divergent → possibly a variant, mutation hotspot, or misalignment
+
+Use case: Filter out divergent monomers, identify conserved vs variable positions.
+
+### `ed_prev` / `ed_next` — Edit Distance to Neighbors
+Measures how different each monomer is from its **adjacent monomers** (previous and next).
+
+- **Low ed_prev/ed_next** = adjacent monomers are similar → homogeneous region
+- **High ed_prev/ed_next** = sudden change → possible HOR boundary, structural variant, or sequence transition
+
+Use case: Detect HOR structure boundaries, identify recombination breakpoints.
+
+### `autocorr` — Autocorrelation Score
+Measures periodicity strength (0.0 to 1.0):
+
+- **High autocorr (>0.7)** = strong, regular periodicity → well-conserved tandem repeat
+- **Medium autocorr (0.5-0.7)** = detectable but irregular periodicity
+- **Low autocorr (<0.5)** = weak or no periodicity → degenerate or non-repetitive
+
+### `cv` — Coefficient of Variation
+Standard deviation of monomer lengths divided by mean length:
+
+- **Low cv (<0.1)** = uniform monomer sizes → canonical repeat structure
+- **High cv (>0.2)** = variable sizes → insertions/deletions, heterogeneous array
+
+### `ed_per_bp` — Normalized Edit Distance
+Edit distance divided by sequence length. Allows comparison across different monomer sizes:
+
+- **0.00-0.02** = highly conserved
+- **0.02-0.05** = moderately divergent
+- **>0.05** = significantly divergent
+
 ## Output Files
 
 All output is **deterministically sorted by chromosome and genomic position** (chr1 → chr22 → chrX → chrY → chrM).
