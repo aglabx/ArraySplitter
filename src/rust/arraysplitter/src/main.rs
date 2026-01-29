@@ -582,6 +582,7 @@ fn sort_tsv_file(path: &str) {
     use std::process::Command;
 
     // Use external sort: keep header, then sort rest by genomic position (version sort)
+    // Note: using bash for $'\t' syntax support
     let script = format!(
         r#"head -1 "{path}" > "{path}.sorted" && \
            tail -n +2 "{path}" | sort -t$'\t' -k1,1V >> "{path}.sorted" && \
@@ -589,7 +590,7 @@ fn sort_tsv_file(path: &str) {
         path = path
     );
 
-    let result = Command::new("sh")
+    let result = Command::new("bash")
         .arg("-c")
         .arg(&script)
         .output();
@@ -615,6 +616,7 @@ fn sort_tsv_with_type_priority(path: &str) {
 
     // AWK script to add type priority column, sort, then remove it
     // Type priorities: pred_array=0, flank=1, monomer=2, base_monomer=2, array=3, consensus=4
+    // Note: using bash for $'\t' syntax support
     let script = format!(
         r#"head -1 "{path}" > "{path}.sorted" && \
            tail -n +2 "{path}" | awk -F'\t' 'BEGIN{{OFS="\t"}} {{
@@ -630,7 +632,7 @@ fn sort_tsv_with_type_priority(path: &str) {
         path = path
     );
 
-    let result = Command::new("sh")
+    let result = Command::new("bash")
         .arg("-c")
         .arg(&script)
         .output();
