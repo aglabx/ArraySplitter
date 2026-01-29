@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
 
 [project]
-name = "ArraySplitter"
-version = "1.7.0"
+name = "arraysplitter"
+dynamic = ["version"]
 description = "De Novo Decomposition of Satellite DNA Arrays into Monomers within Telomere-to-Telomere Assemblies"
 readme = "README.md"
 license = {text = "MIT"}
@@ -17,28 +17,28 @@ classifiers = [
     "Environment :: Console",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
-dependencies = [
-    "PyExp",
-    "editdistance",
-    "tqdm",
-]
+keywords = ["bioinformatics", "satellite-dna", "centromere", "tandem-repeats", "genomics"]
 
 [project.urls]
 Homepage = "https://github.com/aglabx/ArraySplitter"
 Repository = "https://github.com/aglabx/ArraySplitter"
+Issues = "https://github.com/aglabx/ArraySplitter/issues"
 
-[project.scripts]
-arraysplitter = "ArraySplitter.main:run_it"
-
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.maturin]
+# Path to Cargo.toml (source of truth for version)
+manifest-path = "src/rust/arraysplitter/Cargo.toml"
+# Build as standalone binary (not Python bindings)
+bindings = "bin"
+# Strip symbols for smaller binaries
+strip = true

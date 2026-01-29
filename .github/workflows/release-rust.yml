@@ -53,7 +53,6 @@ jobs:
         run: pip install maturin
 
       - name: Build wheel
-        working-directory: src/rust/arraysplitter
         run: |
           maturin build --release --target ${{ matrix.target }} --out dist
 
@@ -61,7 +60,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.target }}
-          path: src/rust/arraysplitter/dist/*.whl
+          path: dist/*.whl
 
   publish:
     name: Publish to PyPI
