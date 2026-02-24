@@ -399,7 +399,7 @@ fn decompose_single_hor(
         *max_depth = current_level;
     }
 
-    // Too short to decompose further
+    // Too short to decompose further — the monomer itself is the base unit
     if hor_seq.len() < min_len * 2 {
         return vec![BaseMonomer {
             sequence: hor_seq.to_string(),
@@ -407,7 +407,7 @@ fn decompose_single_hor(
             global_idx: 0, // Will be assigned later
             sub_idx: 0,
             level: current_level,
-            period: 0,
+            period: hor_seq.len(),
             autocorr: 0.0,
             source: "base".to_string(),
             ed_tmpl: None,
@@ -429,14 +429,14 @@ fn decompose_single_hor(
         Some((period, autocorr, _excess)) => {
             // Check if autocorrelation exceeds threshold
             if autocorr <= autocorr_threshold {
-                // No strong periodicity - this is a base monomer
+                // No strong periodicity - this monomer itself is the base unit
                 return vec![BaseMonomer {
                     sequence: hor_seq.to_string(),
                     hor_idx,
                     global_idx: 0, // Will be assigned later
                     sub_idx: 0,
                     level: current_level,
-                    period: 0,
+                    period: hor_seq.len(),
                     autocorr,
                     source: "base".to_string(),
                     ed_tmpl: None,
@@ -527,14 +527,14 @@ fn decompose_single_hor(
             result
         }
         None => {
-            // No periodicity detected - return as base monomer
+            // No periodicity detected - this monomer itself is the base unit
             vec![BaseMonomer {
                 sequence: hor_seq.to_string(),
                 hor_idx,
                 global_idx: 0, // Will be assigned later
                 sub_idx: 0,
                 level: current_level,
-                period: 0,
+                period: hor_seq.len(),
                 autocorr: compute_max_autocorr(seq_bytes, min_len),
                 source: "base".to_string(),
                 ed_tmpl: None,
