@@ -91,7 +91,7 @@ All output is **deterministically sorted by chromosome and genomic position** (c
 | `.decomposed.fasta` | Monomers with orientation info in headers |
 | `.hors.tsv` | HOR-level decomposition (16 columns) |
 | `.monomers.tsv` | Base-level monomers from recursive decomposition (17 columns) |
-| `.summary.tsv` | One-row-per-array summary with HOR and monomer statistics (23 columns) |
+| `.summary.tsv` | One-row-per-array summary with HOR and monomer statistics (24 columns) |
 | `.lengths` | Fragment lengths for each array |
 
 ### Summary TSV Columns (`.summary.tsv`)
@@ -125,6 +125,7 @@ One row per array combining HOR-level and monomer-level statistics. Useful for o
 | `mono_iupac` | IUPAC ambiguity codes |
 | `mono_quality` | Per-position support |
 | `cut_sequence` | Anchor k-mer used for splitting |
+| `period_classes` | Base monomer size classes: `period:count,...` sorted by count desc (e.g., `171:85` = homogeneous, `171:85,2420:3` = heterogeneous) |
 
 ### HORs TSV Columns (`.hors.tsv`)
 
@@ -217,8 +218,8 @@ chr1_centromere         base_monomer  3    171     1           ...
 
 **`.summary.tsv`** - Single row with both levels:
 ```
-array_id         length  hor_period  hor_n_monomers  mono_period  mono_n_monomers  ...
-chr1_centromere  5120    512         10              171          30               ...
+array_id         length  hor_period  hor_n_monomers  mono_period  mono_n_monomers  period_classes  ...
+chr1_centromere  5120    512         10              171          30               171:30          ...
 ```
 
 ## Algorithm

@@ -448,6 +448,7 @@ fn process_array(
             consensus_seq: String::new(),
             iupac_str: String::new(),
             quality_str: String::new(),
+            period_classes: "-".to_string(),
         }
     };
 
@@ -678,7 +679,7 @@ fn writer_thread(
     writeln!(fw_monomers, "array_id\ttype\tidx\tlength\tsource\ted_tmpl\ted_prev\ted_next\tperiod\tautocorr\tn_expected\ted_per_bp\tcv\tcut_sequence\torientation\tparent_idx\tsequence").unwrap();
 
     // Summary TSV header (one row per array with HOR and monomer statistics + consensus)
-    writeln!(fw_summary, "array_id\tarray_length\torientation\tmethod\thor_period\thor_autocorr\thor_n_monomers\thor_mean_ed_tmpl\thor_mean_ed_prev\thor_cv\thor_consensus\thor_iupac\thor_quality\tmono_period\tmono_autocorr\tmono_n_monomers\tmono_mean_ed_tmpl\tmono_mean_ed_prev\tmono_cv\tmono_consensus\tmono_iupac\tmono_quality\tcut_sequence").unwrap();
+    writeln!(fw_summary, "array_id\tarray_length\torientation\tmethod\thor_period\thor_autocorr\thor_n_monomers\thor_mean_ed_tmpl\thor_mean_ed_prev\thor_cv\thor_consensus\thor_iupac\thor_quality\tmono_period\tmono_autocorr\tmono_n_monomers\tmono_mean_ed_tmpl\tmono_mean_ed_prev\tmono_cv\tmono_consensus\tmono_iupac\tmono_quality\tcut_sequence\tperiod_classes").unwrap();
 
     let mut processed = 0;
     let mut finished_workers = 0;
@@ -901,7 +902,7 @@ fn writer_thread(
                     let mono_quality = if rec.quality_str.is_empty() { "-".to_string() } else { rec.quality_str.clone() };
 
                     writeln!(
-                        fw_summary, "{}\t{}\t{}\t{}\t{}\t{:.4}\t{}\t{:.2}\t{:.2}\t{:.4}\t{}\t{}\t{}\t{}\t{:.4}\t{}\t{:.2}\t{:.2}\t{:.4}\t{}\t{}\t{}\t{}",
+                        fw_summary, "{}\t{}\t{}\t{}\t{}\t{:.4}\t{}\t{:.2}\t{:.2}\t{:.4}\t{}\t{}\t{}\t{}\t{:.4}\t{}\t{:.2}\t{:.2}\t{:.4}\t{}\t{}\t{}\t{}\t{}",
                         result.header,
                         result.array_len,
                         orientation,
@@ -925,6 +926,7 @@ fn writer_thread(
                         mono_iupac,
                         mono_quality,
                         cut_seq,
+                        rec.period_classes,
                     ).unwrap();
                 }
 

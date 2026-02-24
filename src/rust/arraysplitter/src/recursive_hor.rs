@@ -58,6 +58,8 @@ pub struct RecursiveResult {
     pub iupac_str: String,
     /// Quality string (digit 0-9 per position)
     pub quality_str: String,
+    /// Period size classes: "period:count,period:count,..." sorted by count descending
+    pub period_classes: String,
 }
 
 /// Default minimum submonomer length (bp)
@@ -373,6 +375,10 @@ pub fn decompose_hors_to_base(
         (String::new(), String::new(), String::new())
     };
 
+    // Compute period classes: cluster base monomer periods into size classes
+    // Monomers within 10% of each other are grouped into the same class
+    let period_classes = compute_period_classes(&all_base_monomers);
+
     RecursiveResult {
         base_monomers: all_base_monomers,
         max_depth,
@@ -382,7 +388,49 @@ pub fn decompose_hors_to_base(
         consensus_seq,
         iupac_str,
         quality_str,
+        period_classes,
     }
+}
+
+/// Compute period size classes from base monomers.
+/// Groups periods within 10% of each other into clusters.
+/// Returns string like "171:85,2420:3" (period:count sorted by count desc).
+fn compute_period_classes(base_monomers: &[BaseMonomer]) -> String {
+    if base_monomers.is_empty() {
+        return "-".to_string();
+    }
+
+    // Collect all periods (use sequence length as period proxy)
+    let mut lengths: Vec<usize> = base_monomers.iter()
+        .map(|m| m.sequence.len())
+        .collect();
+    lengths.sort();
+
+    // Cluster: greedy merge of sorted lengths within 10% of cluster median
+    let mut clusters: Vec<(usize, usize)> = Vec::new(); // (representative_period, count)
+    let mut cluster_start = 0;
+    while cluster_start < lengths.len() {
+        let repr = lengths[cluster_start];
+        let threshold = (repr as f64 * 0.1).max(5.0) as usize; // 10% or at least 5bp
+        let mut cluster_end = cluster_start + 1;
+        while cluster_end < lengths.len() && lengths[cluster_end] <= repr + threshold {
+            cluster_end += 1;
+        }
+        // Representative = median of cluster
+        let mid = cluster_start + (cluster_end - cluster_start) / 2;
+        let count = cluster_end - cluster_start;
+        clusters.push((lengths[mid], count));
+        cluster_start = cluster_end;
+    }
+
+    // Sort by count descending
+    clusters.sort_by(|a, b| b.1.cmp(&a.1));
+
+    // Format as "period:count,period:count,..."
+    clusters.iter()
+        .map(|(p, c)| format!("{}:{}", p, c))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// Decompose a single HOR monomer recursively
