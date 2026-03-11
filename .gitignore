@@ -184,6 +184,7 @@ test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.10kb.trf
 test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.bed
 test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.fasta
 test_data/satellome/fastan/bTaeGut7v0.4_MT_rDNA.trf
+chm13v2.0_RepeatMasker_4.1.2p1.2022Apr14.bed
 
 # Rust build artifacts
 src/rust/arraysplitter/target/
