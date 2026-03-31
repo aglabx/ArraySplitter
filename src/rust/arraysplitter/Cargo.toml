@@ -37,6 +37,9 @@ statrs = "0.16"
 # System info (memory, CPU)
 sysinfo = "0.30"
 
+# Date/time for logging
+chrono = "0.4"
+
 [[bin]]
 name = "arraysplitter"
 path = "src/main.rs"

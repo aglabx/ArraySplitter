@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
 use sysinfo::{System, Pid, ProcessRefreshKind};
+use chrono::Local;
 
 use arraysplitter_rs::{
     decompose_array, decompose_array_with_cuts, decompose_array_autocorr,
@@ -22,6 +23,18 @@ use arraysplitter_rs::{
 
 /// Global maximum monomer length for ED calculation (set from CLI)
 static MAX_ED_LEN: AtomicUsize = AtomicUsize::new(10000);
+
+/// Format current local timestamp as "YYYY-MM-DD HH:MM:SS"
+fn timestamp() -> String {
+    Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+/// Log an INFO message with timestamp
+macro_rules! log_info {
+    ($($arg:tt)*) => {
+        eprintln!("{} - arraysplitter - INFO - {}", timestamp(), format!($($arg)*));
+    };
+}
 
 /// Calculate edit distance between two sequences
 /// Returns usize::MAX/2 if either string is too long to avoid quadratic blowup
@@ -501,6 +514,7 @@ fn reader_thread(
     tx: SyncSender<Option<InputRecord>>,
     num_workers: usize,
     total_count: Arc<AtomicUsize>,
+    total_bp: Arc<AtomicU64>,
 ) {
     let file = File::open(&input_path).expect("Failed to open input file");
     let reader = BufReader::new(file);
@@ -508,6 +522,7 @@ fn reader_thread(
     let mut current_id = String::new();
     let mut current_seq = String::new();
     let mut count = 0;
+    let mut bp: u64 = 0;
 
     for line in reader.lines() {
         let line = line.expect("Failed to read line");
@@ -516,6 +531,7 @@ fn reader_thread(
         if trimmed.starts_with('>') {
             // Send previous record if exists
             if !current_id.is_empty() && !current_seq.is_empty() {
+                bp += current_seq.len() as u64;
                 tx.send(Some(InputRecord {
                     id: current_id.clone(),
                     sequence: current_seq.clone(),
@@ -535,6 +551,7 @@ fn reader_thread(
 
     // Send last record
     if !current_id.is_empty() && !current_seq.is_empty() {
+        bp += current_seq.len() as u64;
         tx.send(Some(InputRecord {
             id: current_id,
             sequence: current_seq,
@@ -543,6 +560,7 @@ fn reader_thread(
     }
 
     total_count.store(count, Ordering::SeqCst);
+    total_bp.store(bp, Ordering::SeqCst);
 
     // Send termination signals for all workers
     for _ in 0..num_workers {
@@ -697,8 +715,8 @@ fn writer_thread(
                 // Progress output
                 let total = total_count.load(Ordering::SeqCst);
                 if total > 0 {
-                    eprint!("\rProcessing: {}/{} ({:.1}%)",
-                        processed, total, (processed as f64 / total as f64) * 100.0);
+                    eprint!("\r{} - arraysplitter - INFO - Decomposing: {}/{} arrays ({:.1}%)",
+                        timestamp(), processed, total, (processed as f64 / total as f64) * 100.0);
                 }
 
                 // Write this result immediately
@@ -985,19 +1003,25 @@ fn writer_thread(
     drop(fw_summary);
 
     let total = total_count.load(Ordering::SeqCst);
-    eprintln!("\rProcessed: {}/{} (100.0%)", processed, total);
-    eprintln!("Total monomers: {}", total_monomers);
+    // Clear the progress line and print final decomposition summary
+    eprint!("\r{:120}\r", "");  // clear progress line
+    log_info!("Decomposed: {}/{} arrays, {} monomers", processed, total, total_monomers);
 
     // Sort all TSV files by genomic position
-    eprintln!("Sorting output files...");
+    log_info!("Sorting output by genomic position...");
     sort_tsv_with_type_priority(&hors_file);     // With type order: pred_array -> monomer -> array -> consensus
     sort_tsv_with_type_priority(&monomers_file); // With type order: pred_array -> base_monomer
     sort_tsv_file(&summary_file);                // Simple sort by array_id (one row per array)
-    eprintln!("Sorting complete.");
+
+    log_info!("Output: {}.decomposed.fasta", output_prefix);
+    log_info!("Output: {}.hors.tsv", output_prefix);
+    log_info!("Output: {}.monomers.tsv", output_prefix);
+    log_info!("Output: {}.summary.tsv", output_prefix);
+    log_info!("Output: {}.lengths", output_prefix);
 
     // Output statistics if requested
     if collect_stats && !all_stats.is_empty() {
-        eprintln!("\n=== Statistics ===");
+        log_info!("Statistics:");
 
         let mut stats_with_rcv: Vec<(String, usize, usize, f64, f64)> = all_stats.iter().map(|s| {
             let rcv = robust_cv(&s.lengths);
@@ -1042,12 +1066,25 @@ fn writer_thread(
     }
 }
 
+/// Format byte count as human-readable string (KB, MB, GB)
+fn format_bp(bp: u64) -> String {
+    if bp >= 1_000_000_000 {
+        format!("{:.2} Gbp", bp as f64 / 1_000_000_000.0)
+    } else if bp >= 1_000_000 {
+        format!("{:.2} Mbp", bp as f64 / 1_000_000.0)
+    } else if bp >= 1_000 {
+        format!("{:.1} Kbp", bp as f64 / 1_000.0)
+    } else {
+        format!("{} bp", bp)
+    }
+}
+
 fn main() {
     let start_time = Instant::now();
     let args = Args::parse();
 
+    let version = env!("CARGO_PKG_VERSION");
     let num_workers = args.threads.unwrap_or_else(num_cpus::get);
-    eprintln!("Using {} worker threads", num_workers);
 
     // Check input file
     if !Path::new(&args.input).exists() {
@@ -1063,13 +1100,7 @@ fn main() {
         output_prefix = output_prefix[..output_prefix.len() - 3].to_string();
     }
 
-    eprintln!("Input: {}", args.input);
-    eprintln!("Output prefix: {}", output_prefix);
-
     let predefined_cuts: Option<Vec<String>> = args.cuts.as_ref().map(|s| parse_cuts(s));
-    if let Some(ref cuts) = predefined_cuts {
-        eprintln!("Using predefined cuts: {:?}", cuts);
-    }
 
     // Validate method
     let method = args.method.clone();
@@ -1077,11 +1108,20 @@ fn main() {
         eprintln!("Error: --method must be 'autocorr', 'classic', or 'both'");
         std::process::exit(1);
     }
-    eprintln!("Method: {}", method);
 
     // Set global MAX_ED_LEN from CLI
     MAX_ED_LEN.store(args.max_ed_len, Ordering::Relaxed);
-    eprintln!("Max ED length: {} bp", args.max_ed_len);
+
+    // Print configuration header
+    log_info!("ArraySplitter v{}", version);
+    log_info!("Input: {}", args.input);
+    log_info!("Output prefix: {}", output_prefix);
+    log_info!("Method: {}", method);
+    log_info!("Threads: {}", num_workers);
+    log_info!("Max ED length: {} bp", args.max_ed_len);
+    if let Some(ref cuts) = predefined_cuts {
+        log_info!("Predefined cuts: {:?}", cuts);
+    }
 
     // Resource monitoring: track peak memory and CPU
     let peak_memory_kb = Arc::new(AtomicU64::new(0));
@@ -1132,14 +1172,17 @@ fn main() {
     let (output_tx, output_rx) = mpsc::sync_channel::<Option<OutputRecord>>(num_workers * 2);
 
     let total_count = Arc::new(AtomicUsize::new(0));
+    let total_bp_count = Arc::new(AtomicU64::new(0));
     let depth = args.depth;
     let verbose = args.verbose;
 
     // Spawn reader thread
     let reader_total = Arc::clone(&total_count);
+    let reader_bp = Arc::clone(&total_bp_count);
     let input_path = args.input.clone();
+    log_info!("Reading input...");
     let reader_handle = thread::spawn(move || {
-        reader_thread(input_path, input_tx, num_workers, reader_total);
+        reader_thread(input_path, input_tx, num_workers, reader_total, reader_bp);
     });
 
     // Spawn worker threads
@@ -1223,25 +1266,27 @@ fn main() {
     let seconds = total_secs % 60;
     let millis = elapsed.subsec_millis();
 
-    eprintln!("\n=== Resource Usage ===");
-    if hours > 0 {
-        eprintln!("Elapsed time:  {}h {}m {}.{:03}s", hours, minutes, seconds, millis);
+    // Print total input size
+    let total_bp_val = total_bp_count.load(Ordering::SeqCst);
+
+    let time_str = if hours > 0 {
+        format!("{}h {}m {}.{:03}s", hours, minutes, seconds, millis)
     } else if minutes > 0 {
-        eprintln!("Elapsed time:  {}m {}.{:03}s", minutes, seconds, millis);
+        format!("{}m {}.{:03}s", minutes, seconds, millis)
     } else {
-        eprintln!("Elapsed time:  {}.{:03}s", seconds, millis);
-    }
+        format!("{}.{:03}s", seconds, millis)
+    };
 
     // Format memory
-    if peak_mem > 1024 * 1024 {
-        eprintln!("Peak memory:   {:.2} GB", peak_mem as f64 / 1024.0 / 1024.0);
+    let mem_str = if peak_mem > 1024 * 1024 {
+        format!("{:.2} GB", peak_mem as f64 / 1024.0 / 1024.0)
     } else if peak_mem > 1024 {
-        eprintln!("Peak memory:   {:.2} MB", peak_mem as f64 / 1024.0);
+        format!("{:.2} MB", peak_mem as f64 / 1024.0)
     } else {
-        eprintln!("Peak memory:   {} KB", peak_mem);
-    }
+        format!("{} KB", peak_mem)
+    };
 
-    eprintln!("CPU usage:     {:.1}%", cpu_usage);
-    eprintln!("Threads:       {}", num_workers);
-    eprintln!("Done!");
+    log_info!("Processed {} arrays, {} in {}", total_count.load(Ordering::SeqCst), format_bp(total_bp_val), time_str);
+    log_info!("Peak memory: {}, avg CPU: {:.1}%", mem_str, cpu_usage);
+    log_info!("Done.");
 }
