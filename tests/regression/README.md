@@ -7,7 +7,7 @@ intentional schema changes can be distinguished from accidental drift.
 
 | File | Role |
 |---|---|
-| `zfinch_iter2.manifest` | Locked md5/size/line-count for the 5 outputs on `test_data/zebra_finch_satdna.fasta`. Header comments record the binary SHA, command, and lock date. |
+| `zfinch_iter2.manifest.tsv` | Locked md5/size/line-count for the 5 outputs on `test_data/zebra_finch_satdna.fasta`. Header comments record the binary SHA, command, and lock date. |
 | `run.sh` | Builds the release binary, runs it on the input, and diffs the 5 outputs against the manifest. Exits 0 on full match, 1 otherwise. |
 
 ## How to run
@@ -37,7 +37,7 @@ introduces the schema change:
 1. Build the new binary.
 2. Run it once: `./target/release/arraysplitter -i test_data/zebra_finch_satdna.fasta -o /tmp/new -t 4 --method autocorr`.
 3. Compute new md5/size/lines for each of the 5 outputs.
-4. Replace the rows in `zfinch_iter2.manifest` (and bump the comment header to mention the new commit SHA and what changed).
+4. Replace the rows in `zfinch_iter2.manifest.tsv` (and bump the comment header to mention the new commit SHA and what changed).
 5. Re-run `bash tests/regression/run.sh` to confirm green.
 6. Commit manifest + code together. Reviewers should be able to read the
    commit message and understand why the schema change was deliberate.

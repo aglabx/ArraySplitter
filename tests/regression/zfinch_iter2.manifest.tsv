@@ -1,0 +1,23 @@
+# ArraySplitter regression baseline — iter-2 (locked 2026-05-21)
+#
+# Binary commit: 01500ba086cc62295efc05152013e8c5573bb292
+#   iter-1 (4b4f7da) replaced 2 naive ED impls with triple_accel::levenshtein_exp
+#   iter-2 (01500ba) replaced fast_edit_distance_bounded with
+#                    triple_accel::levenshtein::levenshtein_simd_k
+#   Both behaviour-preserving; output bytes identical to e23932c
+#   (determinism fix) before SIMD swap.
+#
+# Input:   test_data/zebra_finch_satdna.fasta (60.01 Mbp, 429 arrays)
+# Command: arraysplitter -i test_data/zebra_finch_satdna.fasta \
+#                        -o <prefix> -t 4 --method autocorr
+#
+# When a future brief intentionally changes output schema, regenerate this
+# file in the SAME commit that changes the schema. tests/regression/run.sh
+# diffs the binary's output against the rows below.
+#
+# Columns: extension<TAB>md5<TAB>size_bytes<TAB>line_count
+.decomposed.fasta	8834f8f1bdb22c87b4e4c50f78ab1180	60488876	858
+.lengths	9f9733fdb42785e12bb1e56fb43d8d26	1381261	858
+.summary.tsv	79a021317fa21eefe7ddab6e382e9ca2	1652539	430
+.hors.tsv	2a8c6572667e3eb5248b22648a81db54	103381646	435684
+.monomers.tsv	9bfc54dc102e704b6eb4e28bb8b47858	113963621	511366

@@ -16,7 +16,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CARGO_DIR="${REPO_ROOT}/src/rust/arraysplitter"
 BIN="${CARGO_DIR}/target/release/arraysplitter"
 INPUT="${REPO_ROOT}/test_data/zebra_finch_satdna.fasta"
-MANIFEST="${MANIFEST:-${SCRIPT_DIR}/zfinch_iter2.manifest}"
+MANIFEST="${MANIFEST:-${SCRIPT_DIR}/zfinch_iter2.manifest.tsv}"
 
 NO_BUILD=0
 KEEP=0
