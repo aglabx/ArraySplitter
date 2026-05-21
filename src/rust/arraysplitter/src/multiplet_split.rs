@@ -281,20 +281,23 @@ fn find_split_positions_even(start: usize, end: usize, n_expected: usize) -> Vec
         .collect()
 }
 
-/// Bounded edit distance computation.
-/// Returns early if ED exceeds the bound.
-/// Uses O(min(m,n)) space with row-based DP.
+/// Bounded edit distance computation using triple_accel SIMD (k-bounded variant).
+/// Returns `bound + 1` when ED exceeds the bound — preserves the existing sentinel semantics.
+///
+/// Pre/post-conditions match the previous naive bounded DP:
+///   - len_diff > bound  → return bound + 1
+///   - len > 5000        → fall back to approximate_edit_distance (unchanged)
+///   - empty inputs      → return the non-empty length
+///   - otherwise         → exact ED if ≤ bound, else bound + 1
 fn fast_edit_distance_bounded(s1: &[u8], s2: &[u8], bound: usize) -> usize {
     let len1 = s1.len();
     let len2 = s2.len();
 
-    // Quick length-based lower bound
     let len_diff = if len1 > len2 { len1 - len2 } else { len2 - len1 };
     if len_diff > bound {
         return bound + 1;
     }
 
-    // For very long sequences, use approximate method
     if len1 > 5000 || len2 > 5000 {
         return approximate_edit_distance(s1, s2);
     }
@@ -302,36 +305,10 @@ fn fast_edit_distance_bounded(s1: &[u8], s2: &[u8], bound: usize) -> usize {
     if len1 == 0 { return len2; }
     if len2 == 0 { return len1; }
 
-    // Ensure s1 is the shorter one for space optimization
-    let (short, long) = if len1 <= len2 { (s1, s2) } else { (s2, s1) };
-    let short_len = short.len();
-    let long_len = long.len();
-
-    let mut prev_row: Vec<usize> = (0..=short_len).collect();
-    let mut curr_row: Vec<usize> = vec![0; short_len + 1];
-
-    for i in 1..=long_len {
-        curr_row[0] = i;
-        let mut row_min = i;
-
-        for j in 1..=short_len {
-            let cost = if long[i - 1] == short[j - 1] { 0 } else { 1 };
-            curr_row[j] = (prev_row[j] + 1)
-                .min(curr_row[j - 1] + 1)
-                .min(prev_row[j - 1] + cost);
-
-            row_min = row_min.min(curr_row[j]);
-        }
-
-        // Early termination: if minimum in this row exceeds bound, ED > bound
-        if row_min > bound {
-            return bound + 1;
-        }
-
-        std::mem::swap(&mut prev_row, &mut curr_row);
+    match triple_accel::levenshtein::levenshtein_simd_k(s1, s2, bound as u32) {
+        Some(ed) => ed as usize,
+        None => bound + 1,
     }
-
-    prev_row[short_len]
 }
 
 /// Approximate edit distance for very long sequences.
