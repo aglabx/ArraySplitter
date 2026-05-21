@@ -432,6 +432,7 @@ fn process_array(
     } else {
         RecursiveResult {
             base_monomers: Vec::new(),
+            intermediate_hors: Vec::new(),
             max_depth: 0,
             n_expected: 0,
             median_period: 0,
@@ -695,7 +696,51 @@ fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
-/// Sort TSV file with type priority (for hors/monomers files)
+/// Sort hors.tsv with type priority AND level awareness.
+/// Within each array_id, rows are grouped by type-priority first, then by level
+/// (only meaningful for sub_hor rows; everything else is at level=1), then idx.
+///
+/// Order: pred_array -> flank -> monomer -> sub_hor (level 2, 3, ...) -> array -> consensus.
+/// `level` is at column 17 in the new schema, `parent_idx` at column 18.
+fn sort_hors_tsv(path: &str) {
+    use std::process::Command;
+
+    let script = format!(
+        r#"head -1 "{path}" > "{path}.sorted" && \
+           tail -n +2 "{path}" | awk -F'\t' 'BEGIN{{OFS="\t"}} {{
+               if ($2=="pred_array") p=0;
+               else if ($2=="flank") p=1;
+               else if ($2=="monomer") p=2;
+               else if ($2=="sub_hor") p=3;
+               else if ($2=="array") p=4;
+               else if ($2=="consensus") p=5;
+               else p=6;
+               level = ($17 == "" ? 1 : $17 + 0);
+               print p, level, $0
+           }}' | sort -t$'\t' -k3,3V -k1,1n -k2,2n -k5,5n | cut -f3- >> "{path}.sorted" && \
+           /bin/mv -f "{path}.sorted" "{path}""#,
+        path = path
+    );
+
+    let result = Command::new("bash")
+        .arg("-c")
+        .arg(&script)
+        .output();
+
+    match result {
+        Ok(output) => {
+            if !output.status.success() {
+                eprintln!("Warning: Failed to sort {}: {}",
+                    path, String::from_utf8_lossy(&output.stderr));
+            }
+        }
+        Err(e) => {
+            eprintln!("Warning: Failed to run sort on {}: {}", path, e);
+        }
+    }
+}
+
+/// Sort TSV file with type priority (for monomers files)
 /// Order: pred_array -> flank -> monomer/base_monomer (by idx) -> array -> consensus
 /// Sorted by: 1) array_id (genomic order), 2) type priority, 3) idx
 fn sort_tsv_with_type_priority(path: &str) {
@@ -758,11 +803,16 @@ fn writer_thread(
     let mut fw_lengths = BufWriter::new(File::create(&lengths_file).expect("Failed to create lengths file"));
     let mut fw_summary = BufWriter::new(File::create(&summary_file).expect("Failed to create summary file"));
 
-    // HORs TSV header (HOR-level decomposition)
-    writeln!(fw_hors, "array_id\ttype\tidx\tlength\tsource\ted_tmpl\ted_prev\ted_next\tperiod\tautocorr\tn_expected\ted_per_bp\tcv\tcut_sequence\torientation\tsequence").unwrap();
+    // HORs TSV header (HOR-level decomposition). `level` distinguishes top-level
+    // HOR units (level=1, the existing rows) from intermediate sub-HORs produced
+    // by recursive decomposition (level>=2). `parent_idx` references the idx of
+    // the parent row at level (level-1); -1 at level 1 (no parent above the array).
+    writeln!(fw_hors, "array_id\ttype\tidx\tlength\tsource\ted_tmpl\ted_prev\ted_next\tperiod\tautocorr\tn_expected\ted_per_bp\tcv\tcut_sequence\torientation\tsequence\tlevel\tparent_idx").unwrap();
 
-    // Monomers TSV header (base-level monomers - unified format with parent_idx)
-    writeln!(fw_monomers, "array_id\ttype\tidx\tlength\tsource\ted_tmpl\ted_prev\ted_next\tperiod\tautocorr\tn_expected\ted_per_bp\tcv\tcut_sequence\torientation\tparent_idx\tsequence").unwrap();
+    // Monomers TSV header. `parent_idx` now references the deepest HOR row in
+    // hors.tsv that encloses the leaf (idx_within_level at `parent_level`).
+    // For leaves emitted directly under a top-level HOR, parent_level=1.
+    writeln!(fw_monomers, "array_id\ttype\tidx\tlength\tsource\ted_tmpl\ted_prev\ted_next\tperiod\tautocorr\tn_expected\ted_per_bp\tcv\tcut_sequence\torientation\tparent_idx\tsequence\tparent_level").unwrap();
 
     // Summary TSV header (one row per array with HOR and monomer statistics + consensus)
     writeln!(fw_summary, "array_id\tarray_length\torientation\tmethod\thor_period\thor_autocorr\thor_n_monomers\thor_mean_ed_tmpl\thor_mean_ed_prev\thor_cv\thor_consensus\thor_iupac\thor_quality\tmono_period\tmono_autocorr\tmono_n_monomers\tmono_mean_ed_tmpl\tmono_mean_ed_prev\tmono_cv\tmono_consensus\tmono_iupac\tmono_quality\tcut_sequence\tperiod_classes").unwrap();
@@ -807,7 +857,7 @@ fn writer_thread(
                     .map(|v| format!("{:.4}", v))
                     .unwrap_or_else(|| "0".to_string());
                 writeln!(
-                    fw_hors, "{}\tpred_array\t{}\t{}\t{}\t{}\t0\t0\t{}\t{}\t{}\t0\t0\t-\t{}\t-",
+                    fw_hors, "{}\tpred_array\t{}\t{}\t{}\t{}\t0\t0\t{}\t{}\t{}\t0\t0\t-\t{}\t-\t1\t-1",
                     result.header,
                     n_expected_str,
                     result.array_len,
@@ -834,7 +884,7 @@ fn writer_thread(
                     } else { 0.0 };
 
                     writeln!(
-                        fw_hors, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t1\t{:.4}\t{:.4}\t{}\t{}\t{}",
+                        fw_hors, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t1\t{:.4}\t{:.4}\t{}\t{}\t{}\t1\t-1",
                         result.header, mono.piece_type, i, mono.sequence.len(),
                         mono.source, ed_tmpl_str, ed_prev_str, ed_next_str,
                         result.period,
@@ -849,7 +899,7 @@ fn writer_thread(
 
                 // Write array summary row
                 writeln!(
-                    fw_hors, "{}\tarray\t{}\t{}\t{}\t{:.1}\t{:.1}\t{:.1}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t-",
+                    fw_hors, "{}\tarray\t{}\t{}\t{}\t{:.1}\t{:.1}\t{:.1}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t-\t1\t-1",
                     result.header,
                     result.n_monomers,
                     result.array_len,
@@ -874,7 +924,7 @@ fn writer_thread(
                         .filter(|c| !matches!(c, 'A' | 'C' | 'G' | 'T'))
                         .count();
                     writeln!(
-                        fw_hors, "{}\tconsensus\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t{}",
+                        fw_hors, "{}\tconsensus\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t{}\t1\t-1",
                         result.header,
                         result.n_monomers,
                         result.consensus_seq.len(),
@@ -890,6 +940,26 @@ fn writer_thread(
                         result.iupac_str,
                         orientation,
                         result.consensus_seq,
+                    ).unwrap();
+                }
+
+                // Emit intermediate (level >= 2) HOR rows from recursive decomposition.
+                // Same column layout as the rows above, with type=`sub_hor`.
+                for ih in &result.recursive_result.intermediate_hors {
+                    writeln!(
+                        fw_hors,
+                        "{}\tsub_hor\t{}\t{}\t{}\t0\t0\t0\t{}\t{:.4}\t{}\t0\t0\t-\t{}\t{}\t{}\t{}",
+                        result.header,
+                        ih.idx_within_level,
+                        ih.length,
+                        ih.source,
+                        ih.period,
+                        ih.autocorr,
+                        ih.n_children,
+                        orientation,
+                        ih.sequence,
+                        ih.level,
+                        ih.parent_idx,
                     ).unwrap();
                 }
 
@@ -912,7 +982,7 @@ fn writer_thread(
                     } else { 0.0 };
 
                     writeln!(
-                        fw_monomers, "{}\tpred_array\t{}\t{}\trecursive\t0\t0\t0\t{}\t{:.4}\t{}\t{:.4}\t{:.4}\t-\t{}\t-\t-",
+                        fw_monomers, "{}\tpred_array\t{}\t{}\trecursive\t0\t0\t0\t{}\t{:.4}\t{}\t{:.4}\t{:.4}\t-\t{}\t-\t-\t-",
                         result.header,
                         rec.n_expected,
                         result.array_len,
@@ -939,7 +1009,7 @@ fn writer_thread(
                     };
 
                     writeln!(
-                        fw_monomers, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t1\t{:.4}\t{:.4}\t{}\t{}\t{}\t{}",
+                        fw_monomers, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t1\t{:.4}\t{:.4}\t{}\t{}\t{}\t{}\t{}",
                         result.header,
                         mono_type,
                         base_mono.global_idx,
@@ -954,8 +1024,9 @@ fn writer_thread(
                         base_mono.cv,
                         cut_seq,
                         orientation,
-                        base_mono.hor_idx,
-                        base_mono.sequence
+                        base_mono.deepest_hor_idx,
+                        base_mono.sequence,
+                        base_mono.deepest_hor_level
                     ).unwrap();
                 }
 
@@ -1077,7 +1148,7 @@ fn writer_thread(
 
     // Sort all TSV files by genomic position
     log_info!("Sorting output by genomic position...");
-    sort_tsv_with_type_priority(&hors_file);     // With type order: pred_array -> monomer -> array -> consensus
+    sort_hors_tsv(&hors_file);                   // Level-aware: pred_array -> monomer -> sub_hor(L=2,3,...) -> array -> consensus
     sort_tsv_with_type_priority(&monomers_file); // With type order: pred_array -> base_monomer
     sort_tsv_file(&summary_file);                // Simple sort by array_id (one row per array)
     sort_paired_lines_file(&output_file);        // .decomposed.fasta — sort by FASTA header

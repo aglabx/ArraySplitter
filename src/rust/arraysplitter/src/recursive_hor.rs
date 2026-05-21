@@ -14,13 +14,13 @@ use triple_accel::levenshtein_exp;
 pub struct BaseMonomer {
     /// The DNA sequence of this monomer
     pub sequence: String,
-    /// Index of the parent HOR from primary decomposition
+    /// Index of the parent HOR from primary decomposition (top-level / level-1 HOR)
     pub hor_idx: usize,
     /// Global index within the entire array (0, 1, 2, ...)
     pub global_idx: usize,
     /// Index within the parent HOR (0, 1, 2, ...)
     pub sub_idx: usize,
-    /// Recursion depth (1 = direct child of HOR, 2 = grandchild, etc.)
+    /// Recursion depth at which this leaf was emitted (1 = direct child of top HOR, 2 = grandchild, etc.)
     pub level: usize,
     /// Detected period at this level (0 if this is a base monomer)
     pub period: usize,
@@ -38,13 +38,48 @@ pub struct BaseMonomer {
     pub ed_per_bp: f64,
     /// Coefficient of variation for length within this parent group
     pub cv: f64,
+    /// idx_within_level of the deepest HOR (in hors.tsv) enclosing this leaf.
+    /// At level=1 this equals `hor_idx` (the top-level HOR row).
+    /// At level>=2 this is the idx_within_level of the nearest `sub_hor` row.
+    pub deepest_hor_idx: usize,
+    /// Level of the deepest enclosing HOR (1 = top-level, 2+ = sub-HOR depth).
+    pub deepest_hor_level: usize,
+}
+
+/// An intermediate HOR detected during recursive decomposition (a non-leaf
+/// internal node of the decomposition tree). Top-level HORs (level=1) are
+/// already emitted as `monomer` rows in hors.tsv by the primary writer, so
+/// this struct only carries level>=2 sub-HORs.
+#[derive(Debug, Clone)]
+pub struct IntermediateHor {
+    /// Depth in the decomposition tree (>= 2; level=1 lives in the primary writer).
+    pub level: usize,
+    /// Index within this level for the containing array (0-based, fresh per array+level).
+    pub idx_within_level: usize,
+    /// Index of the parent HOR at level (level - 1). For level=2 this is hor_idx (top-level).
+    pub parent_idx: usize,
+    /// Period detected for this HOR (its sub-monomers repeat with this length).
+    pub period: usize,
+    /// Autocorrelation value at the detected period.
+    pub autocorr: f64,
+    /// Number of sub-monomers this HOR was split into.
+    pub n_children: usize,
+    /// Length of the HOR sequence in bp.
+    pub length: usize,
+    /// Source of decomposition: "recursive_anchor" / "recursive_split" / etc.
+    pub source: String,
+    /// The HOR sequence itself.
+    pub sequence: String,
 }
 
 /// Result of recursive HOR decomposition
 #[derive(Debug, Clone)]
 pub struct RecursiveResult {
-    /// All base-level monomers from the recursive decomposition
+    /// All base-level monomers from the recursive decomposition (leaves of the tree)
     pub base_monomers: Vec<BaseMonomer>,
+    /// All intermediate HOR nodes from the recursive decomposition (level>=2 internal nodes).
+    /// Top-level (level=1) HORs are not in this vec — they are written by the primary writer.
+    pub intermediate_hors: Vec<IntermediateHor>,
     /// Maximum recursion depth reached
     pub max_depth: usize,
     /// Total expected count of base monomers (sum across all HORs)
@@ -293,16 +328,24 @@ pub fn decompose_hors_to_base(
     autocorr_threshold: f64,
 ) -> RecursiveResult {
     let mut all_base_monomers: Vec<BaseMonomer> = Vec::new();
+    let mut intermediate_hors: Vec<IntermediateHor> = Vec::new();
+    let mut next_idx_per_level: Vec<usize> = Vec::new();
     let mut max_depth: usize = 0;
 
     for (hor_idx, hor_seq) in hor_monomers.iter().enumerate() {
+        // At level=1 the HOR is represented by an existing `monomer` row in
+        // hors.tsv with idx=hor_idx, so leaves emitted here without further
+        // decomposition still have a row to point to as their deepest HOR.
         let base_monomers = decompose_single_hor(
             hor_seq,
             hor_idx,
+            (1, hor_idx),
             min_submonomer_len,
             autocorr_threshold,
-            1, // Start at level 1
+            1,
             &mut max_depth,
+            &mut intermediate_hors,
+            &mut next_idx_per_level,
         );
         all_base_monomers.extend(base_monomers);
     }
@@ -360,6 +403,7 @@ pub fn decompose_hors_to_base(
 
     RecursiveResult {
         base_monomers: all_base_monomers,
+        intermediate_hors,
         max_depth,
         n_expected,
         median_period,
@@ -412,112 +456,156 @@ fn compute_period_classes(base_monomers: &[BaseMonomer]) -> String {
         .join(",")
 }
 
-/// Decompose a single HOR monomer recursively
+/// Decompose a single HOR monomer recursively into base-level leaves.
+///
+/// `parent_hor_row` is `(level, idx_within_level)` of the deepest row in
+/// `hors.tsv` that encloses `hor_seq`. At the top-level call (current_level=1)
+/// it is `(1, top_hor_idx)` — the existing `monomer` row in hors.tsv that
+/// represents `hor_seq` itself, so leaves emitted without further
+/// decomposition still have a row to point to.
+///
+/// On every recursion entry where periodicity is detected and decomposition
+/// proceeds, an `IntermediateHor` is pushed (only at current_level >= 2 —
+/// the level=1 HOR is already in hors.tsv from the primary writer).
 fn decompose_single_hor(
     hor_seq: &str,
-    hor_idx: usize,
+    top_hor_idx: usize,
+    parent_hor_row: (usize, usize),
     min_len: usize,
     autocorr_threshold: f64,
     current_level: usize,
     max_depth: &mut usize,
+    intermediate_hors: &mut Vec<IntermediateHor>,
+    next_idx_per_level: &mut Vec<usize>,
 ) -> Vec<BaseMonomer> {
-    // Update max depth
     if current_level > *max_depth {
         *max_depth = current_level;
     }
 
-    // Too short to decompose further — the monomer itself is the base unit
-    if hor_seq.len() < min_len * 2 {
-        return vec![BaseMonomer {
-            sequence: hor_seq.to_string(),
-            hor_idx,
-            global_idx: 0, // Will be assigned later
-            sub_idx: 0,
+    let make_leaf = |sequence: String,
+                     sub_idx: usize,
+                     period: usize,
+                     autocorr: f64,
+                     source: String,
+                     deepest: (usize, usize)| -> BaseMonomer {
+        BaseMonomer {
+            sequence,
+            hor_idx: top_hor_idx,
+            global_idx: 0, // assigned later
+            sub_idx,
             level: current_level,
-            period: hor_seq.len(),
-            autocorr: 0.0,
-            source: "base".to_string(),
+            period,
+            autocorr,
+            source,
             ed_tmpl: None,
             ed_prev: None,
             ed_next: None,
             ed_per_bp: 0.0,
             cv: 0.0,
-        }];
+            deepest_hor_idx: deepest.1,
+            deepest_hor_level: deepest.0,
+        }
+    };
+
+    // Too short to decompose further — the monomer itself is a leaf.
+    if hor_seq.len() < min_len * 2 {
+        return vec![make_leaf(
+            hor_seq.to_string(),
+            0,
+            hor_seq.len(),
+            0.0,
+            "base".to_string(),
+            parent_hor_row,
+        )];
     }
 
     let seq_bytes = hor_seq.as_bytes();
     let min_period = min_len;
-    let max_period = hor_seq.len() / 2; // Need at least 2 copies
+    let max_period = hor_seq.len() / 2; // need at least 2 copies
 
-    // Check for periodicity
     let period_result = find_period_refined(seq_bytes, min_period, max_period);
 
     match period_result {
         Some((period, autocorr, _excess)) => {
-            // Check if autocorrelation exceeds threshold
             if autocorr <= autocorr_threshold {
-                // No strong periodicity - this monomer itself is the base unit
-                return vec![BaseMonomer {
-                    sequence: hor_seq.to_string(),
-                    hor_idx,
-                    global_idx: 0, // Will be assigned later
-                    sub_idx: 0,
-                    level: current_level,
-                    period: hor_seq.len(),
+                // Weak periodicity — hor_seq is a leaf at this call.
+                return vec![make_leaf(
+                    hor_seq.to_string(),
+                    0,
+                    hor_seq.len(),
                     autocorr,
-                    source: "base".to_string(),
-                    ed_tmpl: None,
-                    ed_prev: None,
-                    ed_next: None,
-                    ed_per_bp: 0.0,
-                    cv: 0.0,
-                }];
+                    "base".to_string(),
+                    parent_hor_row,
+                )];
             }
 
-            // Strong periodicity detected - decompose further
+            // Decompose further.
             let sub_monomers = decompose_hor_by_period(hor_seq, period, autocorr);
+            let n_children = sub_monomers.len();
 
-            // Recursively decompose each sub-monomer
+            // Reserve an `IntermediateHor` row for hor_seq at level >= 2.
+            // Level=1 HORs are already in hors.tsv as `monomer` rows, so the
+            // existing `parent_hor_row` (1, top_hor_idx) is reused.
+            let this_hor_row: (usize, usize) = if current_level == 1 {
+                parent_hor_row
+            } else {
+                while next_idx_per_level.len() <= current_level {
+                    next_idx_per_level.push(0);
+                }
+                let idx = next_idx_per_level[current_level];
+                next_idx_per_level[current_level] += 1;
+                let source = sub_monomers
+                    .first()
+                    .map(|(_, s)| s.clone())
+                    .unwrap_or_else(|| "recursive".to_string());
+                intermediate_hors.push(IntermediateHor {
+                    level: current_level,
+                    idx_within_level: idx,
+                    parent_idx: parent_hor_row.1,
+                    period,
+                    autocorr,
+                    n_children,
+                    length: hor_seq.len(),
+                    source,
+                    sequence: hor_seq.to_string(),
+                });
+                (current_level, idx)
+            };
+
             let mut result: Vec<BaseMonomer> = Vec::new();
             for (sub_idx, (sub_seq, sub_source)) in sub_monomers.iter().enumerate() {
                 if sub_seq.len() < min_len {
-                    // Too short - keep as is
-                    result.push(BaseMonomer {
-                        sequence: sub_seq.clone(),
-                        hor_idx,
-                        global_idx: 0, // Will be assigned later
+                    result.push(make_leaf(
+                        sub_seq.clone(),
                         sub_idx,
-                        level: current_level,
                         period,
                         autocorr,
-                        source: sub_source.clone(),
-                        ed_tmpl: None,
-                        ed_prev: None,
-                        ed_next: None,
-                        ed_per_bp: 0.0,
-                        cv: 0.0,
-                    });
+                        sub_source.clone(),
+                        this_hor_row,
+                    ));
                 } else {
-                    // Try to decompose further
                     let sub_bytes = sub_seq.as_bytes();
                     let sub_min_period = min_len;
                     let sub_max_period = sub_seq.len() / 2;
 
                     if sub_max_period >= sub_min_period {
-                        if let Some((_, sub_autocorr, _)) = find_period_refined(sub_bytes, sub_min_period, sub_max_period) {
+                        if let Some((_, sub_autocorr, _)) =
+                            find_period_refined(sub_bytes, sub_min_period, sub_max_period)
+                        {
                             if sub_autocorr > autocorr_threshold {
-                                // Recurse
                                 let deeper = decompose_single_hor(
                                     sub_seq,
-                                    hor_idx,
+                                    top_hor_idx,
+                                    this_hor_row,
                                     min_len,
                                     autocorr_threshold,
                                     current_level + 1,
                                     max_depth,
+                                    intermediate_hors,
+                                    next_idx_per_level,
                                 );
-                                // Adjust sub_idx for the deeper monomers
                                 for mut m in deeper {
-                                    m.sub_idx = sub_idx * 1000 + m.sub_idx; // Encode hierarchy
+                                    m.sub_idx = sub_idx * 1000 + m.sub_idx;
                                     result.push(m);
                                 }
                                 continue;
@@ -525,7 +613,6 @@ fn decompose_single_hor(
                         }
                     }
 
-                    // No further periodicity - this is a base monomer
                     let final_autocorr = if sub_max_period >= sub_min_period {
                         find_period_refined(sub_bytes, sub_min_period, sub_max_period)
                             .map(|(_, ac, _)| ac)
@@ -534,42 +621,28 @@ fn decompose_single_hor(
                         0.0
                     };
 
-                    result.push(BaseMonomer {
-                        sequence: sub_seq.clone(),
-                        hor_idx,
-                        global_idx: 0, // Will be assigned later
+                    result.push(make_leaf(
+                        sub_seq.clone(),
                         sub_idx,
-                        level: current_level,
                         period,
-                        autocorr: final_autocorr,
-                        source: sub_source.clone(),
-                        ed_tmpl: None,
-                        ed_prev: None,
-                        ed_next: None,
-                        ed_per_bp: 0.0,
-                        cv: 0.0,
-                    });
+                        final_autocorr,
+                        sub_source.clone(),
+                        this_hor_row,
+                    ));
                 }
             }
             result
         }
         None => {
-            // No periodicity detected - this monomer itself is the base unit
-            vec![BaseMonomer {
-                sequence: hor_seq.to_string(),
-                hor_idx,
-                global_idx: 0, // Will be assigned later
-                sub_idx: 0,
-                level: current_level,
-                period: hor_seq.len(),
-                autocorr: compute_max_autocorr(seq_bytes, min_len),
-                source: "base".to_string(),
-                ed_tmpl: None,
-                ed_prev: None,
-                ed_next: None,
-                ed_per_bp: 0.0,
-                cv: 0.0,
-            }]
+            // No periodicity at all — hor_seq is a leaf at this call.
+            vec![make_leaf(
+                hor_seq.to_string(),
+                0,
+                hor_seq.len(),
+                compute_max_autocorr(seq_bytes, min_len),
+                "base".to_string(),
+                parent_hor_row,
+            )]
         }
     }
 }
