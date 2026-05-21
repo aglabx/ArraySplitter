@@ -627,6 +627,96 @@ fn sort_tsv_file(path: &str) {
     }
 }
 
+/// Sort a 2-lines-per-record file (`.decomposed.fasta`, `.lengths`) by the first line.
+///
+/// Each record is exactly 2 lines: a header line (starts with `>`) and a payload line
+/// (space-joined sequence or lengths). The file is sorted in-place by header using
+/// natural (version-aware) ordering — matches the chr2 < chr10 convention used by
+/// `sort_tsv_file` so all 5 output files share one sort order.
+fn sort_paired_lines_file(path: &str) {
+    let f = match File::open(path) {
+        Ok(f) => f,
+        Err(e) => { eprintln!("Warning: cannot open {} for sort: {}", path, e); return; }
+    };
+    let reader = BufReader::new(f);
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    let mut current_header: Option<String> = None;
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(e) => { eprintln!("Warning: read error on {}: {}", path, e); return; }
+        };
+        match current_header.take() {
+            None => current_header = Some(line),
+            Some(h) => pairs.push((h, line)),
+        }
+    }
+    if current_header.is_some() {
+        eprintln!("Warning: {} has odd line count; skipping sort to avoid data loss", path);
+        return;
+    }
+
+    pairs.sort_by(|a, b| natural_cmp(&a.0, &b.0));
+
+    let tmp = format!("{}.sorted", path);
+    {
+        let out = match File::create(&tmp) {
+            Ok(f) => f,
+            Err(e) => { eprintln!("Warning: cannot create {}: {}", tmp, e); return; }
+        };
+        let mut w = BufWriter::new(out);
+        for (h, p) in &pairs {
+            if writeln!(w, "{}", h).is_err() || writeln!(w, "{}", p).is_err() {
+                eprintln!("Warning: write error on {}", tmp);
+                return;
+            }
+        }
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        eprintln!("Warning: rename {} -> {} failed: {}", tmp, path, e);
+    }
+}
+
+/// Natural sort: compares strings treating embedded integer chunks numerically.
+/// Mirrors `sort -V` (chr2 < chr10 < chr11 < chrX).
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let mut ai = a.chars().peekable();
+    let mut bi = b.chars().peekable();
+    loop {
+        match (ai.peek(), bi.peek()) {
+            (None, None) => return Ordering::Equal,
+            (None, _)    => return Ordering::Less,
+            (_, None)    => return Ordering::Greater,
+            (Some(&ca), Some(&cb)) => {
+                if ca.is_ascii_digit() && cb.is_ascii_digit() {
+                    let mut na: u64 = 0;
+                    while let Some(&c) = ai.peek() {
+                        if !c.is_ascii_digit() { break; }
+                        na = na.saturating_mul(10).saturating_add((c as u64) - ('0' as u64));
+                        ai.next();
+                    }
+                    let mut nb: u64 = 0;
+                    while let Some(&c) = bi.peek() {
+                        if !c.is_ascii_digit() { break; }
+                        nb = nb.saturating_mul(10).saturating_add((c as u64) - ('0' as u64));
+                        bi.next();
+                    }
+                    match na.cmp(&nb) {
+                        Ordering::Equal => continue,
+                        other => return other,
+                    }
+                } else {
+                    match ca.cmp(&cb) {
+                        Ordering::Equal => { ai.next(); bi.next(); }
+                        other => return other,
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Sort TSV file with type priority (for hors/monomers files)
 /// Order: pred_array -> flank -> monomer/base_monomer (by idx) -> array -> consensus
 /// Sorted by: 1) array_id (genomic order), 2) type priority, 3) idx
@@ -1012,6 +1102,8 @@ fn writer_thread(
     sort_tsv_with_type_priority(&hors_file);     // With type order: pred_array -> monomer -> array -> consensus
     sort_tsv_with_type_priority(&monomers_file); // With type order: pred_array -> base_monomer
     sort_tsv_file(&summary_file);                // Simple sort by array_id (one row per array)
+    sort_paired_lines_file(&output_file);        // .decomposed.fasta — sort by FASTA header
+    sort_paired_lines_file(&lengths_file);       // .lengths — sort by header
 
     log_info!("Output: {}.decomposed.fasta", output_prefix);
     log_info!("Output: {}.hors.tsv", output_prefix);
