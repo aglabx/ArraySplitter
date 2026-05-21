@@ -7,6 +7,7 @@
 use crate::autocorrelation::{find_period_refined, random_expectation, autocorrelation};
 use crate::anchor_by_period::find_anchor_by_period_with_fallback;
 use crate::multiplet_split::split_multiplets;
+use triple_accel::levenshtein_exp;
 
 /// A base-level monomer after recursive decomposition
 #[derive(Debug, Clone)]
@@ -71,37 +72,15 @@ pub const DEFAULT_AUTOCORR_THRESHOLD: f64 = 0.5;
 /// Maximum length for edit distance computation to avoid quadratic blowup
 const MAX_ED_LEN: usize = 10000;
 
-/// Calculate edit distance between two sequences
+/// Calculate edit distance between two sequences using SIMD (triple_accel::levenshtein_exp).
+/// Returns usize::MAX/2 if either string exceeds MAX_ED_LEN to avoid quadratic blowup.
 fn edit_distance(s1: &str, s2: &str) -> usize {
-    let len1 = s1.len();
-    let len2 = s2.len();
-
-    // Skip ED for very long sequences
-    if len1 > MAX_ED_LEN || len2 > MAX_ED_LEN {
+    if s1.len() > MAX_ED_LEN || s2.len() > MAX_ED_LEN {
         return usize::MAX / 2;
     }
-
-    if len1 == 0 { return len2; }
-    if len2 == 0 { return len1; }
-
-    let s1_chars: Vec<char> = s1.chars().collect();
-    let s2_chars: Vec<char> = s2.chars().collect();
-
-    let mut prev_row: Vec<usize> = (0..=len2).collect();
-    let mut curr_row: Vec<usize> = vec![0; len2 + 1];
-
-    for i in 1..=len1 {
-        curr_row[0] = i;
-        for j in 1..=len2 {
-            let cost = if s1_chars[i - 1] == s2_chars[j - 1] { 0 } else { 1 };
-            curr_row[j] = (prev_row[j] + 1)
-                .min(curr_row[j - 1] + 1)
-                .min(prev_row[j - 1] + cost);
-        }
-        std::mem::swap(&mut prev_row, &mut curr_row);
-    }
-
-    prev_row[len2]
+    if s1.is_empty() { return s2.len(); }
+    if s2.is_empty() { return s1.len(); }
+    levenshtein_exp(s1.as_bytes(), s2.as_bytes()) as usize
 }
 
 /// Compute consensus sequence from a list of sequences (simple majority vote)

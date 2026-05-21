@@ -13,6 +13,7 @@ use std::thread;
 use std::time::Instant;
 use sysinfo::{System, Pid, ProcessRefreshKind};
 use chrono::Local;
+use triple_accel::levenshtein_exp;
 
 use arraysplitter_rs::{
     decompose_array, decompose_array_with_cuts, decompose_array_autocorr,
@@ -36,39 +37,16 @@ macro_rules! log_info {
     };
 }
 
-/// Calculate edit distance between two sequences
-/// Returns usize::MAX/2 if either string is too long to avoid quadratic blowup
+/// Calculate edit distance between two sequences using SIMD (triple_accel::levenshtein_exp).
+/// Returns usize::MAX/2 if either string is too long to avoid quadratic blowup.
 fn edit_distance(s1: &str, s2: &str) -> usize {
-    let len1 = s1.len();
-    let len2 = s2.len();
     let max_ed_len = MAX_ED_LEN.load(Ordering::Relaxed);
-
-    // Skip ED for very long monomers
-    if len1 > max_ed_len || len2 > max_ed_len {
+    if s1.len() > max_ed_len || s2.len() > max_ed_len {
         return usize::MAX / 2;
     }
-
-    if len1 == 0 { return len2; }
-    if len2 == 0 { return len1; }
-
-    let s1_chars: Vec<char> = s1.chars().collect();
-    let s2_chars: Vec<char> = s2.chars().collect();
-
-    let mut prev_row: Vec<usize> = (0..=len2).collect();
-    let mut curr_row: Vec<usize> = vec![0; len2 + 1];
-
-    for i in 1..=len1 {
-        curr_row[0] = i;
-        for j in 1..=len2 {
-            let cost = if s1_chars[i - 1] == s2_chars[j - 1] { 0 } else { 1 };
-            curr_row[j] = (prev_row[j] + 1)
-                .min(curr_row[j - 1] + 1)
-                .min(prev_row[j - 1] + cost);
-        }
-        std::mem::swap(&mut prev_row, &mut curr_row);
-    }
-
-    prev_row[len2]
+    if s1.is_empty() { return s2.len(); }
+    if s2.is_empty() { return s1.len(); }
+    levenshtein_exp(s1.as_bytes(), s2.as_bytes()) as usize
 }
 
 /// Compute consensus sequence and Phred-like quality string from monomers.
