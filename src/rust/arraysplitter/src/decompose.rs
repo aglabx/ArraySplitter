@@ -771,10 +771,11 @@ pub fn decompose_array_with_cuts(
 pub fn decompose_array_autocorr(
     array: &str,
     verbose: bool,
+    max_period_cap: usize,
 ) -> Decomposition {
     let seq = array.as_bytes();
     let min_period = 5;
-    let max_period = (array.len() / 3).min(5000); // Need at least 3 copies, cap at 5000bp
+    let max_period = (array.len() / 3).min(max_period_cap); // need >=3 copies, cap at user-supplied --max-period
 
     // Step 1: Autocorrelation period detection
     // Use find_period (not find_period_refined) to preserve HOR structure.
@@ -1013,7 +1014,7 @@ mod tests {
         }
         let array: String = seq.into_iter().collect();
 
-        let result = decompose_array_autocorr(&array, true);
+        let result = decompose_array_autocorr(&array, true, 5000);
 
         // Should return single "monomer" = whole array, source = "no_period"
         assert_eq!(result.monomers.len(), 1, "Non-periodic should give 1 monomer");
@@ -1033,7 +1034,7 @@ mod tests {
         }
         // Total: 600 + 600 = 1200bp
 
-        let result = decompose_array_autocorr(&array, true);
+        let result = decompose_array_autocorr(&array, true, 5000);
 
         assert!(!result.monomers.is_empty(), "Should produce at least 1 monomer");
         eprintln!("Two repeats: period={}, n_monomers={}, sources={:?}",
@@ -1059,7 +1060,7 @@ mod tests {
         }
         // 3 × (80 + 80) = 480bp, super-period = 160bp
 
-        let result = decompose_array_autocorr(&array, true);
+        let result = decompose_array_autocorr(&array, true, 5000);
 
         assert!(!result.monomers.is_empty());
         eprintln!("A-B-A-B: period={}, n_monomers={}, cv={:.3}",
@@ -1085,7 +1086,7 @@ mod tests {
         for _ in 0..20 { array.push_str(unit_c); }
         for _ in 0..20 { array.push_str(unit_a); }
 
-        let result = decompose_array_autocorr(&array, true);
+        let result = decompose_array_autocorr(&array, true, 5000);
 
         assert!(!result.monomers.is_empty());
         eprintln!("A-B-C-A: period={}, n_monomers={}, cv={:.3}",
@@ -1109,7 +1110,7 @@ mod tests {
         for _ in 0..20 { array.push_str(unit); }
         // Total: 160 + 50 + 160 = 370bp
 
-        let result = decompose_array_autocorr(&array, true);
+        let result = decompose_array_autocorr(&array, true, 5000);
 
         assert!(!result.monomers.is_empty());
         eprintln!("Repeat-gap-repeat: period={}, n_monomers={}, cv={:.3}",
@@ -1128,7 +1129,7 @@ mod tests {
             array.push_str("TTAGGG");
         }
 
-        let result = decompose_array_autocorr(&array, true);
+        let result = decompose_array_autocorr(&array, true, 5000);
 
         assert_eq!(result.period, 6, "Telomere period should be 6, got {}", result.period);
         // Should produce ~200 monomers (+ possible short flanks from anchor offset)

@@ -184,6 +184,13 @@ struct Args {
     #[arg(long, default_value = "10000")]
     max_ed_len: usize,
 
+    /// Maximum candidate period for autocorrelation scan (bp). Default 5000
+    /// preserves prior behaviour. Larger values (e.g. 32000, 100000) detect
+    /// very long HOR-level structure at increased compute cost — period
+    /// detection is O(L × max_period). Affects --method autocorr only.
+    #[arg(long, default_value = "5000")]
+    max_period: usize,
+
     /// Decomposition method: autocorr (new pipeline), classic (old), both (run both for comparison)
     #[arg(long, default_value = "autocorr")]
     method: String,
@@ -240,6 +247,7 @@ fn process_array(
     depth: usize,
     verbose: bool,
     method: &str,
+    max_period: usize,
 ) -> OutputRecord {
     let array_len = array.len();
 
@@ -256,7 +264,7 @@ fn process_array(
     let (decomposition, cut_sequence, period, autocorr_period, autocorr_value, monomer_sources) =
         match method {
             "autocorr" => {
-                let result = decompose_array_autocorr(&working_array, verbose);
+                let result = decompose_array_autocorr(&working_array, verbose, max_period);
                 // No heuristics for autocorr method (it handles its own splitting)
                 (
                     result.monomers,
@@ -1316,6 +1324,7 @@ fn main() {
     let total_bp_count = Arc::new(AtomicU64::new(0));
     let depth = args.depth;
     let verbose = args.verbose;
+    let max_period = args.max_period;
 
     // Spawn reader thread
     let reader_total = Arc::clone(&total_count);
@@ -1352,6 +1361,7 @@ fn main() {
                             depth,
                             verbose,
                             &worker_method,
+                            max_period,
                         );
                         tx.send(Some(result)).expect("Failed to send result");
                     }
