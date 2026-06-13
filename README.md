@@ -89,8 +89,8 @@ All output is **deterministically sorted by chromosome and genomic position** (c
 | File | Description |
 |------|-------------|
 | `.decomposed.fasta` | Monomers with orientation info in headers |
-| `.hors.tsv` | HOR-level decomposition (16 columns) |
-| `.monomers.tsv` | Base-level monomers from recursive decomposition (17 columns) |
+| `.hors.tsv` | HOR-level decomposition (18 columns; includes level + parent_idx for intermediate HOR rows) |
+| `.monomers.tsv` | Base-level monomers from recursive decomposition (18 columns; includes parent_level) |
 | `.summary.tsv` | One-row-per-array summary with HOR and monomer statistics (24 columns) |
 | `.lengths` | Fragment lengths for each array |
 
@@ -131,31 +131,34 @@ One row per array combining HOR-level and monomer-level statistics. Useful for o
 
 Contains the primary decomposition into HOR (Higher Order Repeat) monomers. Multiple rows per array.
 
-**Row types** (in order):
-1. `pred_array` - Array-level prediction/header row
-2. `flank` - Terminal fragments <70% of period
-3. `monomer` - Full HOR monomers (sorted by idx)
-4. `array` - Summary statistics row
-5. `consensus` - Consensus sequence row
+**Row types** (in order, per array):
+1. `pred_array` - Array-level prediction/header row (level = 1)
+2. `flank` - Terminal fragments <70% of period (level = 1)
+3. `monomer` - Top-level HOR units (level = 1, sorted by idx)
+4. `sub_hor` - Intermediate HOR nodes from recursive autocorrelation (level >= 2; only present when recursion finds further periodicity at autocorr ≥ 0.5)
+5. `array` - Summary statistics row (level = 1)
+6. `consensus` - Consensus sequence row (level = 1)
 
 | Column | Description |
 |--------|-------------|
 | `array_id` | Array identifier (chr_start_end_len_period_type) |
-| `type` | `pred_array`, `monomer`, `flank`, `array`, `consensus` |
-| `idx` | Monomer index within array (0-based) |
+| `type` | `pred_array`, `monomer`, `flank`, `sub_hor`, `array`, `consensus` |
+| `idx` | Index within `(level, array_id)`; for level=1 rows this is the monomer position; for `sub_hor` rows the per-array counter at that level |
 | `length` | Sequence length in bp |
-| `source` | Detection method: `anchor`, `split_2x`, `split_3x`, `left_flank`, `right_flank` |
+| `source` | Detection method: `anchor`, `split_2x`, `split_3x`, `left_flank`, `right_flank`, `recursive_anchor`, `recursive_split` |
 | `ed_tmpl` | Edit distance to consensus template |
 | `ed_prev` | Edit distance to previous monomer |
 | `ed_next` | Edit distance to next monomer |
 | `period` | Detected repeat period in bp |
 | `autocorr` | Autocorrelation value at detected period |
-| `n_expected` | Expected count of monomers (array_len / period) |
+| `n_expected` | Expected count of monomers (array_len / period); for `sub_hor` rows this is the number of children |
 | `ed_per_bp` | Normalized edit distance (ed / length) |
 | `cv` | Coefficient of variation for lengths |
 | `cut_sequence` | Anchor sequence used for splitting |
 | `orientation` | `fwd` or `rev` (reverse complemented) |
 | `sequence` | Actual DNA sequence (or `-` for pred_array/array rows) |
+| `level` | 1 for top-level HOR units; 2, 3, ... for sub_hor rows by recursion depth |
+| `parent_idx` | For `sub_hor` rows: idx within `level - 1` of the parent HOR. `-1` at level 1 (no parent above the array) |
 
 ### Monomers TSV Columns (`.monomers.tsv`)
 
@@ -187,8 +190,9 @@ Each HOR is recursively decomposed until:
 | `cv` | Coefficient of variation within parent group |
 | `cut_sequence` | Inherited anchor sequence |
 | `orientation` | Inherited from array (`fwd`/`rev`) |
-| `parent_idx` | Index of parent HOR from `.hors.tsv` |
+| `parent_idx` | idx (within `parent_level`) of the deepest enclosing row in `.hors.tsv`. For leaves under a top-level HOR this is the top hor_idx; for leaves under a `sub_hor` this is that sub_hor's idx |
 | `sequence` | Actual DNA sequence |
+| `parent_level` | Level of the deepest enclosing HOR row: 1 if the leaf hangs directly off a top-level HOR; 2+ if it hangs off an intermediate `sub_hor` at that level. Walking `parent_idx` up `.hors.tsv` from this row until `level = 1` recovers the full ancestry chain |
 
 ### Example: α-satellite HOR Decomposition
 
@@ -309,6 +313,11 @@ Options:
   -d, --depth <N>          Max depth for cut search [default: 100]
   --method <METHOD>        Detection method: autocorr, classic, both [default: autocorr]
   --max-ed-len <N>         Max monomer length for edit distance [default: 10000]
+  --max-period <N>         Max candidate period for autocorrelation scan in bp [default: 5000].
+                           Larger values (e.g. 32000) surface very long HOR-level structure
+                           that the default cap hides. Cost is O(L × max_period); on the zebra
+                           finch panel raising to 32000 was ~33% slower wall-time and exposed
+                           a different hor_period in 14 of 429 arrays. autocorr method only.
   --stats                  Print detailed statistics
   --top-outliers <N>       Number of outliers to show [default: 10]
   -V, --version            Print version

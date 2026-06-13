@@ -604,10 +604,13 @@ fn decompose_single_hor(
                                     intermediate_hors,
                                     next_idx_per_level,
                                 );
-                                for mut m in deeper {
-                                    m.sub_idx = sub_idx * 1000 + m.sub_idx;
-                                    result.push(m);
-                                }
+                                // (Earlier code re-encoded sub_idx as `sub_idx * 1000
+                                // + m.sub_idx` to give every leaf a unique value
+                                // across recursion branches. With deepest_hor_idx
+                                // and deepest_hor_level now carrying ancestry,
+                                // sub_idx can stay as the leaf's position inside
+                                // its immediate parent's sub-monomer list.)
+                                result.extend(deeper);
                                 continue;
                             }
                         }
@@ -826,6 +829,143 @@ mod tests {
         let total_high: usize = result_high.base_monomers.iter().map(|m| m.sequence.len()).sum();
         assert_eq!(total_low, hor.len());
         assert_eq!(total_high, hor.len());
+    }
+
+    #[test]
+    fn test_intermediate_hors_emitted_for_multi_level_hor() {
+        // Construct a two-level HOR explicitly. The sub-HOR contains five
+        // *drifted* 8bp variants — close enough that period=8 autocorr is
+        // above 0.5 (so level-2 recursion fires), but the outer 40bp boundary
+        // is perfect (autocorr=1.0 at period=40, so level-1 picks 40 over 8).
+        //   level-2 sub-HOR  = (5 × 8bp drift variants)         = 40bp
+        //   level-1 top HOR  = (sub-HOR × 3, perfect copies)    = 120bp
+        let inner_variants = [
+            "ACGTAAAA",
+            "ACGTAAAT",
+            "ACGTAACA",
+            "ACGTAAGA",
+            "ACGTAATA",
+        ];
+        let sub_hor: String = inner_variants.iter().copied().collect();
+        assert_eq!(sub_hor.len(), 40);
+        let top_hor: String = (0..3).map(|_| sub_hor.as_str()).collect();
+        assert_eq!(top_hor.len(), 120);
+
+        let result = decompose_hors_to_base(&[top_hor.clone()], 5, 0.5);
+
+        // Length conservation (load-bearing invariant — covered by other tests
+        // but cheap to re-check here in case the matryoshka path regresses).
+        let total_len: usize = result.base_monomers.iter().map(|m| m.sequence.len()).sum();
+        assert_eq!(total_len, top_hor.len());
+
+        // Multi-level: at least one IntermediateHor row was emitted.
+        assert!(
+            !result.intermediate_hors.is_empty(),
+            "expected level>=2 sub-HOR records, got 0",
+        );
+
+        // Every emitted IntermediateHor lives at level >= 2; level 1 is
+        // represented by the top-level `monomer` row in hors.tsv and must
+        // never appear in intermediate_hors.
+        for ih in &result.intermediate_hors {
+            assert!(
+                ih.level >= 2,
+                "IntermediateHor at level {} leaked into intermediate_hors",
+                ih.level,
+            );
+            assert!(ih.n_children >= 1, "n_children = 0 for sub_hor record");
+            assert!(!ih.sequence.is_empty(), "empty sequence on sub_hor record");
+            assert_eq!(ih.length, ih.sequence.len(), "length/sequence mismatch");
+        }
+
+        // parent_idx pointers are consistent: for a level-2 IntermediateHor
+        // they reference the top-level HOR (hor_idx = 0 in this single-HOR test).
+        // For level-N (N>=3) they reference an idx that exists in
+        // intermediate_hors at level (N-1).
+        for ih in &result.intermediate_hors {
+            if ih.level == 2 {
+                assert_eq!(ih.parent_idx, 0, "level-2 parent must be top hor_idx=0");
+            } else {
+                let parent_exists = result.intermediate_hors.iter().any(|p| {
+                    p.level == ih.level - 1 && p.idx_within_level == ih.parent_idx
+                });
+                assert!(
+                    parent_exists,
+                    "level-{} sub_hor.parent_idx={} has no matching level-{} row",
+                    ih.level,
+                    ih.parent_idx,
+                    ih.level - 1,
+                );
+            }
+        }
+
+        // idx_within_level is dense and unique per level (matches the per-array
+        // counter that the writer relies on for the parent_idx <-> idx join).
+        let mut per_level: std::collections::HashMap<usize, Vec<usize>> = Default::default();
+        for ih in &result.intermediate_hors {
+            per_level.entry(ih.level).or_default().push(ih.idx_within_level);
+        }
+        for (level, mut idxs) in per_level {
+            idxs.sort();
+            for (i, &v) in idxs.iter().enumerate() {
+                assert_eq!(
+                    v, i,
+                    "idx_within_level at level {} has a hole: {:?}",
+                    level, idxs,
+                );
+            }
+        }
+
+        // Every BaseMonomer's deepest_hor points at a real row in hors.tsv:
+        // either an IntermediateHor we just emitted, or the level-1 row
+        // for top hor_idx=0.
+        for mono in &result.base_monomers {
+            if mono.deepest_hor_level == 1 {
+                assert_eq!(
+                    mono.deepest_hor_idx, mono.hor_idx,
+                    "leaf at parent_level=1 must reference its own top hor_idx",
+                );
+            } else {
+                let row_exists = result.intermediate_hors.iter().any(|ih| {
+                    ih.level == mono.deepest_hor_level
+                        && ih.idx_within_level == mono.deepest_hor_idx
+                });
+                assert!(
+                    row_exists,
+                    "leaf deepest_hor = ({}, {}) has no matching intermediate row",
+                    mono.deepest_hor_level, mono.deepest_hor_idx,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_intermediate_hors_empty_for_flat_hor() {
+        // A flat HOR (one period level, no nested structure) must produce
+        // zero IntermediateHor records — leaves point straight at the
+        // level-1 row in hors.tsv.
+        let monomer = "ACGTTAGC";
+        let hor: String = (0..10).map(|_| monomer).collect();
+
+        let result = decompose_hors_to_base(&[hor.clone()], 5, 0.5);
+
+        assert!(
+            result.intermediate_hors.is_empty(),
+            "flat HOR produced {} sub_hor rows; expected 0",
+            result.intermediate_hors.len(),
+        );
+
+        for mono in &result.base_monomers {
+            assert_eq!(
+                mono.deepest_hor_level, 1,
+                "flat-HOR leaf has deepest_hor_level = {} (expected 1)",
+                mono.deepest_hor_level,
+            );
+            assert_eq!(
+                mono.deepest_hor_idx, mono.hor_idx,
+                "flat-HOR leaf's deepest_hor_idx must match its own top hor_idx",
+            );
+        }
     }
 
     #[test]
