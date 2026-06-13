@@ -19,7 +19,8 @@ use arraysplitter_rs::{
     decompose_array, decompose_array_with_cuts, decompose_array_autocorr,
     apply_all_heuristics, parse_cuts, get_revcomp,
     decompose::is_canonical_orientation,
-    recursive_hor::{RecursiveResult, decompose_hors_to_base, DEFAULT_MIN_SUBMONOMER_LEN, DEFAULT_AUTOCORR_THRESHOLD},
+    recursive_hor::{RecursiveResult, decompose_hors_to_base, DEFAULT_MIN_SUBMONOMER_LEN},
+    config::{AutocorrParams, PeriodFinder},
 };
 
 /// Global maximum monomer length for ED calculation (set from CLI)
@@ -191,6 +192,31 @@ struct Args {
     #[arg(long, default_value = "5000")]
     max_period: usize,
 
+    /// Minimum autocorrelation excess (peak above random expectation) below
+    /// which `find_period` / `find_period_refined` reject the candidate. Default
+    /// 0.05. Sweep target for the Arm A sensitivity table. autocorr only.
+    #[arg(long, default_value = "0.05")]
+    excess_floor: f64,
+
+    /// Recursive HOR descent stops when the detected sub-period's autocorrelation
+    /// drops below this threshold (a sub-monomer becomes a base leaf). Default
+    /// 0.5; raising suppresses recursion, lowering encourages it. autocorr only.
+    #[arg(long, default_value = "0.5")]
+    recursion_termination: f64,
+
+    /// Ratio `len / period` at which an anchor-bounded segment is treated as
+    /// a multiplet (n_periods ≥ 2) and gets split. Default 1.5 reproduces the
+    /// historical round-half-up boundary. autocorr only.
+    #[arg(long, default_value = "1.5")]
+    multiplet_factor: f64,
+
+    /// Which period detector to use at each level: `mode-dependent` (default)
+    /// keeps the historical split — raw `find_period` at the top level,
+    /// `find_period_refined` inside the recursive descent. `raw` forces
+    /// `find_period` everywhere; `refined` forces `find_period_refined`. autocorr only.
+    #[arg(long, default_value = "mode-dependent")]
+    period_finder: String,
+
     /// Decomposition method: autocorr (new pipeline), classic (old), both (run both for comparison)
     #[arg(long, default_value = "autocorr")]
     method: String,
@@ -248,6 +274,7 @@ fn process_array(
     verbose: bool,
     method: &str,
     max_period: usize,
+    autocorr_params: &AutocorrParams,
 ) -> OutputRecord {
     let array_len = array.len();
 
@@ -264,7 +291,7 @@ fn process_array(
     let (decomposition, cut_sequence, period, autocorr_period, autocorr_value, monomer_sources) =
         match method {
             "autocorr" => {
-                let result = decompose_array_autocorr(&working_array, verbose, max_period);
+                let result = decompose_array_autocorr(&working_array, verbose, max_period, autocorr_params);
                 // No heuristics for autocorr method (it handles its own splitting)
                 (
                     result.monomers,
@@ -435,7 +462,7 @@ fn process_array(
         decompose_hors_to_base(
             &hor_monomer_seqs,
             DEFAULT_MIN_SUBMONOMER_LEN,
-            DEFAULT_AUTOCORR_THRESHOLD,
+            autocorr_params,
         )
     } else {
         RecursiveResult {
@@ -481,7 +508,11 @@ fn process_array(
         autocorr_period,
         autocorr_value,
         autocorr_excess: autocorr_value.map(|v| v - 0.25), // excess over uniform random
-        method: method.to_string(),
+        method: if method == "autocorr" {
+            autocorr_params.method_label(method)
+        } else {
+            method.to_string()
+        },
         n_monomers,
         ed_per_bp,
         cv,
@@ -1325,6 +1356,16 @@ fn main() {
     let depth = args.depth;
     let verbose = args.verbose;
     let max_period = args.max_period;
+    let autocorr_params = AutocorrParams {
+        excess_floor: args.excess_floor,
+        recursion_termination: args.recursion_termination,
+        multiplet_factor: args.multiplet_factor,
+        period_finder: PeriodFinder::from_cli_str(&args.period_finder)
+            .unwrap_or_else(|e| {
+                eprintln!("error: {}", e);
+                std::process::exit(2);
+            }),
+    };
 
     // Spawn reader thread
     let reader_total = Arc::clone(&total_count);
@@ -1344,6 +1385,7 @@ fn main() {
         let tx = output_tx.clone();
         let cuts = predefined_cuts.clone();
         let worker_method = method.clone();
+        let worker_params = autocorr_params;
 
         let handle = thread::spawn(move || {
             loop {
@@ -1362,6 +1404,7 @@ fn main() {
                             verbose,
                             &worker_method,
                             max_period,
+                            &worker_params,
                         );
                         tx.send(Some(result)).expect("Failed to send result");
                     }

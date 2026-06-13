@@ -20,6 +20,7 @@
 //! println!("Found {} monomers with period {}bp", result.monomers.len(), result.period);
 //! ```
 
+pub mod config;
 pub mod sequence;
 pub mod io;
 pub mod fs_tree;
@@ -30,6 +31,8 @@ pub mod autocorrelation;
 pub mod anchor_by_period;
 pub mod multiplet_split;
 pub mod recursive_hor;
+
+pub use config::{AutocorrParams, PeriodFinder};
 
 // Re-exports for convenient access
 pub use sequence::{

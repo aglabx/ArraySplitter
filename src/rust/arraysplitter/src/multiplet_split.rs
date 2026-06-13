@@ -26,6 +26,7 @@ pub fn split_multiplets(
     seq: &[u8],
     anchor_positions: &[usize],
     period: usize,
+    multiplet_factor: f64,
 ) -> Vec<MonomerBoundary> {
     if anchor_positions.is_empty() {
         // No anchors found - return entire sequence as single monomer
@@ -48,7 +49,11 @@ pub fn split_multiplets(
         boundaries.push(seq.len());
     }
 
-    // Build segments with classification
+    // Build segments with classification.
+    // `multiplet_factor` is the len/period ratio at which an anchor-bounded
+    // segment is treated as a multiplet (n_periods >= 2) instead of a single
+    // monomer. Default 1.5 reproduces the historical round-half-up boundary
+    // produced by `((len / period) + 0.5) as usize`.
     let tolerance = (period as f64 * 0.3) as usize;
     let mut segments: Vec<(usize, usize, usize)> = Vec::new(); // (start, end, n_periods)
 
@@ -57,10 +62,20 @@ pub fn split_multiplets(
         let end = boundaries[i + 1];
         let len = end - start;
 
-        let n_periods = if period > 0 {
-            ((len as f64 / period as f64) + 0.5) as usize
+        let ratio = if period > 0 {
+            len as f64 / period as f64
         } else {
+            1.0
+        };
+
+        let n_periods = if ratio < multiplet_factor {
             1
+        } else {
+            // Past the multiplet threshold: round-half-up and force >= 2 so
+            // the segment is actually classified as a multiplet (otherwise
+            // ratio just below 2.0 with multiplet_factor=1.3 would still
+            // round to 1 and the threshold would have no effect).
+            (((ratio) + 0.5) as usize).max(2)
         };
 
         // Validate: is this approximately n_periods × P?
@@ -77,7 +92,7 @@ pub fn split_multiplets(
                 n_periods
             } else {
                 // Recompute more carefully
-                let best_n = (len as f64 / period as f64).round() as usize;
+                let best_n = ratio.round() as usize;
                 if best_n == 0 { 1 } else { best_n }
             }
         };
@@ -335,7 +350,7 @@ mod tests {
     #[test]
     fn test_split_multiplets_no_anchors() {
         let seq = b"ACGTACGTACGT";
-        let result = split_multiplets(seq, &[], 4);
+        let result = split_multiplets(seq, &[], 4, 1.5);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].start, 0);
         assert_eq!(result[0].end, 12);
@@ -347,7 +362,7 @@ mod tests {
         // Anchors every 4bp in a 20bp sequence
         let seq = b"ACGTACGTACGTACGTACGT";
         let anchors = vec![0, 4, 8, 12, 16];
-        let result = split_multiplets(seq, &anchors, 4);
+        let result = split_multiplets(seq, &anchors, 4, 1.5);
         assert_eq!(result.len(), 5);
         for (i, m) in result.iter().enumerate() {
             assert_eq!(m.start, i * 4);
@@ -362,7 +377,7 @@ mod tests {
         let seq = b"ACGTACGTACGTACGTACGT"; // 20bp, period 4
         // Anchors at 0, 4, 12, 16 (missing 8 → segment 4..12 is 2×P)
         let anchors = vec![0, 4, 12, 16];
-        let result = split_multiplets(seq, &anchors, 4);
+        let result = split_multiplets(seq, &anchors, 4, 1.5);
 
         // Should have: [0,4), [4,8), [8,12), [12,16), [16,20)
         // The [4,12) segment should be split into two
@@ -383,7 +398,7 @@ mod tests {
         // First segment is a flank (anchor doesn't start at 0)
         let seq = b"XXACGTACGTACGT"; // 14bp
         let anchors = vec![2, 6, 10];
-        let result = split_multiplets(seq, &anchors, 4);
+        let result = split_multiplets(seq, &anchors, 4, 1.5);
 
         // First segment [0,2) should be left_flank
         assert!(result.len() >= 4);
@@ -445,7 +460,7 @@ mod tests {
             .map(|i| i * period)
             .collect();
 
-        let result = split_multiplets(&seq, &anchors, period);
+        let result = split_multiplets(&seq, &anchors, period, 1.5);
 
         // Should split the triplet segment into 3 monomers
         let total_monomers: usize = result.len();

@@ -14,6 +14,7 @@ use crate::anchor_graph::AnchorGraphDecomposer;
 use crate::autocorrelation;
 use crate::anchor_by_period;
 use crate::multiplet_split;
+use crate::config::{AutocorrParams, PeriodFinder};
 
 /// Result of array decomposition
 #[derive(Debug, Clone)]
@@ -772,16 +773,26 @@ pub fn decompose_array_autocorr(
     array: &str,
     verbose: bool,
     max_period_cap: usize,
+    params: &AutocorrParams,
 ) -> Decomposition {
     let seq = array.as_bytes();
     let min_period = 5;
     let max_period = (array.len() / 3).min(max_period_cap); // need >=3 copies, cap at user-supplied --max-period
 
-    // Step 1: Autocorrelation period detection
-    // Use find_period (not find_period_refined) to preserve HOR structure.
-    // find_period returns the period with maximum autocorrelation excess,
-    // while find_period_refined would "refine" down to smaller sub-periods.
-    let period_result = autocorrelation::find_period(seq, min_period, max_period);
+    // Step 1: Autocorrelation period detection.
+    // Historical default (`--period-finder mode-dependent`): use `find_period`
+    // (raw) at the top level to preserve HOR structure — `find_period_refined`
+    // would "refine" down to smaller sub-periods. `--period-finder refined`
+    // swaps in `find_period_refined` here too; `--period-finder raw` keeps raw
+    // both here and in the recursive descent.
+    let period_result = match params.period_finder {
+        PeriodFinder::Refined => {
+            autocorrelation::find_period_refined(seq, min_period, max_period, params.excess_floor)
+        }
+        PeriodFinder::ModeDependent | PeriodFinder::Raw => {
+            autocorrelation::find_period(seq, min_period, max_period, params.excess_floor)
+        }
+    };
 
     let (period, autocorr_value) = match period_result {
         Some((p, ac, _excess)) => (p, ac),
@@ -856,7 +867,7 @@ pub fn decompose_array_autocorr(
     };
 
     // Step 3: Multiplet splitting
-    let boundaries = multiplet_split::split_multiplets(seq, &anchor_positions, period);
+    let boundaries = multiplet_split::split_multiplets(seq, &anchor_positions, period, params.multiplet_factor);
 
     if verbose {
         let n_anchor = boundaries.iter().filter(|b| b.source == "anchor").count();
@@ -1014,7 +1025,7 @@ mod tests {
         }
         let array: String = seq.into_iter().collect();
 
-        let result = decompose_array_autocorr(&array, true, 5000);
+        let result = decompose_array_autocorr(&array, true, 5000, &Default::default());
 
         // Should return single "monomer" = whole array, source = "no_period"
         assert_eq!(result.monomers.len(), 1, "Non-periodic should give 1 monomer");
@@ -1034,7 +1045,7 @@ mod tests {
         }
         // Total: 600 + 600 = 1200bp
 
-        let result = decompose_array_autocorr(&array, true, 5000);
+        let result = decompose_array_autocorr(&array, true, 5000, &Default::default());
 
         assert!(!result.monomers.is_empty(), "Should produce at least 1 monomer");
         eprintln!("Two repeats: period={}, n_monomers={}, sources={:?}",
@@ -1060,7 +1071,7 @@ mod tests {
         }
         // 3 × (80 + 80) = 480bp, super-period = 160bp
 
-        let result = decompose_array_autocorr(&array, true, 5000);
+        let result = decompose_array_autocorr(&array, true, 5000, &Default::default());
 
         assert!(!result.monomers.is_empty());
         eprintln!("A-B-A-B: period={}, n_monomers={}, cv={:.3}",
@@ -1086,7 +1097,7 @@ mod tests {
         for _ in 0..20 { array.push_str(unit_c); }
         for _ in 0..20 { array.push_str(unit_a); }
 
-        let result = decompose_array_autocorr(&array, true, 5000);
+        let result = decompose_array_autocorr(&array, true, 5000, &Default::default());
 
         assert!(!result.monomers.is_empty());
         eprintln!("A-B-C-A: period={}, n_monomers={}, cv={:.3}",
@@ -1110,7 +1121,7 @@ mod tests {
         for _ in 0..20 { array.push_str(unit); }
         // Total: 160 + 50 + 160 = 370bp
 
-        let result = decompose_array_autocorr(&array, true, 5000);
+        let result = decompose_array_autocorr(&array, true, 5000, &Default::default());
 
         assert!(!result.monomers.is_empty());
         eprintln!("Repeat-gap-repeat: period={}, n_monomers={}, cv={:.3}",
@@ -1129,7 +1140,7 @@ mod tests {
             array.push_str("TTAGGG");
         }
 
-        let result = decompose_array_autocorr(&array, true, 5000);
+        let result = decompose_array_autocorr(&array, true, 5000, &Default::default());
 
         assert_eq!(result.period, 6, "Telomere period should be 6, got {}", result.period);
         // Should produce ~200 monomers (+ possible short flanks from anchor offset)

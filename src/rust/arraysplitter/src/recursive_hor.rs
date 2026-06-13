@@ -4,10 +4,29 @@
 //! Uses autocorrelation to detect periodicity within each HOR and recursively
 //! splits until reaching base monomers (no detectable periodicity).
 
-use crate::autocorrelation::{find_period_refined, random_expectation, autocorrelation};
+use crate::autocorrelation::{find_period, find_period_refined, random_expectation, autocorrelation};
 use crate::anchor_by_period::find_anchor_by_period_with_fallback;
 use crate::multiplet_split::split_multiplets;
+use crate::config::{AutocorrParams, PeriodFinder};
 use triple_accel::levenshtein_exp;
+
+/// Pick the period finder that matches the user's `--period-finder` choice at
+/// recursive-descent depths. `ModeDependent` (default) uses `find_period_refined`
+/// during recursion, matching the historical behaviour; `Raw` swaps in
+/// `find_period`; `Refined` keeps the refined variant.
+fn recursion_period(
+    seq: &[u8],
+    min_d: usize,
+    max_d: usize,
+    params: &AutocorrParams,
+) -> Option<(usize, f64, f64)> {
+    match params.period_finder {
+        PeriodFinder::Raw => find_period(seq, min_d, max_d, params.excess_floor),
+        PeriodFinder::ModeDependent | PeriodFinder::Refined => {
+            find_period_refined(seq, min_d, max_d, params.excess_floor)
+        }
+    }
+}
 
 /// A base-level monomer after recursive decomposition
 #[derive(Debug, Clone)]
@@ -325,7 +344,7 @@ pub fn compute_submonomer_metrics(base_monomers: &mut Vec<BaseMonomer>) {
 pub fn decompose_hors_to_base(
     hor_monomers: &[String],
     min_submonomer_len: usize,
-    autocorr_threshold: f64,
+    params: &AutocorrParams,
 ) -> RecursiveResult {
     let mut all_base_monomers: Vec<BaseMonomer> = Vec::new();
     let mut intermediate_hors: Vec<IntermediateHor> = Vec::new();
@@ -341,7 +360,7 @@ pub fn decompose_hors_to_base(
             hor_idx,
             (1, hor_idx),
             min_submonomer_len,
-            autocorr_threshold,
+            params,
             1,
             &mut max_depth,
             &mut intermediate_hors,
@@ -472,12 +491,13 @@ fn decompose_single_hor(
     top_hor_idx: usize,
     parent_hor_row: (usize, usize),
     min_len: usize,
-    autocorr_threshold: f64,
+    params: &AutocorrParams,
     current_level: usize,
     max_depth: &mut usize,
     intermediate_hors: &mut Vec<IntermediateHor>,
     next_idx_per_level: &mut Vec<usize>,
 ) -> Vec<BaseMonomer> {
+    let autocorr_threshold = params.recursion_termination;
     if current_level > *max_depth {
         *max_depth = current_level;
     }
@@ -523,7 +543,7 @@ fn decompose_single_hor(
     let min_period = min_len;
     let max_period = hor_seq.len() / 2; // need at least 2 copies
 
-    let period_result = find_period_refined(seq_bytes, min_period, max_period);
+    let period_result = recursion_period(seq_bytes, min_period, max_period, params);
 
     match period_result {
         Some((period, autocorr, _excess)) => {
@@ -540,7 +560,7 @@ fn decompose_single_hor(
             }
 
             // Decompose further.
-            let sub_monomers = decompose_hor_by_period(hor_seq, period, autocorr);
+            let sub_monomers = decompose_hor_by_period(hor_seq, period, autocorr, params);
             let n_children = sub_monomers.len();
 
             // Reserve an `IntermediateHor` row for hor_seq at level >= 2.
@@ -590,7 +610,7 @@ fn decompose_single_hor(
 
                     if sub_max_period >= sub_min_period {
                         if let Some((_, sub_autocorr, _)) =
-                            find_period_refined(sub_bytes, sub_min_period, sub_max_period)
+                            recursion_period(sub_bytes, sub_min_period, sub_max_period, params)
                         {
                             if sub_autocorr > autocorr_threshold {
                                 let deeper = decompose_single_hor(
@@ -598,7 +618,7 @@ fn decompose_single_hor(
                                     top_hor_idx,
                                     this_hor_row,
                                     min_len,
-                                    autocorr_threshold,
+                                    params,
                                     current_level + 1,
                                     max_depth,
                                     intermediate_hors,
@@ -617,7 +637,7 @@ fn decompose_single_hor(
                     }
 
                     let final_autocorr = if sub_max_period >= sub_min_period {
-                        find_period_refined(sub_bytes, sub_min_period, sub_max_period)
+                        recursion_period(sub_bytes, sub_min_period, sub_max_period, params)
                             .map(|(_, ac, _)| ac)
                             .unwrap_or(0.0)
                     } else {
@@ -651,7 +671,7 @@ fn decompose_single_hor(
 }
 
 /// Decompose a HOR sequence using already-detected period (no re-detection)
-fn decompose_hor_by_period(hor_seq: &str, period: usize, _autocorr: f64) -> Vec<(String, String)> {
+fn decompose_hor_by_period(hor_seq: &str, period: usize, _autocorr: f64, params: &AutocorrParams) -> Vec<(String, String)> {
     let seq_len = hor_seq.len();
     let seq_bytes = hor_seq.as_bytes();
 
@@ -663,7 +683,7 @@ fn decompose_hor_by_period(hor_seq: &str, period: usize, _autocorr: f64) -> Vec<
     // Find anchor using the known period (no autocorr re-detection)
     match find_anchor_by_period_with_fallback(seq_bytes, period) {
         Some(anchor_result) if anchor_result.positions.len() >= 2 => {
-            let boundaries = split_multiplets(seq_bytes, &anchor_result.positions, period);
+            let boundaries = split_multiplets(seq_bytes, &anchor_result.positions, period, params.multiplet_factor);
 
             if boundaries.len() > 1 {
                 boundaries.iter()
@@ -734,7 +754,7 @@ mod tests {
         // Short sequence without enough length for decomposition
         // The key is that it should just verify total length preservation
         let hor = "ACGTTAGCAGTCGATCAGTCAGTCGATCGATCGATCAGTCAGTCAGTCAGT";
-        let result = decompose_hors_to_base(&[hor.to_string()], 5, 0.5);
+        let result = decompose_hors_to_base(&[hor.to_string()], 5, &Default::default());
 
         // Total length should be preserved regardless of decomposition
         let total_len: usize = result.base_monomers.iter().map(|m| m.sequence.len()).sum();
@@ -752,7 +772,7 @@ mod tests {
         let monomer = "ACGTTAGC";
         let hor: String = (0..10).map(|_| monomer).collect();
 
-        let result = decompose_hors_to_base(&[hor.clone()], 5, 0.5);
+        let result = decompose_hors_to_base(&[hor.clone()], 5, &Default::default());
 
         // Should detect periodicity and decompose
         assert!(result.base_monomers.len() >= 3, "Expected at least 3 monomers, got {}", result.base_monomers.len());
@@ -766,7 +786,7 @@ mod tests {
     fn test_short_sequence() {
         // Sequence too short for meaningful decomposition
         let hor = "ACGT";
-        let result = decompose_hors_to_base(&[hor.to_string()], 5, 0.5);
+        let result = decompose_hors_to_base(&[hor.to_string()], 5, &Default::default());
 
         // Should return as-is
         assert_eq!(result.base_monomers.len(), 1);
@@ -779,7 +799,7 @@ mod tests {
         let hor1: String = (0..5).map(|_| "ACGT").collect();
         let hor2: String = (0..5).map(|_| "TTAGGG").collect();
 
-        let result = decompose_hors_to_base(&[hor1.clone(), hor2.clone()], 5, 0.5);
+        let result = decompose_hors_to_base(&[hor1.clone(), hor2.clone()], 5, &Default::default());
 
         // Should decompose both (total length preserved)
         let total_len: usize = result.base_monomers.iter().map(|m| m.sequence.len()).sum();
@@ -800,7 +820,7 @@ mod tests {
         let base_monomer = "AATGGTTTCAAAGTTATTTTTAAAATTGTAAAAAGACTTTCGATTTTTTTTATCTTTTTGACTGAAAATATTTCTTTTGTAAGATTTGAGATCTCAGTGTATAATCCTTTCATAAAAAATTAAAATTGGGATATTGAGGGAATAACATTCTTATG";
         let hor: String = (0..3).map(|_| base_monomer).collect();
 
-        let result = decompose_hors_to_base(&[hor.clone()], 5, 0.5);
+        let result = decompose_hors_to_base(&[hor.clone()], 5, &Default::default());
 
         // Total length should be preserved
         let total_len: usize = result.base_monomers.iter().map(|m| m.sequence.len()).sum();
@@ -817,9 +837,11 @@ mod tests {
         let hor: String = (0..20).map(|_| monomer).collect();
 
         // Low threshold - should decompose
-        let result_low = decompose_hors_to_base(&[hor.clone()], 5, 0.3);
+        let low = AutocorrParams { recursion_termination: 0.3, ..Default::default() };
+        let result_low = decompose_hors_to_base(&[hor.clone()], 5, &low);
         // High threshold - might not decompose (depends on autocorr)
-        let result_high = decompose_hors_to_base(&[hor.clone()], 5, 0.99);
+        let high = AutocorrParams { recursion_termination: 0.99, ..Default::default() };
+        let result_high = decompose_hors_to_base(&[hor.clone()], 5, &high);
 
         // With perfect repeats, autocorr should be high, so both should decompose
         assert!(result_low.base_monomers.len() >= result_high.base_monomers.len());
@@ -851,7 +873,7 @@ mod tests {
         let top_hor: String = (0..3).map(|_| sub_hor.as_str()).collect();
         assert_eq!(top_hor.len(), 120);
 
-        let result = decompose_hors_to_base(&[top_hor.clone()], 5, 0.5);
+        let result = decompose_hors_to_base(&[top_hor.clone()], 5, &Default::default());
 
         // Length conservation (load-bearing invariant — covered by other tests
         // but cheap to re-check here in case the matryoshka path regresses).
@@ -947,7 +969,7 @@ mod tests {
         let monomer = "ACGTTAGC";
         let hor: String = (0..10).map(|_| monomer).collect();
 
-        let result = decompose_hors_to_base(&[hor.clone()], 5, 0.5);
+        let result = decompose_hors_to_base(&[hor.clone()], 5, &Default::default());
 
         assert!(
             result.intermediate_hors.is_empty(),
@@ -979,7 +1001,7 @@ mod tests {
         ];
 
         for seq in &sequences {
-            let result = decompose_hors_to_base(&[seq.clone()], 5, 0.5);
+            let result = decompose_hors_to_base(&[seq.clone()], 5, &Default::default());
             let total_len: usize = result.base_monomers.iter().map(|m| m.sequence.len()).sum();
             assert_eq!(total_len, seq.len(), "Length not preserved for: {}", seq);
         }

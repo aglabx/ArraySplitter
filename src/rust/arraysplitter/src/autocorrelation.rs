@@ -93,12 +93,13 @@ fn generate_sample_positions(seq_len: usize, n_samples: usize) -> Vec<usize> {
 /// Find the best period in a given range [min_d, max_d].
 /// Returns (period, autocorr_value, excess_over_random) or None if no periodicity detected.
 ///
-/// The excess threshold is 0.05 — if no offset exceeds random expectation by this amount,
-/// we conclude there is no periodicity.
+/// `excess_floor` is the minimum excess-over-random the peak must exceed for the
+/// candidate to be accepted. The CLI default is 0.05; the `--excess-floor` flag
+/// passes other values through.
 ///
 /// For sequences > 50KB, uses position subsampling (10000 positions) to keep
 /// computation time constant regardless of sequence length.
-pub fn find_period(seq: &[u8], min_d: usize, max_d: usize) -> Option<(usize, f64, f64)> {
+pub fn find_period(seq: &[u8], min_d: usize, max_d: usize, excess_floor: f64) -> Option<(usize, f64, f64)> {
     if seq.len() < min_d + 1 {
         return None;
     }
@@ -135,8 +136,8 @@ pub fn find_period(seq: &[u8], min_d: usize, max_d: usize) -> Option<(usize, f64
         }
     }
 
-    // Validate: peak excess must be significant
-    if best_excess < 0.05 {
+    // Validate: peak excess must clear the configured floor.
+    if best_excess < excess_floor {
         return None;
     }
 
@@ -148,8 +149,12 @@ pub fn find_period(seq: &[u8], min_d: usize, max_d: usize) -> Option<(usize, f64
 /// to find the fundamental (shortest period with similar autocorrelation).
 /// This handles cases like TTAGGG (period 6) where the raw scan might
 /// find d=30 (5×6) if min_d > 6.
-pub fn find_period_refined(seq: &[u8], min_d: usize, max_d: usize) -> Option<(usize, f64, f64)> {
-    let result = find_period(seq, min_d, max_d)?;
+///
+/// The same `excess_floor` that gates `find_period` also gates the sub-period
+/// acceptance below — a divisor only becomes the fundamental if its excess
+/// still clears the floor.
+pub fn find_period_refined(seq: &[u8], min_d: usize, max_d: usize, excess_floor: f64) -> Option<(usize, f64, f64)> {
+    let result = find_period(seq, min_d, max_d, excess_floor)?;
     let (period, _autocorr, excess) = result;
 
     let random_exp = random_expectation(seq);
@@ -187,7 +192,7 @@ pub fn find_period_refined(seq: &[u8], min_d: usize, max_d: usize) -> Option<(us
         let sub_excess = sub_ac - random_exp;
 
         // If sub-period has ≥80% of the full period's excess, it's the fundamental
-        if sub_excess >= excess * 0.8 && sub_excess >= 0.05 {
+        if sub_excess >= excess * 0.8 && sub_excess >= excess_floor {
             best_sub = sub_p;
             best_sub_ac = sub_ac;
             best_sub_excess = sub_excess;
@@ -238,7 +243,7 @@ mod tests {
     fn test_find_period_simple() {
         // 10 copies of "ACGT" → period should be 4
         let seq = b"ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT";
-        let result = find_period(seq, 2, 20);
+        let result = find_period(seq, 2, 20, 0.05);
         assert!(result.is_some());
         let (period, autocorr, excess) = result.unwrap();
         assert_eq!(period, 4);
@@ -254,7 +259,7 @@ mod tests {
         for _ in 0..20 {
             seq.extend_from_slice(unit);
         }
-        let result = find_period(&seq, 2, 50);
+        let result = find_period(&seq, 2, 50, 0.05);
         assert!(result.is_some());
         let (period, _, _) = result.unwrap();
         assert_eq!(period, 8);
@@ -278,7 +283,7 @@ mod tests {
             seq.push(nucleotide);
         }
         // Search for periods in range [50, 500] — should find nothing significant
-        let result = find_period(&seq, 50, 500);
+        let result = find_period(&seq, 50, 500, 0.05);
         assert!(result.is_none());
     }
 
@@ -307,7 +312,7 @@ mod tests {
             }
         }
 
-        let result = find_period(&seq, 2, 50);
+        let result = find_period(&seq, 2, 50, 0.05);
         assert!(result.is_some());
         let (period, _autocorr, excess) = result.unwrap();
         // Period should be 8 (or a harmonic like 16, 24 in rare cases)
@@ -323,7 +328,7 @@ mod tests {
         for _ in 0..100 {
             seq.extend_from_slice(unit);
         }
-        let result = find_period_refined(&seq, 5, 200);
+        let result = find_period_refined(&seq, 5, 200, 0.05);
         assert!(result.is_some());
         let (period, autocorr, _) = result.unwrap();
         assert_eq!(period, 6, "Telomere period should be 6, got {}", period);
@@ -338,7 +343,7 @@ mod tests {
         for _ in 0..100 {
             seq.extend_from_slice(unit);
         }
-        let result = find_period_refined(&seq, 5, 200);
+        let result = find_period_refined(&seq, 5, 200, 0.05);
         assert!(result.is_some());
         let (period, _, _) = result.unwrap();
         assert_eq!(period, 5, "AATGG period should be 5, got {}", period);
@@ -352,7 +357,7 @@ mod tests {
         for _ in 0..50 {
             seq.extend_from_slice(unit);
         }
-        let result = find_period_refined(&seq, 5, 200);
+        let result = find_period_refined(&seq, 5, 200, 0.05);
         assert!(result.is_some());
         let (period, _, _) = result.unwrap();
         assert_eq!(period, 8, "ACGTTAGC period should be 8, got {}", period);
