@@ -3,8 +3,21 @@
 //! Computes the fraction of matching nucleotides at offset d to detect periodicity.
 //! The best period is the offset with the maximum excess over random expectation.
 
+/// True for an unambiguous DNA base (A/C/G/T, either case).
+#[inline]
+fn is_acgt(b: u8) -> bool {
+    matches!(b, b'A' | b'C' | b'G' | b'T' | b'a' | b'c' | b'g' | b't')
+}
+
 /// Compute autocorrelation at a specific offset d.
-/// Returns the fraction of positions where seq[i] == seq[i+d].
+/// Returns the fraction of *unambiguous* position pairs where seq[i] == seq[i+d].
+///
+/// Only positions where BOTH `seq[i]` and `seq[i+d]` are unambiguous A/C/G/T are
+/// counted; ambiguous bases (N, IUPAC degeneracy codes) are excluded from both the
+/// match count and the divisor. This keeps the numerator/denominator consistent with
+/// `random_expectation()` (which is computed over A/C/G/T only) — otherwise a run of
+/// N's would inflate the autocorrelation (N == N counted as a match) and manufacture
+/// spurious periodicity.
 pub fn autocorrelation(seq: &[u8], d: usize) -> f64 {
     if d == 0 || d >= seq.len() {
         return 0.0;
@@ -15,13 +28,23 @@ pub fn autocorrelation(seq: &[u8], d: usize) -> f64 {
         return 0.0;
     }
 
-    let matches: usize = seq[..n]
-        .iter()
-        .zip(seq[d..].iter())
-        .filter(|(&a, &b)| a == b)
-        .count();
+    let mut matches = 0usize;
+    let mut valid = 0usize;
+    for i in 0..n {
+        let a = seq[i];
+        let b = seq[i + d];
+        if is_acgt(a) && is_acgt(b) {
+            valid += 1;
+            if a == b {
+                matches += 1;
+            }
+        }
+    }
 
-    matches as f64 / n as f64
+    if valid == 0 {
+        return 0.0;
+    }
+    matches as f64 / valid as f64
 }
 
 /// Compute random expectation from nucleotide composition.
@@ -66,13 +89,22 @@ fn autocorrelation_sampled(seq: &[u8], d: usize, sample_positions: Option<&[usiz
 
     match sample_positions {
         Some(positions) => {
-            // Use precomputed sample positions
-            let valid: Vec<&usize> = positions.iter().filter(|&&p| p + d < seq.len()).collect();
-            if valid.is_empty() {
+            // Use precomputed sample positions; count only unambiguous pairs
+            // (same rule as the full `autocorrelation`).
+            let mut matches = 0usize;
+            let mut valid = 0usize;
+            for &p in positions {
+                if p + d < seq.len() && is_acgt(seq[p]) && is_acgt(seq[p + d]) {
+                    valid += 1;
+                    if seq[p] == seq[p + d] {
+                        matches += 1;
+                    }
+                }
+            }
+            if valid == 0 {
                 return 0.0;
             }
-            let matches: usize = valid.iter().filter(|&&&p| seq[p] == seq[p + d]).count();
-            matches as f64 / valid.len() as f64
+            matches as f64 / valid as f64
         }
         None => {
             // Full computation
@@ -221,6 +253,19 @@ mod tests {
         let seq = b"ACGTTAGCAGTCGATCAGTCAGTCGATCGATCGATCAGTCAGTCAGTCAGT";
         let ac = autocorrelation(seq, 7);
         assert!(ac < 0.5); // Should not be strongly periodic at offset 7
+    }
+
+    #[test]
+    fn test_autocorrelation_excludes_ambiguous() {
+        // A run of N's must NOT be counted as matches (would manufacture periodicity).
+        let all_n = b"NNNNNNNNNNNNNNNN";
+        assert_eq!(autocorrelation(all_n, 4), 0.0, "all-N sequence must give 0, not 1.0");
+
+        // "ACGT"x4 then an N block: the N positions are excluded, so the period-4
+        // autocorrelation over the real region stays 1.0 (neither inflated nor diluted).
+        let mixed = b"ACGTACGTACGTACGTNNNNNNNN";
+        let ac = autocorrelation(mixed, 4);
+        assert!((ac - 1.0).abs() < 1e-10, "period-4 autocorr should be 1.0, got {}", ac);
     }
 
     #[test]
