@@ -15,6 +15,13 @@
 #                                       which level that is.
 #                        .decomposed.fasta, .lengths, .summary.tsv unchanged.
 #
+#   <no_period commit> .summary.tsv gains a trailing `status` column
+#                       ({ok | no_period}); no_period marks the degenerate
+#                       "period == array length" fallback (paper review #6).
+#                       Column VALUES of every prior field are byte-identical;
+#                       the other 4 output files are unchanged (verified: their
+#                       md5s below are untouched).
+#
 # Input:   test_data/zebra_finch_satdna.fasta (60.01 Mbp, 429 arrays)
 # Command: arraysplitter -i test_data/zebra_finch_satdna.fasta \
 #                        -o <prefix> -t 4 --method autocorr
@@ -26,6 +33,6 @@
 # Columns: extension<TAB>md5<TAB>size_bytes<TAB>line_count
 .decomposed.fasta	8834f8f1bdb22c87b4e4c50f78ab1180	60488876	858
 .lengths	9f9733fdb42785e12bb1e56fb43d8d26	1381261	858
-.summary.tsv	79a021317fa21eefe7ddab6e382e9ca2	1652539	430
+.summary.tsv	7e3c5b860169e1ada0a5650036d2ee6f	1653833	430
 .hors.tsv	171747050622f320260d0eab2cdd99ee	106773738	444346
 .monomers.tsv	1400997f935e8c358eecfe82eeb6d2e2	114958524	511366
