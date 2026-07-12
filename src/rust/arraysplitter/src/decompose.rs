@@ -785,6 +785,17 @@ pub fn decompose_array_autocorr(
     // would "refine" down to smaller sub-periods. `--period-finder refined`
     // swaps in `find_period_refined` here too; `--period-finder raw` keeps raw
     // both here and in the recursive descent.
+    //
+    // NOTE (harmonic-overcall investigation, 2026-07-12): a general "fold a long
+    // few-copy period down to a shorter strong sub-period" step was prototyped here
+    // and REJECTED. Autocorrelation cannot distinguish a genuine high-ratio HOR (the
+    // real chrW 4632 bp = 47 × 98 bp HOR) from a harmonic overcall (chr17 98.7 kb =
+    // 16 × 6.16 kb) — both expose a strong shorter period — so any such fold destroys
+    // real biology (in testing it collapsed the chrW HOR and two composite HORs on
+    // the zebra finch panel). `--period-finder refined` still collapses EXACT
+    // divisor-multiple harmonics (safe: 98 does not divide 4632). The safe mitigation
+    // for long few-copy periods is the lower candidate-period cap (the paper's
+    // D = 32000 recommendation) plus analyst validation, not an unconditional fold.
     let period_result = match params.period_finder {
         PeriodFinder::Refined => {
             autocorrelation::find_period_refined(seq, min_period, max_period, params.excess_floor)

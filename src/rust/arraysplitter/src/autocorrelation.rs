@@ -187,14 +187,14 @@ pub fn find_period(seq: &[u8], min_d: usize, max_d: usize, excess_floor: f64) ->
 /// still clears the floor.
 pub fn find_period_refined(seq: &[u8], min_d: usize, max_d: usize, excess_floor: f64) -> Option<(usize, f64, f64)> {
     let result = find_period(seq, min_d, max_d, excess_floor)?;
-    let (period, _autocorr, excess) = result;
+    let (period, autocorr, excess) = result;
 
     let random_exp = random_expectation(seq);
 
     // Check all divisors of period from smallest to largest
     // If a sub-period has similar autocorrelation, it's the fundamental
     let mut best_sub = period;
-    let mut best_sub_ac = _autocorr;
+    let mut best_sub_ac = autocorr;
     let mut best_sub_excess = excess;
 
     // Check divisors: 2, 3, 4, 5, ... up to sqrt(period)
