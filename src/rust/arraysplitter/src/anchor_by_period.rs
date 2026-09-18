@@ -38,7 +38,7 @@ pub fn find_anchor_by_period(
     min_k: usize,
     max_k: usize,
 ) -> Option<AnchorResult> {
-    if seq.len() < period * 2 {
+    if period == 0 || seq.len() < period * 2 {
         return None; // Need at least 2 copies
     }
 
@@ -151,7 +151,7 @@ fn compute_uniqueness(positions: &[usize], period: usize) -> f64 {
 
 /// Compute regularity: fraction of consecutive gaps that are approximately P (±30%).
 fn compute_regularity(positions: &[usize], period: usize) -> f64 {
-    if positions.len() < 2 {
+    if positions.len() < 2 || period == 0 {
         return 0.0;
     }
 
@@ -324,4 +324,12 @@ mod tests {
         let anchor = result.unwrap();
         assert!(anchor.positions.len() >= 40); // Should find most copies
     }
+
+    #[test]
+    fn test_find_anchor_zero_period() {
+        let seq = b"ACGTACGTACGT";
+        assert!(find_anchor_by_period(seq, 0, 3, 10).is_none());
+        assert!(find_anchor_by_period_with_fallback(seq, 0).is_none());
+    }
 }
+

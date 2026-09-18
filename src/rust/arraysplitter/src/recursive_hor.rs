@@ -365,6 +365,7 @@ pub fn decompose_hors_to_base(
             &mut max_depth,
             &mut intermediate_hors,
             &mut next_idx_per_level,
+            None,
         );
         all_base_monomers.extend(base_monomers);
     }
@@ -496,6 +497,7 @@ fn decompose_single_hor(
     max_depth: &mut usize,
     intermediate_hors: &mut Vec<IntermediateHor>,
     next_idx_per_level: &mut Vec<usize>,
+    precomputed_period: Option<(usize, f64, f64)>,
 ) -> Vec<BaseMonomer> {
     let autocorr_threshold = params.recursion_termination;
     if current_level > *max_depth {
@@ -543,7 +545,10 @@ fn decompose_single_hor(
     let min_period = min_len;
     let max_period = hor_seq.len() / 2; // need at least 2 copies
 
-    let period_result = recursion_period(seq_bytes, min_period, max_period, params);
+    let period_result = match precomputed_period {
+        Some(p) => Some(p),
+        None => recursion_period(seq_bytes, min_period, max_period, params),
+    };
 
     match period_result {
         Some((period, autocorr, _excess)) => {
@@ -608,41 +613,40 @@ fn decompose_single_hor(
                     let sub_min_period = min_len;
                     let sub_max_period = sub_seq.len() / 2;
 
-                    if sub_max_period >= sub_min_period {
-                        if let Some((_, sub_autocorr, _)) =
-                            recursion_period(sub_bytes, sub_min_period, sub_max_period, params)
-                        {
-                            if sub_autocorr > autocorr_threshold {
-                                let deeper = decompose_single_hor(
-                                    sub_seq,
-                                    top_hor_idx,
-                                    this_hor_row,
-                                    min_len,
-                                    params,
-                                    current_level + 1,
-                                    max_depth,
-                                    intermediate_hors,
-                                    next_idx_per_level,
-                                );
-                                // (Earlier code re-encoded sub_idx as `sub_idx * 1000
-                                // + m.sub_idx` to give every leaf a unique value
-                                // across recursion branches. With deepest_hor_idx
-                                // and deepest_hor_level now carrying ancestry,
-                                // sub_idx can stay as the leaf's position inside
-                                // its immediate parent's sub-monomer list.)
-                                result.extend(deeper);
-                                continue;
-                            }
+                    let sub_period_res = if sub_max_period >= sub_min_period {
+                        recursion_period(sub_bytes, sub_min_period, sub_max_period, params)
+                    } else {
+                        None
+                    };
+
+                    if let Some((sub_period, sub_autocorr, sub_excess)) = sub_period_res {
+                        if sub_autocorr > autocorr_threshold {
+                            let deeper = decompose_single_hor(
+                                sub_seq,
+                                top_hor_idx,
+                                this_hor_row,
+                                min_len,
+                                params,
+                                current_level + 1,
+                                max_depth,
+                                intermediate_hors,
+                                next_idx_per_level,
+                                Some((sub_period, sub_autocorr, sub_excess)),
+                            );
+                            // (Earlier code re-encoded sub_idx as `sub_idx * 1000
+                            // + m.sub_idx` to give every leaf a unique value
+                            // across recursion branches. With deepest_hor_idx
+                            // and deepest_hor_level now carrying ancestry,
+                            // sub_idx can stay as the leaf's position inside
+                            // its immediate parent's sub-monomer list.)
+                            result.extend(deeper);
+                            continue;
                         }
                     }
 
-                    let final_autocorr = if sub_max_period >= sub_min_period {
-                        recursion_period(sub_bytes, sub_min_period, sub_max_period, params)
-                            .map(|(_, ac, _)| ac)
-                            .unwrap_or(0.0)
-                    } else {
-                        0.0
-                    };
+                    let final_autocorr = sub_period_res
+                        .map(|(_, ac, _)| ac)
+                        .unwrap_or(0.0);
 
                     result.push(make_leaf(
                         sub_seq.clone(),

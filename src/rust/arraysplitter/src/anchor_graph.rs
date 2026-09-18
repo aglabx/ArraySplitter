@@ -75,7 +75,7 @@ fn simple_kmeans(data: &[f64], k: usize, max_iter: usize) -> (Vec<Vec<f64>>, Vec
     }
 
     let mut data_sorted: Vec<f64> = data.to_vec();
-    data_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    data_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let n = data_sorted.len();
 
     // Initialize centers evenly across the data range
@@ -91,7 +91,7 @@ fn simple_kmeans(data: &[f64], k: usize, max_iter: usize) -> (Vec<Vec<f64>>, Vec
                 .iter()
                 .enumerate()
                 .min_by(|(_, a), (_, b)| {
-                    (x - *a).abs().partial_cmp(&(x - *b).abs()).unwrap()
+                    (x - *a).abs().partial_cmp(&(x - *b).abs()).unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .map(|(i, _)| i)
                 .unwrap_or(0);
@@ -121,7 +121,7 @@ fn simple_kmeans(data: &[f64], k: usize, max_iter: usize) -> (Vec<Vec<f64>>, Vec
             .iter()
             .enumerate()
             .min_by(|(_, a), (_, b)| {
-                (val - *a).abs().partial_cmp(&(val - *b).abs()).unwrap()
+                (val - *a).abs().partial_cmp(&(val - *b).abs()).unwrap_or(std::cmp::Ordering::Equal)
             })
             .map(|(i, _)| i)
             .unwrap_or(0);
@@ -140,7 +140,7 @@ fn find_optimal_clusters(data: &[f64], max_k: usize) -> (usize, Vec<Vec<f64>>, V
     if data.len() < 4 {
         let median = {
             let mut sorted = data.to_vec();
-            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             sorted[sorted.len() / 2]
         };
         return (1, vec![data.to_vec()], vec![median]);
@@ -151,7 +151,7 @@ fn find_optimal_clusters(data: &[f64], max_k: usize) -> (usize, Vec<Vec<f64>>, V
     let mut best_clusters = vec![data.to_vec()];
     let mut best_centers = vec![{
         let mut sorted = data.to_vec();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         sorted[sorted.len() / 2]
     }];
 
@@ -180,7 +180,7 @@ fn find_optimal_clusters(data: &[f64], max_k: usize) -> (usize, Vec<Vec<f64>>, V
 
         // Check that centers are well separated
         let mut centers_sorted = centers.clone();
-        centers_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        centers_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         if centers_sorted.len() < 2 {
             continue;
         }
@@ -218,7 +218,7 @@ fn analyze_distance_distribution(distances: &[f64], _verbose: bool) -> (usize, V
             0.0
         } else {
             let mut sorted = distances.to_vec();
-            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             sorted[sorted.len() / 2]
         };
         return (1, vec![med], med);
@@ -228,7 +228,7 @@ fn analyze_distance_distribution(distances: &[f64], _verbose: bool) -> (usize, V
 
     // Sort centers by value for consistent ordering
     let mut centers_sorted = centers;
-    centers_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    centers_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let true_period: f64 = centers_sorted.iter().sum();
 
     (n_clusters, centers_sorted, true_period)
@@ -249,7 +249,7 @@ fn classify_positions_by_distance(positions: &[usize], centers: &[f64]) -> Vec<i
             .iter()
             .enumerate()
             .min_by(|(_, a), (_, b)| {
-                (dist - *a).abs().partial_cmp(&(dist - *b).abs()).unwrap()
+                (dist - *a).abs().partial_cmp(&(dist - *b).abs()).unwrap_or(std::cmp::Ordering::Equal)
             })
             .map(|(i, _)| i as i32)
             .unwrap_or(0);
@@ -1073,7 +1073,7 @@ mod tests {
     #[test]
     fn test_simple_kmeans() {
         let data = vec![100.0, 100.0, 100.0, 200.0, 200.0, 200.0];
-        let (clusters, centers) = simple_kmeans(&data, 2, 100);
+        let (clusters, _centers) = simple_kmeans(&data, 2, 100);
 
         assert_eq!(clusters.len(), 2);
         // One cluster should have 100s, another 200s
@@ -1081,6 +1081,16 @@ mod tests {
         let has_200s = clusters.iter().any(|c| c.iter().all(|&x| (x - 200.0).abs() < 1.0));
         assert!(has_100s);
         assert!(has_200s);
+    }
+
+    #[test]
+    fn test_kmeans_nan_resilience() {
+        let data = vec![100.0, f64::NAN, 200.0, 100.0];
+        // Should not panic even if NaN is present
+        let (clusters, _) = simple_kmeans(&data, 2, 10);
+        assert_eq!(clusters.len(), 2);
+        let (k, _, _) = find_optimal_clusters(&data, 3);
+        assert!(k >= 1);
     }
 
     #[test]

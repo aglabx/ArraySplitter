@@ -1013,7 +1013,7 @@ mod tests {
         // Test perfect repeat (all parts empty except start/end)
         let array = "AAAAAAAAAA";
         let hints = vec![(1, "A".to_string(), 10)];
-        let (cut, score, period) = compute_cuts(&array, &hints, 0.05, 0.5);
+        let (cut, _score, period) = compute_cuts(&array, &hints, 0.05, 0.5);
 
         assert_eq!(cut, "A");
         // For perfect repeat, period should be cut length

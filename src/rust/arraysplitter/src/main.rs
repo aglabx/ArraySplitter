@@ -613,35 +613,99 @@ fn robust_cv(vals: &[usize]) -> f64 {
     mad as f64 / median as f64
 }
 
+/// Natural sort: compares strings treating embedded integer chunks numerically.
+/// Mirrors `sort -V` (chr2 < chr10 < chr11 < chrX).
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let mut ai = a.chars().peekable();
+    let mut bi = b.chars().peekable();
+    loop {
+        match (ai.peek(), bi.peek()) {
+            (None, None) => return Ordering::Equal,
+            (None, _)    => return Ordering::Less,
+            (_, None)    => return Ordering::Greater,
+            (Some(&ca), Some(&cb)) => {
+                if ca.is_ascii_digit() && cb.is_ascii_digit() {
+                    let mut na: u64 = 0;
+                    while let Some(&c) = ai.peek() {
+                        if !c.is_ascii_digit() { break; }
+                        na = na.saturating_mul(10).saturating_add((c as u64) - ('0' as u64));
+                        ai.next();
+                    }
+                    let mut nb: u64 = 0;
+                    while let Some(&c) = bi.peek() {
+                        if !c.is_ascii_digit() { break; }
+                        nb = nb.saturating_mul(10).saturating_add((c as u64) - ('0' as u64));
+                        bi.next();
+                    }
+                    match na.cmp(&nb) {
+                        Ordering::Equal => continue,
+                        other => return other,
+                    }
+                } else {
+                    match ca.cmp(&cb) {
+                        Ordering::Equal => { ai.next(); bi.next(); }
+                        other => return other,
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Sort TSV file by chromosome and position (column 1 only)
 /// Header is preserved at top
 fn sort_tsv_file(path: &str) {
-    use std::process::Command;
+    let f = match File::open(path) {
+        Ok(f) => f,
+        Err(e) => { eprintln!("Warning: cannot open {} for sort: {}", path, e); return; }
+    };
+    let reader = BufReader::new(f);
+    let mut lines = reader.lines();
+    let header = match lines.next() {
+        Some(Ok(h)) => h,
+        _ => return,
+    };
+    let mut entries: Vec<(String, String)> = Vec::new();
+    for line in lines {
+        match line {
+            Ok(l) => {
+                if !l.is_empty() {
+                    let key = l.split('\t').next().unwrap_or("").to_string();
+                    entries.push((key, l));
+                }
+            }
+            Err(e) => { eprintln!("Warning: read error on {}: {}", path, e); return; }
+        }
+    }
 
-    // Use external sort: keep header, then sort rest by genomic position (version sort)
-    // Note: using bash for $'\t' syntax support
-    let script = format!(
-        r#"head -1 "{path}" > "{path}.sorted" && \
-           tail -n +2 "{path}" | sort -t$'\t' -k1,1V >> "{path}.sorted" && \
-           /bin/mv -f "{path}.sorted" "{path}""#,
-        path = path
-    );
+    entries.sort_by(|a, b| {
+        match natural_cmp(&a.0, &b.0) {
+            std::cmp::Ordering::Equal => a.1.cmp(&b.1),
+            other => other,
+        }
+    });
 
-    let result = Command::new("bash")
-        .arg("-c")
-        .arg(&script)
-        .output();
-
-    match result {
-        Ok(output) => {
-            if !output.status.success() {
-                eprintln!("Warning: Failed to sort {}: {}",
-                    path, String::from_utf8_lossy(&output.stderr));
+    let tmp = format!("{}.sorted", path);
+    {
+        let out = match File::create(&tmp) {
+            Ok(f) => f,
+            Err(e) => { eprintln!("Warning: cannot create {}: {}", tmp, e); return; }
+        };
+        let mut w = BufWriter::new(out);
+        if writeln!(w, "{}", header).is_err() {
+            eprintln!("Warning: write error on {}", tmp);
+            return;
+        }
+        for (_, line) in &entries {
+            if writeln!(w, "{}", line).is_err() {
+                eprintln!("Warning: write error on {}", tmp);
+                return;
             }
         }
-        Err(e) => {
-            eprintln!("Warning: Failed to run sort on {}: {}", path, e);
-        }
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        eprintln!("Warning: rename {} -> {} failed: {}", tmp, path, e);
     }
 }
 
@@ -695,44 +759,24 @@ fn sort_paired_lines_file(path: &str) {
     }
 }
 
-/// Natural sort: compares strings treating embedded integer chunks numerically.
-/// Mirrors `sort -V` (chr2 < chr10 < chr11 < chrX).
-fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
-    use std::cmp::Ordering;
-    let mut ai = a.chars().peekable();
-    let mut bi = b.chars().peekable();
-    loop {
-        match (ai.peek(), bi.peek()) {
-            (None, None) => return Ordering::Equal,
-            (None, _)    => return Ordering::Less,
-            (_, None)    => return Ordering::Greater,
-            (Some(&ca), Some(&cb)) => {
-                if ca.is_ascii_digit() && cb.is_ascii_digit() {
-                    let mut na: u64 = 0;
-                    while let Some(&c) = ai.peek() {
-                        if !c.is_ascii_digit() { break; }
-                        na = na.saturating_mul(10).saturating_add((c as u64) - ('0' as u64));
-                        ai.next();
-                    }
-                    let mut nb: u64 = 0;
-                    while let Some(&c) = bi.peek() {
-                        if !c.is_ascii_digit() { break; }
-                        nb = nb.saturating_mul(10).saturating_add((c as u64) - ('0' as u64));
-                        bi.next();
-                    }
-                    match na.cmp(&nb) {
-                        Ordering::Equal => continue,
-                        other => return other,
-                    }
-                } else {
-                    match ca.cmp(&cb) {
-                        Ordering::Equal => { ai.next(); bi.next(); }
-                        other => return other,
-                    }
-                }
-            }
-        }
+fn hor_type_priority(t: &str) -> u8 {
+    match t {
+        "pred_array" => 0,
+        "flank" => 1,
+        "monomer" => 2,
+        "sub_hor" => 3,
+        "array" => 4,
+        "consensus" => 5,
+        _ => 6,
     }
+}
+
+struct HorSortKey {
+    array_id: String,
+    priority: u8,
+    level: u64,
+    idx: u64,
+    line: String,
 }
 
 /// Sort hors.tsv with type priority AND level awareness.
@@ -742,82 +786,175 @@ fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 /// Order: pred_array -> flank -> monomer -> sub_hor (level 2, 3, ...) -> array -> consensus.
 /// `level` is at column 17 in the new schema, `parent_idx` at column 18.
 fn sort_hors_tsv(path: &str) {
-    use std::process::Command;
-
-    let script = format!(
-        r#"head -1 "{path}" > "{path}.sorted" && \
-           tail -n +2 "{path}" | awk -F'\t' 'BEGIN{{OFS="\t"}} {{
-               if ($2=="pred_array") p=0;
-               else if ($2=="flank") p=1;
-               else if ($2=="monomer") p=2;
-               else if ($2=="sub_hor") p=3;
-               else if ($2=="array") p=4;
-               else if ($2=="consensus") p=5;
-               else p=6;
-               level = ($17 == "" ? 1 : $17 + 0);
-               print p, level, $0
-           }}' | sort -t$'\t' -k3,3V -k1,1n -k2,2n -k5,5n | cut -f3- >> "{path}.sorted" && \
-           /bin/mv -f "{path}.sorted" "{path}""#,
-        path = path
-    );
-
-    let result = Command::new("bash")
-        .arg("-c")
-        .arg(&script)
-        .output();
-
-    match result {
-        Ok(output) => {
-            if !output.status.success() {
-                eprintln!("Warning: Failed to sort {}: {}",
-                    path, String::from_utf8_lossy(&output.stderr));
+    let f = match File::open(path) {
+        Ok(f) => f,
+        Err(e) => { eprintln!("Warning: cannot open {} for sort: {}", path, e); return; }
+    };
+    let reader = BufReader::new(f);
+    let mut lines = reader.lines();
+    let header = match lines.next() {
+        Some(Ok(h)) => h,
+        _ => return,
+    };
+    let mut entries: Vec<HorSortKey> = Vec::new();
+    for line in lines {
+        match line {
+            Ok(l) => {
+                if !l.is_empty() {
+                    let cols: Vec<&str> = l.split('\t').collect();
+                    let array_id = cols.first().unwrap_or(&"").to_string();
+                    let piece_type = cols.get(1).unwrap_or(&"");
+                    let priority = hor_type_priority(piece_type);
+                    let idx = cols.get(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+                    let level = cols.get(16).and_then(|s| {
+                        if s.is_empty() { None } else { s.parse::<u64>().ok() }
+                    }).unwrap_or(1);
+                    entries.push(HorSortKey {
+                        array_id,
+                        priority,
+                        level,
+                        idx,
+                        line: l,
+                    });
+                }
             }
-        }
-        Err(e) => {
-            eprintln!("Warning: Failed to run sort on {}: {}", path, e);
+            Err(e) => { eprintln!("Warning: read error on {}: {}", path, e); return; }
         }
     }
+
+    entries.sort_by(|a, b| {
+        match natural_cmp(&a.array_id, &b.array_id) {
+            std::cmp::Ordering::Equal => {},
+            other => return other,
+        }
+        match a.priority.cmp(&b.priority) {
+            std::cmp::Ordering::Equal => {},
+            other => return other,
+        }
+        match a.level.cmp(&b.level) {
+            std::cmp::Ordering::Equal => {},
+            other => return other,
+        }
+        match a.idx.cmp(&b.idx) {
+            std::cmp::Ordering::Equal => {},
+            other => return other,
+        }
+        a.line.cmp(&b.line)
+    });
+
+    let tmp = format!("{}.sorted", path);
+    {
+        let out = match File::create(&tmp) {
+            Ok(f) => f,
+            Err(e) => { eprintln!("Warning: cannot create {}: {}", tmp, e); return; }
+        };
+        let mut w = BufWriter::new(out);
+        if writeln!(w, "{}", header).is_err() {
+            eprintln!("Warning: write error on {}", tmp);
+            return;
+        }
+        for entry in &entries {
+            if writeln!(w, "{}", entry.line).is_err() {
+                eprintln!("Warning: write error on {}", tmp);
+                return;
+            }
+        }
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        eprintln!("Warning: rename {} -> {} failed: {}", tmp, path, e);
+    }
+}
+
+fn monomer_type_priority(t: &str) -> u8 {
+    match t {
+        "pred_array" => 0,
+        "flank" => 1,
+        "monomer" | "base_monomer" => 2,
+        "array" => 3,
+        "consensus" => 4,
+        _ => 5,
+    }
+}
+
+struct MonomerSortKey {
+    array_id: String,
+    priority: u8,
+    idx: u64,
+    line: String,
 }
 
 /// Sort TSV file with type priority (for monomers files)
 /// Order: pred_array -> flank -> monomer/base_monomer (by idx) -> array -> consensus
 /// Sorted by: 1) array_id (genomic order), 2) type priority, 3) idx
 fn sort_tsv_with_type_priority(path: &str) {
-    use std::process::Command;
+    let f = match File::open(path) {
+        Ok(f) => f,
+        Err(e) => { eprintln!("Warning: cannot open {} for sort: {}", path, e); return; }
+    };
+    let reader = BufReader::new(f);
+    let mut lines = reader.lines();
+    let header = match lines.next() {
+        Some(Ok(h)) => h,
+        _ => return,
+    };
+    let mut entries: Vec<MonomerSortKey> = Vec::new();
+    for line in lines {
+        match line {
+            Ok(l) => {
+                if !l.is_empty() {
+                    let mut cols = l.split('\t');
+                    let array_id = cols.next().unwrap_or("").to_string();
+                    let piece_type = cols.next().unwrap_or("");
+                    let priority = monomer_type_priority(piece_type);
+                    let idx = cols.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+                    entries.push(MonomerSortKey {
+                        array_id,
+                        priority,
+                        idx,
+                        line: l,
+                    });
+                }
+            }
+            Err(e) => { eprintln!("Warning: read error on {}: {}", path, e); return; }
+        }
+    }
 
-    // AWK script to add type priority column, sort, then remove it
-    // Type priorities: pred_array=0, flank=1, monomer=2, base_monomer=2, array=3, consensus=4
-    // Note: using bash for $'\t' syntax support
-    let script = format!(
-        r#"head -1 "{path}" > "{path}.sorted" && \
-           tail -n +2 "{path}" | awk -F'\t' 'BEGIN{{OFS="\t"}} {{
-               if ($2=="pred_array") p=0;
-               else if ($2=="flank") p=1;
-               else if ($2=="monomer" || $2=="base_monomer") p=2;
-               else if ($2=="array") p=3;
-               else if ($2=="consensus") p=4;
-               else p=5;
-               print p, $0
-           }}' | sort -t$'\t' -k2,2V -k1,1n -k4,4n | cut -f2- >> "{path}.sorted" && \
-           /bin/mv -f "{path}.sorted" "{path}""#,
-        path = path
-    );
+    entries.sort_by(|a, b| {
+        match natural_cmp(&a.array_id, &b.array_id) {
+            std::cmp::Ordering::Equal => {},
+            other => return other,
+        }
+        match a.priority.cmp(&b.priority) {
+            std::cmp::Ordering::Equal => {},
+            other => return other,
+        }
+        match a.idx.cmp(&b.idx) {
+            std::cmp::Ordering::Equal => {},
+            other => return other,
+        }
+        a.line.cmp(&b.line)
+    });
 
-    let result = Command::new("bash")
-        .arg("-c")
-        .arg(&script)
-        .output();
-
-    match result {
-        Ok(output) => {
-            if !output.status.success() {
-                eprintln!("Warning: Failed to sort {}: {}",
-                    path, String::from_utf8_lossy(&output.stderr));
+    let tmp = format!("{}.sorted", path);
+    {
+        let out = match File::create(&tmp) {
+            Ok(f) => f,
+            Err(e) => { eprintln!("Warning: cannot create {}: {}", tmp, e); return; }
+        };
+        let mut w = BufWriter::new(out);
+        if writeln!(w, "{}", header).is_err() {
+            eprintln!("Warning: write error on {}", tmp);
+            return;
+        }
+        for entry in &entries {
+            if writeln!(w, "{}", entry.line).is_err() {
+                eprintln!("Warning: write error on {}", tmp);
+                return;
             }
         }
-        Err(e) => {
-            eprintln!("Warning: Failed to run sort on {}: {}", path, e);
-        }
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        eprintln!("Warning: rename {} -> {} failed: {}", tmp, path, e);
     }
 }
 
@@ -1330,7 +1467,13 @@ fn main() {
         sys.refresh_processes_specifics(
             ProcessRefreshKind::new().with_memory().with_cpu()
         );
-        thread::sleep(std::time::Duration::from_millis(200));
+        // Short baseline pause, responsive to early shutdown
+        for _ in 0..4 {
+            if !monitor_flag.load(Ordering::Relaxed) {
+                return;
+            }
+            thread::sleep(std::time::Duration::from_millis(50));
+        }
 
         while monitor_flag.load(Ordering::Relaxed) {
             sys.refresh_processes_specifics(
@@ -1351,7 +1494,14 @@ fn main() {
                     cpu_samples.fetch_add(1, Ordering::Relaxed);
                 }
             }
-            thread::sleep(std::time::Duration::from_millis(500));
+
+            // Sleep in small increments for immediate response on shutdown
+            for _ in 0..10 {
+                if !monitor_flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                thread::sleep(std::time::Duration::from_millis(50));
+            }
         }
     });
 
