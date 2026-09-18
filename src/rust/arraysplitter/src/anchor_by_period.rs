@@ -3,7 +3,7 @@
 //! Given a known period P from autocorrelation, finds the best k-mer anchor
 //! that occurs approximately once per P bases with regular spacing.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 /// Result of anchor discovery
 #[derive(Debug, Clone)]
@@ -64,7 +64,7 @@ pub fn find_anchor_by_period(
         }
 
         // Count k-mers and record positions
-        let mut kmer_positions: HashMap<&[u8], Vec<usize>> = HashMap::new();
+        let mut kmer_positions: FxHashMap<&[u8], Vec<usize>> = FxHashMap::default();
         for i in 0..=(seq.len() - k) {
             let kmer = &seq[i..i + k];
             // Skip k-mers with non-ACGT characters

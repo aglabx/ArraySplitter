@@ -5,8 +5,40 @@
 
 /// True for an unambiguous DNA base (A/C/G/T, either case).
 #[inline]
-fn is_acgt(b: u8) -> bool {
+pub fn is_acgt(b: u8) -> bool {
     matches!(b, b'A' | b'C' | b'G' | b'T' | b'a' | b'c' | b'g' | b't')
+}
+
+/// Check whether all bytes in the slice are unambiguous ACGT.
+#[inline]
+pub fn is_all_acgt(seq: &[u8]) -> bool {
+    seq.iter().all(|&b| is_acgt(b))
+}
+
+/// Count matching bytes between two slices using 32-byte chunks (auto-vectorized by LLVM).
+#[inline]
+pub fn count_matches(s1: &[u8], s2: &[u8]) -> usize {
+    let mut matches = 0;
+    let c1 = s1.chunks_exact(32);
+    let c2 = s2.chunks_exact(32);
+    let r1 = c1.remainder();
+    let r2 = c2.remainder();
+
+    for (a, b) in c1.zip(c2) {
+        let mut m = 0;
+        for i in 0..32 {
+            if a[i] == b[i] {
+                m += 1;
+            }
+        }
+        matches += m;
+    }
+    for (&a, &b) in r1.iter().zip(r2) {
+        if a == b {
+            matches += 1;
+        }
+    }
+    matches
 }
 
 /// Compute autocorrelation at a specific offset d.
@@ -28,11 +60,20 @@ pub fn autocorrelation(seq: &[u8], d: usize) -> f64 {
         return 0.0;
     }
 
+    let s1 = &seq[..n];
+    let s2 = &seq[d..];
+
+    // Fast path: if the sequence has no ambiguous bases (the case for >99.9% of
+    // satellite DNA), all positions are valid and matches are counted in 32-byte SIMD chunks.
+    if is_all_acgt(seq) {
+        let matches = count_matches(s1, s2);
+        return matches as f64 / n as f64;
+    }
+
+    // Fallback: exclude ambiguous bases from both numerator and denominator
     let mut matches = 0usize;
     let mut valid = 0usize;
-    for i in 0..n {
-        let a = seq[i];
-        let b = seq[i + d];
+    for (&a, &b) in s1.iter().zip(s2.iter()) {
         if is_acgt(a) && is_acgt(b) {
             valid += 1;
             if a == b {
@@ -82,7 +123,7 @@ pub fn random_expectation(seq: &[u8]) -> f64 {
 
 /// Compute autocorrelation at offset d using subsampling for large sequences.
 /// For sequences > SAMPLE_THRESHOLD, samples N_SAMPLE positions instead of all.
-fn autocorrelation_sampled(seq: &[u8], d: usize, sample_positions: Option<&[usize]>) -> f64 {
+fn autocorrelation_sampled(seq: &[u8], d: usize, sample_positions: Option<&[usize]>, all_acgt: bool) -> f64 {
     if d == 0 || d >= seq.len() {
         return 0.0;
     }
@@ -93,11 +134,22 @@ fn autocorrelation_sampled(seq: &[u8], d: usize, sample_positions: Option<&[usiz
             // (same rule as the full `autocorrelation`).
             let mut matches = 0usize;
             let mut valid = 0usize;
-            for &p in positions {
-                if p + d < seq.len() && is_acgt(seq[p]) && is_acgt(seq[p + d]) {
-                    valid += 1;
-                    if seq[p] == seq[p + d] {
-                        matches += 1;
+            if all_acgt {
+                for &p in positions {
+                    if p + d < seq.len() {
+                        valid += 1;
+                        if seq[p] == seq[p + d] {
+                            matches += 1;
+                        }
+                    }
+                }
+            } else {
+                for &p in positions {
+                    if p + d < seq.len() && is_acgt(seq[p]) && is_acgt(seq[p + d]) {
+                        valid += 1;
+                        if seq[p] == seq[p + d] {
+                            matches += 1;
+                        }
                     }
                 }
             }
@@ -107,8 +159,13 @@ fn autocorrelation_sampled(seq: &[u8], d: usize, sample_positions: Option<&[usiz
             matches as f64 / valid as f64
         }
         None => {
-            // Full computation
-            autocorrelation(seq, d)
+            if all_acgt {
+                let n = seq.len() - d;
+                let matches = count_matches(&seq[..n], &seq[d..]);
+                matches as f64 / n as f64
+            } else {
+                autocorrelation(seq, d)
+            }
         }
     }
 }
@@ -143,6 +200,8 @@ pub fn find_period(seq: &[u8], min_d: usize, max_d: usize, excess_floor: f64) ->
         return None;
     }
 
+    let all_acgt = is_all_acgt(seq);
+
     // For large sequences, use subsampling
     const SAMPLE_THRESHOLD: usize = 50_000;
     const N_SAMPLES: usize = 10_000;
@@ -158,7 +217,7 @@ pub fn find_period(seq: &[u8], min_d: usize, max_d: usize, excess_floor: f64) ->
     let mut best_excess = 0.0f64;
 
     for d in min_d..=effective_max {
-        let ac = autocorrelation_sampled(seq, d, sample_positions.as_deref());
+        let ac = autocorrelation_sampled(seq, d, sample_positions.as_deref(), all_acgt);
         let excess = ac - random_exp;
 
         if excess > best_excess {
