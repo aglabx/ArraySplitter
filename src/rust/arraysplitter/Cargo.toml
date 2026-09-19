@@ -1,6 +1,6 @@
 [package]
 name = "arraysplitter_rs"
-version = "1.8.0"
+version = "1.8.1"
 edition = "2021"
 authors = ["Aleksey Komissarov <ad3002@gmail.com>"]
 description = "De novo decomposition of satellite DNA arrays into monomers"
@@ -16,9 +16,6 @@ num_cpus = "1.16"
 
 # Progress bar
 indicatif = "0.17"
-
-# Bioinformatics
-bio = "1.4"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
