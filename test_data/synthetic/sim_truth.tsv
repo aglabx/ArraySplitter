@@ -1,0 +1,13 @@
+fixture_id	archetype	array_length_bp	true_mono_period	true_hor_period	true_sub_period	n_monomers	divergence_pct	difficulty	flank_bp
+sim01_flat_171	flat_tandem	34400	171	171	0	200	0.0	trivial	100
+sim02_hor12_171	simple_hor	102800	171	2052	0	600	2.0	easy	100
+sim03_div2pct_171	divergent_2pct	34400	171	171	0	200	2.0	easy	100
+sim04_div5pct_171	divergent_5pct	34400	171	171	0	200	5.0	medium	100
+sim05_indel1pct_171	indel_1pct	34400	171	171	0	200	0.0	medium	100
+sim06_nested_zfinch_like	nested_zfinch_like	39200	13	195	13	3000	0.0	medium	100
+sim07_nested_3level	nested_3level	58700	13	585	195	4500	1.0	hard	100
+sim08_long_HOR_8kb	long_hor_8kb	160940	171	8037	0	940	2.0	hard	100
+sim09_chrW_like	chrW_like	46260	98	4606	0	470	2.0	hard	100
+sim10_mixed_two_classes	mixed_two_classes	36400	-1	-1	0	200	0.0	failure_test	100
+sim11_random_control	random_control	35200	-1	-1	0	0	0.0	should_fail	100
+sim12_microsat_only	microsat_only	35200	7	7	0	5000	0.0	trivial	100

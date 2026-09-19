@@ -6,7 +6,7 @@
 #   01500ba (iter-2)  baseline: triple_accel SIMD ED across the codebase.
 #                       behaviour-preserving; output bytes identical to e23932c.
 #
-#   <iter-5 commit>   intermediate HORs as first-class rows in hors.tsv:
+#   718cf74 (iter-5)  intermediate HORs as first-class rows in hors.tsv:
 #                       *.hors.tsv      gains `level` + `parent_idx` columns
 #                                       and rows of type=sub_hor for level>=2.
 #                       *.monomers.tsv  `parent_idx` now references the
@@ -15,7 +15,7 @@
 #                                       which level that is.
 #                        .decomposed.fasta, .lengths, .summary.tsv unchanged.
 #
-#   <no_period commit> .summary.tsv gains a trailing `status` column
+#   ecf4fcd (no_period) .summary.tsv gains a trailing `status` column
 #                       ({ok | no_period}); no_period marks the degenerate
 #                       "period == array length" fallback (paper review #6).
 #                       Column VALUES of every prior field are byte-identical;

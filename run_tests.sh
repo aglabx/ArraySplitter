@@ -1,36 +1,24 @@
-#!/bin/bash
-# Script to run ArraySplitter tests
+#!/usr/bin/env bash
+# Test harness for ArraySplitter (Rust engine)
+set -euo pipefail
 
-echo "Running ArraySplitter tests..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CARGO_DIR="${SCRIPT_DIR}/src/rust/arraysplitter"
 
-# Setup Python path
-export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
+echo "========================================="
+echo "Running ArraySplitter Rust Test Suite"
+echo "========================================="
+(cd "${CARGO_DIR}" && cargo test --release)
 
-# Run only working tests
-echo "Running basic tests..."
-python -m pytest tests/test_basic.py -v
+echo -e "\n========================================="
+echo "Running Regression Harness"
+echo "========================================="
+if [[ -f "${SCRIPT_DIR}/test_data/zebra_finch_satdna.fasta" ]]; then
+    bash "${SCRIPT_DIR}/tests/regression/run.sh"
+else
+    echo "Notice: test_data/zebra_finch_satdna.fasta not found locally; skipping panel regression."
+fi
 
-echo -e "\nRunning simplified tests..."
-python -m pytest tests/test_*_simple.py -v
-
-echo -e "\nRunning variable repeat tests..."
-python -m pytest tests/test_variable_repeats.py -v -s
-
-echo -e "\nRunning bug fix tests..."
-python -m pytest tests/test_bugfix_independent.py -v
-
-echo -e "\nRunning reconstruction tests..."
-python -m pytest tests/test_reconstruction_fix.py -v -s
-
-# Skip problematic tests
-echo -e "\nSkipping tests with import errors:"
-echo "  - test_decompose.py (missing functions)"
-echo "  - test_fs_tree.py (missing functions)"
-echo "  - test_rotation.py (missing rotate_sequence)"
-echo "  - test_sequences.py (missing clear_sequence)"
-echo "  - test_independence.py (syntax error - now fixed)"
-
-echo -e "\nTrying fixed independence test..."
-python -m pytest tests/test_independence.py -v || echo "Still has issues"
-
-echo -e "\nTest run complete!"
+echo -e "\n========================================="
+echo "All tests completed successfully!"
+echo "========================================="

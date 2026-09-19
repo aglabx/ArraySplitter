@@ -249,14 +249,14 @@ Where `matches` counts identical nucleotides at positions `i` and `i + offset`.
 
 **Key innovations:**
 - **Random expectation correction:** Subtracts expected random match rate based on nucleotide composition
-- **Refined period search:** Uses FFT-like peak detection to find true period vs harmonics
+- **Refined period search:** Harmonic folding peak detection to distinguish fundamental period vs harmonics
 - **Confidence scoring:** Autocorrelation excess over random indicates detection confidence
 
 ### 3. Anchor Selection
 
 For the detected period, finds optimal anchor (cut sequence) using:
 
-1. **K-mer enumeration:** Extract all k-mers (k=10 by default) from the sequence
+1. **K-mer enumeration:** Evaluate candidate k-mers with k ∈ [3, min(11, period − 1)] from the sequence
 2. **Position analysis:** For each k-mer, record all occurrence positions
 3. **Scoring metrics:**
    - **Uniqueness:** Fraction of occurrences exactly `period` apart

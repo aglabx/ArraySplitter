@@ -53,7 +53,7 @@ fn count_frequencies<T: std::hash::Hash + Eq + Clone>(items: &[T]) -> HashMap<T,
 /// Get canonical orientation of a sequence (matching Python exactly)
 ///
 /// Returns True if sequence is already canonical (A > T, or A == T and C > G)
-/// When A == T and C == G, returns True (consider it canonical)
+/// When A == T and C == G, returns False (consistent with legacy behavior)
 pub fn is_canonical_orientation(sequence: &str) -> bool {
     let sequence_upper = sequence.to_uppercase();
     let a_count = sequence_upper.chars().filter(|&c| c == 'A').count();
