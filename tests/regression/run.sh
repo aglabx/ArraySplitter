@@ -10,6 +10,7 @@
 #       bash tests/regression/run.sh              # use a non-default manifest
 
 set -euo pipefail
+export PATH="$HOME/.cargo/bin:$PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"

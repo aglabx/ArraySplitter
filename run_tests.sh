@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Test harness for ArraySplitter (Rust engine)
 set -euo pipefail
+export PATH="$HOME/.cargo/bin:$PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CARGO_DIR="${SCRIPT_DIR}/src/rust/arraysplitter"
