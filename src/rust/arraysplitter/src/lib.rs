@@ -8,7 +8,7 @@
 //! - **De novo decomposition**: Automatically discovers cut sequences and decomposes arrays
 //! - **Anchor graph algorithm**: Uses graph-based approach for optimal cut selection
 //! - **Post-processing heuristics**: Refines decomposition for edge cases
-//! - **Parallel processing**: Uses rayon for multi-threaded processing
+//! - **Parallel processing**: Multi-threaded pipeline with bounded MPSC worker pools
 //!
 //! ## Example
 //!

@@ -30,6 +30,11 @@
 #                       - subsampling de-aliasing adjusts chr2_mat/pat period from
 #                         695 to true peak 697; hor_autocorr deltas < 0.018.
 #
+#   v1.8.2 (round 2)    Missing edit distance represented as NA rather than 0
+#                       in hors.tsv, monomers.tsv, and summary.tsv.
+#                       - sub_hor rows use NA for edit distances and ed_per_bp.
+#                       - uncomputed adjacent/template comparisons output NA.
+#
 # Input:   test_data/zebra_finch_satdna.fasta (60.01 Mbp, 429 arrays)
 # Command: arraysplitter -i test_data/zebra_finch_satdna.fasta \
 #                        -o <prefix> -t 4 --method autocorr
@@ -42,5 +47,5 @@
 .decomposed.fasta	d013efdb4c846614af079546898eb3fa	60488876	858
 .lengths	f507a57087175479194c104ff6186a1a	1381261	858
 .summary.tsv	c54905ca645ec96802be3eb34c343e76	1653833	430
-.hors.tsv	d19438efaacdf101a4efe2d48cbabca4	106773764	444346
-.monomers.tsv	3b3606c92335ea99d1c022276766dfa1	114959237	511366
+.hors.tsv	e46df6937de961a74dcebf877314d035	106806566	444346
+.monomers.tsv	60c58a8c5f91091e488c3eefc5a375da	114961382	511366

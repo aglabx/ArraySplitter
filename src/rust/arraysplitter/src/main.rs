@@ -252,11 +252,11 @@ struct OutputRecord {
     method: String,
     // Pre-computed statistics:
     n_monomers: usize,
-    ed_per_bp: f64,
+    ed_per_bp: Option<f64>,
     cv: f64,
-    mean_ed_tmpl: f64,
-    mean_ed_prev: f64,
-    mean_ed_next: f64,
+    mean_ed_tmpl: Option<f64>,
+    mean_ed_prev: Option<f64>,
+    mean_ed_next: Option<f64>,
     // Pre-computed consensus:
     consensus_seq: String,
     iupac_str: String,
@@ -419,18 +419,26 @@ fn process_array(
         .collect();
 
     let mean_ed_tmpl = if !ed_tmpl_values.is_empty() {
-        ed_tmpl_values.iter().sum::<f64>() / ed_tmpl_values.len() as f64
-    } else { 0.0 };
+        Some(ed_tmpl_values.iter().sum::<f64>() / ed_tmpl_values.len() as f64)
+    } else { None };
     let mean_ed_prev = if !ed_prev_values.is_empty() {
-        ed_prev_values.iter().sum::<f64>() / ed_prev_values.len() as f64
-    } else { 0.0 };
+        Some(ed_prev_values.iter().sum::<f64>() / ed_prev_values.len() as f64)
+    } else { None };
     let mean_ed_next = if !ed_next_values.is_empty() {
-        ed_next_values.iter().sum::<f64>() / ed_next_values.len() as f64
-    } else { 0.0 };
+        Some(ed_next_values.iter().sum::<f64>() / ed_next_values.len() as f64)
+    } else { None };
     let mean_monomer_len = if !monomer_len_values.is_empty() {
         monomer_len_values.iter().sum::<f64>() / monomer_len_values.len() as f64
     } else { 0.0 };
-    let ed_per_bp = if mean_monomer_len > 0.0 { mean_ed_prev / mean_monomer_len } else { 0.0 };
+    let ed_per_bp = if let Some(prev) = mean_ed_prev {
+        if mean_monomer_len > 0.0 {
+            Some(prev / mean_monomer_len)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     let cv = if monomer_len_values.len() > 1 && mean_monomer_len > 0.0 {
         let variance: f64 = monomer_len_values.iter()
@@ -1035,7 +1043,7 @@ fn writer_thread(
                     .map(|v| format!("{:.4}", v))
                     .unwrap_or_else(|| "0".to_string());
                 writeln!(
-                    fw_hors, "{}\tpred_array\t{}\t{}\t{}\t{}\t0\t0\t{}\t{}\t{}\t0\t0\t-\t{}\t-\t1\t-1",
+                    fw_hors, "{}\tpred_array\t{}\t{}\t{}\t{}\tNA\tNA\t{}\t{}\t{}\tNA\t0\t-\t{}\t-\t1\t-1",
                     result.header,
                     n_expected_str,
                     result.array_len,
@@ -1049,25 +1057,28 @@ fn writer_thread(
 
                 // Write individual monomer/flank rows
                 for (i, mono) in result.monomers.iter().enumerate() {
-                    let ed_tmpl_str = mono.ed_tmpl.map(|v| v.to_string()).unwrap_or_else(|| "0".to_string());
-                    let ed_prev_str = mono.ed_prev.map(|v| v.to_string()).unwrap_or_else(|| "0".to_string());
-                    let ed_next_str = mono.ed_next.map(|v| v.to_string()).unwrap_or_else(|| "0".to_string());
+                    let ed_tmpl_str = mono.ed_tmpl.map(|v| v.to_string()).unwrap_or_else(|| "NA".to_string());
+                    let ed_prev_str = mono.ed_prev.map(|v| v.to_string()).unwrap_or_else(|| "NA".to_string());
+                    let ed_next_str = mono.ed_next.map(|v| v.to_string()).unwrap_or_else(|| "NA".to_string());
 
                     let mono_len = mono.sequence.len() as f64;
-                    let mono_ed_per_bp = mono.ed_prev
-                        .map(|ed| if mono_len > 0.0 { ed as f64 / mono_len } else { 0.0 })
-                        .unwrap_or(0.0);
+                    let mono_ed_tmpl_per_bp_str = mono.ed_tmpl
+                        .map(|ed| if mono_len > 0.0 { format!("{:.4}", ed as f64 / mono_len) } else { "NA".to_string() })
+                        .unwrap_or_else(|| "NA".to_string());
+                    let mono_ed_per_bp_str = mono.ed_prev
+                        .map(|ed| if mono_len > 0.0 { format!("{:.4}", ed as f64 / mono_len) } else { "NA".to_string() })
+                        .unwrap_or_else(|| "NA".to_string());
                     let size_dev = if result.period > 0 {
                         (mono_len - result.period as f64).abs() / result.period as f64
                     } else { 0.0 };
 
                     writeln!(
-                        fw_hors, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t1\t{:.4}\t{:.4}\t{}\t{}\t{}\t1\t-1",
+                        fw_hors, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t1\t{}\t{:.4}\t{}\t{}\t{}\t1\t-1",
                         result.header, mono.piece_type, i, mono.sequence.len(),
                         mono.source, ed_tmpl_str, ed_prev_str, ed_next_str,
                         result.period,
-                        mono.ed_tmpl.map(|ed| ed as f64 / mono_len).unwrap_or(0.0),
-                        mono_ed_per_bp,
+                        mono_ed_tmpl_per_bp_str,
+                        mono_ed_per_bp_str,
                         size_dev,
                         cut_seq,
                         orientation,
@@ -1076,19 +1087,24 @@ fn writer_thread(
                 }
 
                 // Write array summary row
+                let mean_ed_tmpl_str = result.mean_ed_tmpl.map(|v| format!("{:.1}", v)).unwrap_or_else(|| "NA".to_string());
+                let mean_ed_prev_str = result.mean_ed_prev.map(|v| format!("{:.1}", v)).unwrap_or_else(|| "NA".to_string());
+                let mean_ed_next_str = result.mean_ed_next.map(|v| format!("{:.1}", v)).unwrap_or_else(|| "NA".to_string());
+                let ed_per_bp_str = result.ed_per_bp.map(|v| format!("{:.4}", v)).unwrap_or_else(|| "NA".to_string());
+
                 writeln!(
-                    fw_hors, "{}\tarray\t{}\t{}\t{}\t{:.1}\t{:.1}\t{:.1}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t-\t1\t-1",
+                    fw_hors, "{}\tarray\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t{}\t{}\t-\t1\t-1",
                     result.header,
                     result.n_monomers,
                     result.array_len,
                     result.method,
-                    result.mean_ed_tmpl,
-                    result.mean_ed_prev,
-                    result.mean_ed_next,
+                    mean_ed_tmpl_str,
+                    mean_ed_prev_str,
+                    mean_ed_next_str,
                     result.period,
                     autocorr_str,
                     result.n_monomers,
-                    result.ed_per_bp,
+                    ed_per_bp_str,
                     result.cv,
                     cut_seq,
                     orientation,
@@ -1102,7 +1118,7 @@ fn writer_thread(
                         .filter(|c| !matches!(c, 'A' | 'C' | 'G' | 'T'))
                         .count();
                     writeln!(
-                        fw_hors, "{}\tconsensus\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t{}\t1\t-1",
+                        fw_hors, "{}\tconsensus\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t{}\t{}\t{}\t1\t-1",
                         result.header,
                         result.n_monomers,
                         result.consensus_seq.len(),
@@ -1113,7 +1129,7 @@ fn writer_thread(
                         result.period,
                         autocorr_str,
                         result.n_monomers,
-                        result.ed_per_bp,
+                        ed_per_bp_str,
                         result.cv,
                         result.iupac_str,
                         orientation,
@@ -1126,7 +1142,7 @@ fn writer_thread(
                 for ih in &result.recursive_result.intermediate_hors {
                     writeln!(
                         fw_hors,
-                        "{}\tsub_hor\t{}\t{}\t{}\t0\t0\t0\t{}\t{:.4}\t{}\t0\t0\t-\t{}\t{}\t{}\t{}",
+                        "{}\tsub_hor\t{}\t{}\t{}\tNA\tNA\tNA\t{}\t{:.4}\t{}\tNA\t0\t-\t{}\t{}\t{}\t{}",
                         result.header,
                         ih.idx_within_level,
                         ih.length,
@@ -1160,7 +1176,7 @@ fn writer_thread(
                     } else { 0.0 };
 
                     writeln!(
-                        fw_monomers, "{}\tpred_array\t{}\t{}\trecursive\t0\t0\t0\t{}\t{:.4}\t{}\t{:.4}\t{:.4}\t-\t{}\t-\t-\t-",
+                        fw_monomers, "{}\tpred_array\t{}\t{}\trecursive\tNA\tNA\tNA\t{}\t{:.4}\t{}\t{:.4}\t{:.4}\t-\t{}\t-\t-\t-",
                         result.header,
                         rec.n_expected,
                         result.array_len,
@@ -1175,9 +1191,9 @@ fn writer_thread(
 
                 // Write base-level monomers from recursive HOR decomposition (unified format)
                 for base_mono in &rec.base_monomers {
-                    let ed_tmpl_str = base_mono.ed_tmpl.map(|v| v.to_string()).unwrap_or_else(|| "0".to_string());
-                    let ed_prev_str = base_mono.ed_prev.map(|v| v.to_string()).unwrap_or_else(|| "0".to_string());
-                    let ed_next_str = base_mono.ed_next.map(|v| v.to_string()).unwrap_or_else(|| "0".to_string());
+                    let ed_tmpl_str = base_mono.ed_tmpl.map(|v| v.to_string()).unwrap_or_else(|| "NA".to_string());
+                    let ed_prev_str = base_mono.ed_prev.map(|v| v.to_string()).unwrap_or_else(|| "NA".to_string());
+                    let ed_next_str = base_mono.ed_next.map(|v| v.to_string()).unwrap_or_else(|| "NA".to_string());
 
                     // Determine type: "base_monomer" if has parent, "monomer" if single (no further decomp)
                     let mono_type = if rec.base_monomers.len() == 1 && base_mono.source == "base" {
@@ -1186,8 +1202,14 @@ fn writer_thread(
                         "base_monomer"
                     };
 
+                    let ed_per_bp_str = if base_mono.ed_tmpl.is_some() {
+                        format!("{:.4}", base_mono.ed_per_bp)
+                    } else {
+                        "NA".to_string()
+                    };
+
                     writeln!(
-                        fw_monomers, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t1\t{:.4}\t{:.4}\t{}\t{}\t{}\t{}\t{}",
+                        fw_monomers, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t1\t{}\t{:.4}\t{}\t{}\t{}\t{}\t{}",
                         result.header,
                         mono_type,
                         base_mono.global_idx,
@@ -1198,7 +1220,7 @@ fn writer_thread(
                         ed_next_str,
                         base_mono.period,
                         base_mono.autocorr,
-                        base_mono.ed_per_bp,
+                        ed_per_bp_str,
                         base_mono.cv,
                         cut_seq,
                         orientation,
@@ -1211,22 +1233,27 @@ fn writer_thread(
                 // Write summary line (one row per array with HOR and monomer statistics + consensus)
                 {
                     // Compute monomer-level statistics
-                    let mono_mean_ed_tmpl: f64 = {
+                    let mono_mean_ed_tmpl: Option<f64> = {
                         let values: Vec<f64> = rec.base_monomers.iter()
                             .filter_map(|m| m.ed_tmpl.map(|v| v as f64))
                             .collect();
-                        if !values.is_empty() { values.iter().sum::<f64>() / values.len() as f64 } else { 0.0 }
+                        if !values.is_empty() { Some(values.iter().sum::<f64>() / values.len() as f64) } else { None }
                     };
-                    let mono_mean_ed_prev: f64 = {
+                    let mono_mean_ed_prev: Option<f64> = {
                         let values: Vec<f64> = rec.base_monomers.iter()
                             .filter_map(|m| m.ed_prev.map(|v| v as f64))
                             .collect();
-                        if !values.is_empty() { values.iter().sum::<f64>() / values.len() as f64 } else { 0.0 }
+                        if !values.is_empty() { Some(values.iter().sum::<f64>() / values.len() as f64) } else { None }
                     };
                     let mono_cv: f64 = {
                         let values: Vec<f64> = rec.base_monomers.iter().map(|m| m.cv).collect();
                         if !values.is_empty() { values.iter().sum::<f64>() / values.len() as f64 } else { 0.0 }
                     };
+
+                    let hor_mean_ed_tmpl_str = result.mean_ed_tmpl.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "NA".to_string());
+                    let hor_mean_ed_prev_str = result.mean_ed_prev.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "NA".to_string());
+                    let mono_mean_ed_tmpl_str = mono_mean_ed_tmpl.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "NA".to_string());
+                    let mono_mean_ed_prev_str = mono_mean_ed_prev.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "NA".to_string());
 
                     // Use "-" for empty consensus
                     let hor_consensus = if result.consensus_seq.is_empty() { "-".to_string() } else { result.consensus_seq.clone() };
@@ -1244,7 +1271,7 @@ fn writer_thread(
                     let status = if result.period >= result.array_len { "no_period" } else { "ok" };
 
                     writeln!(
-                        fw_summary, "{}\t{}\t{}\t{}\t{}\t{:.4}\t{}\t{:.2}\t{:.2}\t{:.4}\t{}\t{}\t{}\t{}\t{:.4}\t{}\t{:.2}\t{:.2}\t{:.4}\t{}\t{}\t{}\t{}\t{}\t{}",
+                        fw_summary, "{}\t{}\t{}\t{}\t{}\t{:.4}\t{}\t{}\t{}\t{:.4}\t{}\t{}\t{}\t{}\t{:.4}\t{}\t{}\t{}\t{:.4}\t{}\t{}\t{}\t{}\t{}\t{}",
                         result.header,
                         result.array_len,
                         orientation,
@@ -1252,8 +1279,8 @@ fn writer_thread(
                         result.period,
                         result.autocorr_value.unwrap_or(0.0),
                         result.n_monomers,
-                        result.mean_ed_tmpl,
-                        result.mean_ed_prev,
+                        hor_mean_ed_tmpl_str,
+                        hor_mean_ed_prev_str,
                         result.cv,
                         hor_consensus,
                         hor_iupac,
@@ -1261,8 +1288,8 @@ fn writer_thread(
                         rec.median_period,
                         rec.mean_autocorr,
                         rec.n_expected,
-                        mono_mean_ed_tmpl,
-                        mono_mean_ed_prev,
+                        mono_mean_ed_tmpl_str,
+                        mono_mean_ed_prev_str,
                         mono_cv,
                         mono_consensus,
                         mono_iupac,

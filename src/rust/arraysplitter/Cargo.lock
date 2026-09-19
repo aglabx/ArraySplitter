@@ -72,14 +72,13 @@ dependencies = [
 
 [[package]]
 name = "arraysplitter_rs"
-version = "1.8.1"
+version = "1.8.2"
 dependencies = [
  "chrono",
  "clap",
  "indexmap",
  "indicatif",
  "num_cpus",
- "rayon",
  "rustc-hash",
  "serde",
  "serde_json",

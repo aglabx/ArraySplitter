@@ -1,6 +1,6 @@
 [package]
 name = "arraysplitter_rs"
-version = "1.8.1"
+version = "1.8.2"
 edition = "2021"
 authors = ["Aleksey Komissarov <ad3002@gmail.com>"]
 description = "De novo decomposition of satellite DNA arrays into monomers"
@@ -10,8 +10,7 @@ license = "MIT"
 # CLI
 clap = { version = "4.4", features = ["derive"] }
 
-# Parallelism
-rayon = "1.8"
+# Multi-threading helpers
 num_cpus = "1.16"
 
 # Progress bar
