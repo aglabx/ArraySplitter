@@ -127,14 +127,14 @@ pub const DEFAULT_AUTOCORR_THRESHOLD: f64 = 0.5;
 const MAX_ED_LEN: usize = 10000;
 
 /// Calculate edit distance between two sequences using SIMD (triple_accel::levenshtein_exp).
-/// Returns usize::MAX/2 if either string exceeds MAX_ED_LEN to avoid quadratic blowup.
-fn edit_distance(s1: &str, s2: &str) -> usize {
+/// Returns None if either string exceeds MAX_ED_LEN to avoid quadratic blowup.
+fn edit_distance(s1: &str, s2: &str) -> Option<usize> {
     if s1.len() > MAX_ED_LEN || s2.len() > MAX_ED_LEN {
-        return usize::MAX / 2;
+        return None;
     }
-    if s1.is_empty() { return s2.len(); }
-    if s2.is_empty() { return s1.len(); }
-    levenshtein_exp(s1.as_bytes(), s2.as_bytes()) as usize
+    if s1.is_empty() { return Some(s2.len()); }
+    if s2.is_empty() { return Some(s1.len()); }
+    Some(levenshtein_exp(s1.as_bytes(), s2.as_bytes()) as usize)
 }
 
 /// Compute consensus sequence from a list of sequences (simple majority vote)
@@ -310,10 +310,14 @@ pub fn compute_submonomer_metrics(base_monomers: &mut Vec<BaseMonomer>) {
 
         // Compute ed_tmpl for each monomer in group
         for &idx in indices {
-            let ed = edit_distance(&template, &base_monomers[idx].sequence);
             let len = base_monomers[idx].sequence.len();
-            base_monomers[idx].ed_tmpl = Some(ed);
-            base_monomers[idx].ed_per_bp = if len > 0 { ed as f64 / len as f64 } else { 0.0 };
+            if let Some(ed) = edit_distance(&template, &base_monomers[idx].sequence) {
+                base_monomers[idx].ed_tmpl = Some(ed);
+                base_monomers[idx].ed_per_bp = if len > 0 { ed as f64 / len as f64 } else { 0.0 };
+            } else {
+                base_monomers[idx].ed_tmpl = None;
+                base_monomers[idx].ed_per_bp = 0.0;
+            }
             base_monomers[idx].cv = cv;
         }
     }
@@ -322,12 +326,10 @@ pub fn compute_submonomer_metrics(base_monomers: &mut Vec<BaseMonomer>) {
     let n = base_monomers.len();
     for i in 0..n {
         if i > 0 {
-            let ed = edit_distance(&base_monomers[i - 1].sequence, &base_monomers[i].sequence);
-            base_monomers[i].ed_prev = Some(ed);
+            base_monomers[i].ed_prev = edit_distance(&base_monomers[i - 1].sequence, &base_monomers[i].sequence);
         }
         if i + 1 < n {
-            let ed = edit_distance(&base_monomers[i].sequence, &base_monomers[i + 1].sequence);
-            base_monomers[i].ed_next = Some(ed);
+            base_monomers[i].ed_next = edit_distance(&base_monomers[i].sequence, &base_monomers[i + 1].sequence);
         }
     }
 }
@@ -335,14 +337,15 @@ pub fn compute_submonomer_metrics(base_monomers: &mut Vec<BaseMonomer>) {
 /// Decompose HOR monomers recursively into base-level monomers
 ///
 /// # Arguments
-/// * `hor_monomers` - List of HOR monomer sequences from primary decomposition
+/// * `hor_monomers` - List of (idx, sequence) pairs for HOR monomers from primary decomposition,
+///   where `idx` is the 0-based index in the primary `decomposition` vector (matching `hors.tsv`).
 /// * `min_submonomer_len` - Minimum length to attempt further decomposition (default: 5bp)
-/// * `autocorr_threshold` - Autocorrelation threshold above which to decompose (default: 0.5)
+/// * `params` - Autocorrelation parameters
 ///
 /// # Returns
 /// A `RecursiveResult` containing all base-level monomers and max recursion depth
 pub fn decompose_hors_to_base(
-    hor_monomers: &[String],
+    hor_monomers: &[(usize, String)],
     min_submonomer_len: usize,
     params: &AutocorrParams,
 ) -> RecursiveResult {
@@ -351,7 +354,7 @@ pub fn decompose_hors_to_base(
     let mut next_idx_per_level: Vec<usize> = Vec::new();
     let mut max_depth: usize = 0;
 
-    for (hor_idx, hor_seq) in hor_monomers.iter().enumerate() {
+    for &(hor_idx, ref hor_seq) in hor_monomers {
         // At level=1 the HOR is represented by an existing `monomer` row in
         // hors.tsv with idx=hor_idx, so leaves emitted here without further
         // decomposition still have a row to point to as their deepest HOR.
@@ -433,6 +436,20 @@ pub fn decompose_hors_to_base(
         quality_str,
         period_classes,
     }
+}
+
+/// Convenience wrapper for `decompose_hors_to_base` when monomers are sequentially indexed 0..N.
+pub fn decompose_hors_to_base_seqs(
+    hor_monomers: &[String],
+    min_submonomer_len: usize,
+    params: &AutocorrParams,
+) -> RecursiveResult {
+    let indexed: Vec<(usize, String)> = hor_monomers
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (i, s.clone()))
+        .collect();
+    decompose_hors_to_base(&indexed, min_submonomer_len, params)
 }
 
 /// Compute period size classes from base monomers.
@@ -758,7 +775,7 @@ mod tests {
         // Short sequence without enough length for decomposition
         // The key is that it should just verify total length preservation
         let hor = "ACGTTAGCAGTCGATCAGTCAGTCGATCGATCGATCAGTCAGTCAGTCAGT";
-        let result = decompose_hors_to_base(&[hor.to_string()], 5, &Default::default());
+        let result = decompose_hors_to_base_seqs(&[hor.to_string()], 5, &Default::default());
 
         // Total length should be preserved regardless of decomposition
         let total_len: usize = result.base_monomers.iter().map(|m| m.sequence.len()).sum();
@@ -776,7 +793,7 @@ mod tests {
         let monomer = "ACGTTAGC";
         let hor: String = (0..10).map(|_| monomer).collect();
 
-        let result = decompose_hors_to_base(&[hor.clone()], 5, &Default::default());
+        let result = decompose_hors_to_base_seqs(&[hor.clone()], 5, &Default::default());
 
         // Should detect periodicity and decompose
         assert!(result.base_monomers.len() >= 3, "Expected at least 3 monomers, got {}", result.base_monomers.len());
@@ -790,7 +807,7 @@ mod tests {
     fn test_short_sequence() {
         // Sequence too short for meaningful decomposition
         let hor = "ACGT";
-        let result = decompose_hors_to_base(&[hor.to_string()], 5, &Default::default());
+        let result = decompose_hors_to_base_seqs(&[hor.to_string()], 5, &Default::default());
 
         // Should return as-is
         assert_eq!(result.base_monomers.len(), 1);
@@ -799,22 +816,23 @@ mod tests {
 
     #[test]
     fn test_multiple_hors() {
-        // Multiple HOR monomers
+        // Multiple HOR monomers with non-zero indices (simulating left flank at index 0)
         let hor1: String = (0..5).map(|_| "ACGT").collect();
         let hor2: String = (0..5).map(|_| "TTAGGG").collect();
 
-        let result = decompose_hors_to_base(&[hor1.clone(), hor2.clone()], 5, &Default::default());
+        let result = decompose_hors_to_base(&[(1, hor1.clone()), (2, hor2.clone())], 5, &Default::default());
 
         // Should decompose both (total length preserved)
         let total_len: usize = result.base_monomers.iter().map(|m| m.sequence.len()).sum();
         assert_eq!(total_len, hor1.len() + hor2.len(), "Total length should be preserved");
 
-        // Check hor_idx is preserved
-        let hor0_monomers: Vec<_> = result.base_monomers.iter().filter(|m| m.hor_idx == 0).collect();
+        // Check hor_idx is preserved (1 and 2, matching decomposition indices)
         let hor1_monomers: Vec<_> = result.base_monomers.iter().filter(|m| m.hor_idx == 1).collect();
+        let hor2_monomers: Vec<_> = result.base_monomers.iter().filter(|m| m.hor_idx == 2).collect();
 
-        assert!(!hor0_monomers.is_empty());
         assert!(!hor1_monomers.is_empty());
+        assert!(!hor2_monomers.is_empty());
+        assert_eq!(result.base_monomers.iter().filter(|m| m.hor_idx == 0).count(), 0);
     }
 
     #[test]
@@ -824,7 +842,7 @@ mod tests {
         let base_monomer = "AATGGTTTCAAAGTTATTTTTAAAATTGTAAAAAGACTTTCGATTTTTTTTATCTTTTTGACTGAAAATATTTCTTTTGTAAGATTTGAGATCTCAGTGTATAATCCTTTCATAAAAAATTAAAATTGGGATATTGAGGGAATAACATTCTTATG";
         let hor: String = (0..3).map(|_| base_monomer).collect();
 
-        let result = decompose_hors_to_base(&[hor.clone()], 5, &Default::default());
+        let result = decompose_hors_to_base_seqs(&[hor.clone()], 5, &Default::default());
 
         // Total length should be preserved
         let total_len: usize = result.base_monomers.iter().map(|m| m.sequence.len()).sum();
@@ -842,10 +860,10 @@ mod tests {
 
         // Low threshold - should decompose
         let low = AutocorrParams { recursion_termination: 0.3, ..Default::default() };
-        let result_low = decompose_hors_to_base(&[hor.clone()], 5, &low);
+        let result_low = decompose_hors_to_base_seqs(&[hor.clone()], 5, &low);
         // High threshold - might not decompose (depends on autocorr)
         let high = AutocorrParams { recursion_termination: 0.99, ..Default::default() };
-        let result_high = decompose_hors_to_base(&[hor.clone()], 5, &high);
+        let result_high = decompose_hors_to_base_seqs(&[hor.clone()], 5, &high);
 
         // With perfect repeats, autocorr should be high, so both should decompose
         assert!(result_low.base_monomers.len() >= result_high.base_monomers.len());
@@ -877,7 +895,7 @@ mod tests {
         let top_hor: String = (0..3).map(|_| sub_hor.as_str()).collect();
         assert_eq!(top_hor.len(), 120);
 
-        let result = decompose_hors_to_base(&[top_hor.clone()], 5, &Default::default());
+        let result = decompose_hors_to_base_seqs(&[top_hor.clone()], 5, &Default::default());
 
         // Length conservation (load-bearing invariant — covered by other tests
         // but cheap to re-check here in case the matryoshka path regresses).
@@ -973,7 +991,7 @@ mod tests {
         let monomer = "ACGTTAGC";
         let hor: String = (0..10).map(|_| monomer).collect();
 
-        let result = decompose_hors_to_base(&[hor.clone()], 5, &Default::default());
+        let result = decompose_hors_to_base_seqs(&[hor.clone()], 5, &Default::default());
 
         assert!(
             result.intermediate_hors.is_empty(),
@@ -1005,7 +1023,7 @@ mod tests {
         ];
 
         for seq in &sequences {
-            let result = decompose_hors_to_base(&[seq.clone()], 5, &Default::default());
+            let result = decompose_hors_to_base_seqs(&[seq.clone()], 5, &Default::default());
             let total_len: usize = result.base_monomers.iter().map(|m| m.sequence.len()).sum();
             assert_eq!(total_len, seq.len(), "Length not preserved for: {}", seq);
         }

@@ -29,6 +29,10 @@ for arg in "$@"; do
 done
 
 [[ -f "${MANIFEST}" ]] || { echo "Manifest not found: ${MANIFEST}" >&2; exit 2; }
+if [[ ! -f "${INPUT}" && -f "${INPUT}.gz" ]]; then
+    echo "[unpack] Decompressing ${INPUT}.gz..."
+    gunzip -k "${INPUT}.gz"
+fi
 [[ -f "${INPUT}"    ]] || { echo "Input not found:    ${INPUT}"    >&2; exit 2; }
 
 if [[ "${NO_BUILD}" -eq 0 ]]; then

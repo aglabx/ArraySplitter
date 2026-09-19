@@ -37,7 +37,13 @@ def get_canonical_orientation(sequence):
         return a_count > t_count
     
     # Secondary criterion: C > G (when A == T)
-    return c_count > g_count
+    if c_count != g_count:
+        return c_count > g_count
+
+    # Tertiary criterion: lexicographical comparison with reverse complement (when A == T and C == G)
+    rc_trans = str.maketrans('ACGTNacgtn', 'TGCANtgcan')
+    revcomp = sequence.translate(rc_trans)[::-1]
+    return sequence <= revcomp
 
 
 def rotate_monomers_to_cut(decomposition, cut_sequence):

@@ -13,10 +13,10 @@ echo "========================================="
 echo -e "\n========================================="
 echo "Running Regression Harness"
 echo "========================================="
-if [[ -f "${SCRIPT_DIR}/test_data/zebra_finch_satdna.fasta" ]]; then
+if [[ -f "${SCRIPT_DIR}/test_data/zebra_finch_satdna.fasta" || -f "${SCRIPT_DIR}/test_data/zebra_finch_satdna.fasta.gz" ]]; then
     bash "${SCRIPT_DIR}/tests/regression/run.sh"
 else
-    echo "Notice: test_data/zebra_finch_satdna.fasta not found locally; skipping panel regression."
+    echo "Notice: test_data/zebra_finch_satdna.fasta not found; skipping panel regression."
 fi
 
 echo -e "\n========================================="

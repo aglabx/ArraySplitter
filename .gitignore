@@ -215,4 +215,5 @@ src/c/*.o
 *.regions.tsv
 zf_*.tsv
 zebra_finch_*
+!test_data/zebra_finch_satdna.fasta.gz
 docs/*.html

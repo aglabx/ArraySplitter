@@ -119,6 +119,7 @@ pub use recursive_hor::{
     BaseMonomer,
     RecursiveResult,
     decompose_hors_to_base,
+    decompose_hors_to_base_seqs,
     DEFAULT_MIN_SUBMONOMER_LEN,
     DEFAULT_AUTOCORR_THRESHOLD,
 };

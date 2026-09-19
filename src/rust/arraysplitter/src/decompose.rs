@@ -67,8 +67,15 @@ pub fn is_canonical_orientation(sequence: &str) -> bool {
     }
 
     // Secondary criterion: C > G (when A == T)
-    // Python: return c_count > g_count
-    c_count > g_count
+    if c_count != g_count {
+        return c_count > g_count;
+    }
+
+    // Tertiary criterion: lexicographical comparison with reverse complement (when A == T and C == G)
+    // Ensures canonical(s) != canonical(revcomp(s)) for s != revcomp(s),
+    // and returns true for exact palindromes (s == revcomp(s)).
+    let revcomp = crate::sequence::get_revcomp(&sequence_upper);
+    sequence_upper <= revcomp
 }
 
 /// Rotate monomers so they start with the cut sequence
@@ -977,8 +984,16 @@ mod tests {
         assert!(is_canonical_orientation("ATCC"));
         // A == T, C < G should not be canonical
         assert!(!is_canonical_orientation("ATGG"));
-        // A == T, C == G - Python returns c_count > g_count which is False
-        assert!(!is_canonical_orientation("ATCG"));
+        // A == T, C == G - tie-broken by lexicographical comparison with revcomp
+        // "ATCG" revcomp is "CGAT". "ATCG" < "CGAT", so "ATCG" is canonical, "CGAT" is not.
+        assert!(is_canonical_orientation("ATCG"));
+        assert!(!is_canonical_orientation("CGAT"));
+        // Palindromes are their own reverse complement, so canonical is true
+        assert!(is_canonical_orientation("ACGT"));
+        // Complementary pairs must have opposite orientation unless palindrome
+        let s = "AATTCCGG";
+        let s_rc = crate::sequence::get_revcomp(s);
+        assert_ne!(is_canonical_orientation(s), is_canonical_orientation(&s_rc));
     }
 
     #[test]

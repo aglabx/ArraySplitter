@@ -39,15 +39,15 @@ macro_rules! log_info {
 }
 
 /// Calculate edit distance between two sequences using SIMD (triple_accel::levenshtein_exp).
-/// Returns usize::MAX/2 if either string is too long to avoid quadratic blowup.
-fn edit_distance(s1: &str, s2: &str) -> usize {
+/// Returns None if either string is too long to avoid quadratic blowup.
+fn edit_distance(s1: &str, s2: &str) -> Option<usize> {
     let max_ed_len = MAX_ED_LEN.load(Ordering::Relaxed);
     if s1.len() > max_ed_len || s2.len() > max_ed_len {
-        return usize::MAX / 2;
+        return None;
     }
-    if s1.is_empty() { return s2.len(); }
-    if s2.is_empty() { return s1.len(); }
-    levenshtein_exp(s1.as_bytes(), s2.as_bytes()) as usize
+    if s1.is_empty() { return Some(s2.len()); }
+    if s2.is_empty() { return Some(s1.len()); }
+    Some(levenshtein_exp(s1.as_bytes(), s2.as_bytes()) as usize)
 }
 
 /// Compute consensus sequence and Phred-like quality string from monomers.
@@ -397,14 +397,14 @@ fn process_array(
             if template_idx == Some(i) {
                 ed_tmpls[i] = Some(0);
             } else {
-                ed_tmpls[i] = Some(edit_distance(tmpl, monomer));
+                ed_tmpls[i] = edit_distance(tmpl, monomer);
             }
         }
         if i > 0 && piece_types[i - 1] == "monomer" {
-            ed_prevs[i] = Some(edit_distance(&decomposition[i - 1], monomer));
+            ed_prevs[i] = edit_distance(&decomposition[i - 1], monomer);
         }
         if i + 1 < decomposition.len() && piece_types[i + 1] == "monomer" {
-            ed_nexts[i] = Some(edit_distance(monomer, &decomposition[i + 1]));
+            ed_nexts[i] = edit_distance(monomer, &decomposition[i + 1]);
         }
     }
 
@@ -451,11 +451,13 @@ fn process_array(
         (String::new(), String::new(), String::new())
     };
 
-    // Recursive HOR decomposition: decompose each HOR monomer into base-level monomers
-    let hor_monomer_seqs: Vec<String> = decomposition.iter()
+    // Recursive HOR decomposition: decompose each HOR monomer into base-level monomers.
+    // Pairs each monomer sequence with its 0-based index in `decomposition` so parent_idx
+    // in monomers.tsv and intermediate_hors in hors.tsv correctly join with the parent row.
+    let hor_monomer_seqs: Vec<(usize, String)> = decomposition.iter()
         .enumerate()
         .filter(|(i, _)| piece_types[*i] == "monomer")
-        .map(|(_, m)| m.clone())
+        .map(|(i, m)| (i, m.clone()))
         .collect();
 
     let recursive_result = if !hor_monomer_seqs.is_empty() {

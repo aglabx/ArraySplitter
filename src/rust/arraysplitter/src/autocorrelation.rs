@@ -170,13 +170,29 @@ fn autocorrelation_sampled(seq: &[u8], d: usize, sample_positions: Option<&[usiz
     }
 }
 
-/// Generate deterministic sample positions for subsampling
+/// Generate deterministic sample positions for subsampling using stratified
+/// jittered sampling (SplitMix64) to prevent aliasing with repeat periods.
 fn generate_sample_positions(seq_len: usize, n_samples: usize) -> Vec<usize> {
     if seq_len <= n_samples {
         return (0..seq_len).collect();
     }
-    let step = seq_len / n_samples;
-    (0..n_samples).map(|i| i * step).collect()
+    // Fixed seed ensures 100% deterministic reproducibility across runs and platforms
+    let mut state: u64 = 0x9e3779b97f4a7c15;
+    let mut positions = Vec::with_capacity(n_samples);
+    for i in 0..n_samples {
+        state = state.wrapping_add(0x9e3779b97f4a7c15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+        let rand_val = z ^ (z >> 31);
+
+        let bin_start = i * seq_len / n_samples;
+        let bin_end = (i + 1) * seq_len / n_samples;
+        let bin_len = bin_end - bin_start;
+        let offset = if bin_len > 0 { (rand_val as usize) % bin_len } else { 0 };
+        positions.push(bin_start + offset);
+    }
+    positions
 }
 
 /// Find the best period in a given range [min_d, max_d].
