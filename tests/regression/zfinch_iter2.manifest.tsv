@@ -22,6 +22,14 @@
 #                       the other 4 output files are unchanged (verified: their
 #                       md5s below are untouched).
 #
+#   44618a8 (iter-6)    peer review bug fixes: parent_idx off-by-one fix,
+#                       subsampling de-aliasing via SplitMix64 stratified jitter,
+#                       canonical orientation tie-break, and Option<usize> ED.
+#                       - parent_idx correctly references enclosing top-level
+#                         monomer in hors.tsv even with left flanks (100% clean joins).
+#                       - subsampling de-aliasing adjusts chr2_mat/pat period from
+#                         695 to true peak 697; hor_autocorr deltas < 0.018.
+#
 # Input:   test_data/zebra_finch_satdna.fasta (60.01 Mbp, 429 arrays)
 # Command: arraysplitter -i test_data/zebra_finch_satdna.fasta \
 #                        -o <prefix> -t 4 --method autocorr
@@ -31,8 +39,8 @@
 # diffs the binary's output against the rows below.
 #
 # Columns: extension<TAB>md5<TAB>size_bytes<TAB>line_count
-.decomposed.fasta	8834f8f1bdb22c87b4e4c50f78ab1180	60488876	858
-.lengths	9f9733fdb42785e12bb1e56fb43d8d26	1381261	858
-.summary.tsv	7e3c5b860169e1ada0a5650036d2ee6f	1653833	430
-.hors.tsv	171747050622f320260d0eab2cdd99ee	106773738	444346
-.monomers.tsv	1400997f935e8c358eecfe82eeb6d2e2	114958524	511366
+.decomposed.fasta	d013efdb4c846614af079546898eb3fa	60488876	858
+.lengths	f507a57087175479194c104ff6186a1a	1381261	858
+.summary.tsv	c54905ca645ec96802be3eb34c343e76	1653833	430
+.hors.tsv	d19438efaacdf101a4efe2d48cbabca4	106773764	444346
+.monomers.tsv	3b3606c92335ea99d1c022276766dfa1	114959237	511366
