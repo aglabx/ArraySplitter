@@ -1,4 +1,14 @@
+"""Validator for referential integrity between monomers.tsv and hors.tsv.
+
+Checks that every leaf monomer record in monomers.tsv:
+  1. Points to an existing parent row in hors.tsv matching (array_id, parent_level, parent_idx).
+  2. The parent row is not a flank record (type != 'flank').
+  3. The child monomer sequence is a substring of the parent HOR sequence.
+
+Exits with code 1 if any broken joins or missing parent records are detected.
+"""
 import csv, sys, collections
+
 csv.field_size_limit(10**9)
 prefix = sys.argv[1]
 hors = {}
@@ -29,3 +39,10 @@ for aid in sorted(stat):
     print(f"{aid[:42]:42s}", dict(stat[aid]))
     tot.update({k.split('(')[0]: v for k, v in stat[aid].items()})
 print('TOTAL', dict(tot))
+
+violations = sum(v for k, v in tot.items() if k != 'join_ok')
+if violations > 0:
+    print(f"FAILED: {violations} relational join violation(s) detected!", file=sys.stderr)
+    sys.exit(1)
+print("PASSED: 100% referential integrity verified.")
+
