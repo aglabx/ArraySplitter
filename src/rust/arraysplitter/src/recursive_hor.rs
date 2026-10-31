@@ -7,6 +7,7 @@
 use crate::autocorrelation::{find_period, find_period_refined, random_expectation, autocorrelation};
 use crate::anchor_by_period::find_anchor_by_period_with_fallback;
 use crate::multiplet_split::split_multiplets;
+use crate::constellation;
 use crate::config::{AutocorrParams, PeriodFinder};
 use triple_accel::levenshtein_exp;
 
@@ -372,6 +373,21 @@ pub fn decompose_hors_to_base(
         );
         all_base_monomers.extend(base_monomers);
     }
+
+    // Per-level Homogeneity / Heterogeneity Regime Router (recursive HOR leaves):
+    // If standard fixed-lag nucleotide recursion (`autocorr > recursion_termination`) stopped
+    // on leaves that are actually heterogeneous HORs over diverged base monomers (where
+    // intra-leaf nucleotide autocorr <= 0.50 and top single-kmer coverage C_1 < 50%, but
+    // intra-leaf windowed k-mer lag autocorrelation + phased constellation C_Sigma >= 45%
+    // passes), decompose the leaves into phase-aligned base monomers.
+    decompose_heterogeneous_leaves_with_constellation(
+        &mut all_base_monomers,
+        &mut intermediate_hors,
+        &mut next_idx_per_level,
+        &mut max_depth,
+        min_submonomer_len,
+        params,
+    );
 
     // Assign global indices
     for (i, mono) in all_base_monomers.iter_mut().enumerate() {
@@ -764,6 +780,156 @@ fn compute_max_autocorr(seq: &[u8], min_period: usize) -> f64 {
 
     // Return actual autocorrelation, not excess
     max_ac + random_exp
+}
+
+/// Inspect leaves produced by standard nucleotide recursion; if they represent
+/// heterogeneous HOR units (where intra-unit windowed k-mer lag density reveals
+/// a fundamental monomer period `sub_p` and a circularly phased substring constellation
+/// passes the self-verifying structural gate while single-anchor coverage is < 50%),
+/// decompose those leaves into base monomers.
+fn decompose_heterogeneous_leaves_with_constellation(
+    all_base_monomers: &mut Vec<BaseMonomer>,
+    intermediate_hors: &mut Vec<IntermediateHor>,
+    next_idx_per_level: &mut Vec<usize>,
+    max_depth: &mut usize,
+    min_len: usize,
+    params: &AutocorrParams,
+) {
+    if all_base_monomers.is_empty() {
+        return;
+    }
+
+    let mut lengths: Vec<usize> = all_base_monomers
+        .iter()
+        .map(|m| m.sequence.len())
+        .collect();
+    lengths.sort_unstable();
+    let median_len = lengths[lengths.len() / 2];
+    if median_len < 300 {
+        return;
+    }
+
+    let leaf_slices: Vec<&[u8]> = all_base_monomers
+        .iter()
+        .filter(|m| m.sequence.len() >= 180)
+        .map(|m| m.sequence.as_bytes())
+        .collect();
+    if leaf_slices.is_empty() {
+        return;
+    }
+
+    // Select a single representative parent unit of median length (up to 20 kb) so that
+    // single-copy internal duplications in homogeneous monomers are not multiplied by array
+    // copy number, and unaligned indels across HOR copies do not scramble intra-unit k-mers.
+    let rep_seq_str = all_base_monomers
+        .iter()
+        .min_by_key(|m| m.sequence.len().abs_diff(median_len))
+        .map(|m| m.sequence.as_str())
+        .unwrap_or("");
+    let rep_slice = &rep_seq_str.as_bytes()[..rep_seq_str.len().min(20_000)];
+
+    let min_d = min_len.max(50);
+    let max_d = (rep_slice.len() / 3).min(600);
+    let Some(kmer_cand) = constellation::find_consensus_subperiod_kmer(
+        rep_slice,
+        min_d,
+        max_d,
+    ) else {
+        return;
+    };
+    let sub_p = kmer_cand.period;
+    if sub_p < 50 || median_len < (sub_p * 5) / 2 {
+        return;
+    }
+
+    let Some(constel) = constellation::PhasedConstellation::build(&leaf_slices, sub_p, true) else {
+        return;
+    };
+
+    if constel.num_phased() < 5 {
+        return;
+    }
+    let (passed, _cov, _frac_1x) = constel.verify_cuts_on_ensemble(&leaf_slices);
+    if !passed {
+        return;
+    }
+
+    let old_leaves = std::mem::take(all_base_monomers);
+    let mut new_leaves: Vec<BaseMonomer> = Vec::with_capacity(old_leaves.len() * (median_len / sub_p).max(2));
+
+    for leaf in old_leaves {
+        if leaf.sequence.len() < (sub_p * 3) / 2 {
+            new_leaves.push(leaf);
+            continue;
+        }
+        let seq_bytes = leaf.sequence.as_bytes();
+        let cuts = constel.project_cuts(seq_bytes);
+        if cuts.len() < 2 {
+            new_leaves.push(leaf);
+            continue;
+        }
+        let boundaries = split_multiplets(seq_bytes, &cuts, sub_p, params.multiplet_factor);
+        if boundaries.len() < 2 {
+            new_leaves.push(leaf);
+            continue;
+        }
+
+        let sub_ac = autocorrelation(seq_bytes, sub_p);
+        let child_level = leaf.level + 1;
+        if child_level > *max_depth {
+            *max_depth = child_level;
+        }
+
+        let this_hor_row: (usize, usize) = if leaf.level == 1 {
+            (leaf.deepest_hor_level, leaf.deepest_hor_idx)
+        } else {
+            while next_idx_per_level.len() <= leaf.level {
+                next_idx_per_level.push(0);
+            }
+            let idx = next_idx_per_level[leaf.level];
+            next_idx_per_level[leaf.level] += 1;
+            intermediate_hors.push(IntermediateHor {
+                level: leaf.level,
+                idx_within_level: idx,
+                parent_idx: leaf.deepest_hor_idx,
+                period: sub_p,
+                autocorr: sub_ac,
+                n_children: boundaries.len(),
+                length: leaf.sequence.len(),
+                source: "constellation_anchor".to_string(),
+                sequence: leaf.sequence.clone(),
+            });
+            (leaf.level, idx)
+        };
+
+        for (sub_idx, b) in boundaries.iter().enumerate() {
+            let sub_seq = leaf.sequence[b.start..b.end].to_string();
+            let source = if b.source.contains("flank") {
+                "recursive_flank".to_string()
+            } else {
+                "recursive_anchor".to_string()
+            };
+            new_leaves.push(BaseMonomer {
+                sequence: sub_seq,
+                hor_idx: leaf.hor_idx,
+                global_idx: 0,
+                sub_idx,
+                level: child_level,
+                period: sub_p,
+                autocorr: sub_ac,
+                source,
+                ed_tmpl: None,
+                ed_prev: None,
+                ed_next: None,
+                ed_per_bp: 0.0,
+                cv: 0.0,
+                deepest_hor_idx: this_hor_row.1,
+                deepest_hor_level: this_hor_row.0,
+            });
+        }
+    }
+
+    *all_base_monomers = new_leaves;
 }
 
 #[cfg(test)]

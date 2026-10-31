@@ -14,6 +14,7 @@ use crate::anchor_graph::AnchorGraphDecomposer;
 use crate::autocorrelation;
 use crate::anchor_by_period;
 use crate::multiplet_split;
+use crate::constellation;
 use crate::config::{AutocorrParams, PeriodFinder};
 
 /// Result of array decomposition
@@ -812,6 +813,76 @@ pub fn decompose_array_autocorr(
         }
     };
 
+    // Per-level Homogeneity / Heterogeneity Regime Router (top level):
+    // 1. If fixed-lag nucleotide autocorrelation returns None (`no_period`), query
+    //    windowed substring (k-mer) lag autocorrelation + long-range 10-mer HOR detector.
+    // 2. If fixed-lag nucleotide autocorrelation has weak excess (< 0.085, i.e. raw autocorr < 0.335)
+    //    AND no single 7..15-mer anchor reaches 50% coverage (heterogeneous repeat regime),
+    //    check if there is a multi-kilobase 10-mer HOR period above the monomer period, or
+    //    refine the monomer period via windowed k-mer lag autocorrelation.
+    let period_result = match period_result {
+        None => {
+            // Heterogeneous monomer discovery requires at least 6 monomer copies in the array
+            // AND a verified circularly phased k-mer constellation at the candidate monomer period.
+            let max_mono_d = (seq.len() / 6).min(max_period).min(1000);
+            if max_mono_d >= 20 {
+                let rep_win = &seq[..seq.len().min(15_000)];
+                let kmer_cand = constellation::find_consensus_subperiod_kmer(
+                    rep_win,
+                    50,
+                    max_mono_d.min(600),
+                )
+                .or_else(|| constellation::find_monomer_period_kmer(seq, 20, max_mono_d));
+                if let Some(kmer_cand) = kmer_cand {
+                    let mono_ok = constellation::PhasedConstellation::build(&[rep_win], kmer_cand.period, false)
+                        .map_or(false, |c| c.verify_cuts_on_ensemble(&[rep_win]).0);
+                    if mono_ok {
+                        let mut chosen_p = kmer_cand.period;
+                        if params.period_finder != PeriodFinder::Refined {
+                            if let Some((hor_p, _)) = constellation::find_hor_period_kmer(seq, chosen_p, max_period) {
+                                chosen_p = hor_p;
+                            }
+                        }
+                        let ac = autocorrelation::autocorrelation(seq, chosen_p);
+                        let ex = ac - autocorrelation::random_expectation(seq);
+                        Some((chosen_p, ac, ex))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        Some((p, ac, excess)) => {
+            if excess < 0.085
+                && p >= 25
+                && anchor_by_period::find_anchor_by_period(seq, p, 7, 15).is_none()
+            {
+                let base_p = constellation::find_monomer_period_kmer(seq, min_period, max_period.min(1000))
+                    .map(|c| c.period)
+                    .unwrap_or(p);
+                let mut chosen_p = p;
+                if params.period_finder != PeriodFinder::Refined {
+                    if let Some((hor_p, _)) = constellation::find_hor_period_kmer(seq, base_p, max_period) {
+                        chosen_p = hor_p;
+                    } else if p < base_p * 2 {
+                        chosen_p = base_p;
+                    }
+                } else {
+                    chosen_p = base_p;
+                }
+                let chosen_ac = autocorrelation::autocorrelation(seq, chosen_p);
+                let chosen_ex = chosen_ac - autocorrelation::random_expectation(seq);
+                Some((chosen_p, chosen_ac, chosen_ex))
+            } else {
+                Some((p, ac, excess))
+            }
+        }
+    };
+
     let (period, autocorr_value) = match period_result {
         Some((p, ac, _excess)) => (p, ac),
         None => {
@@ -838,8 +909,62 @@ pub fn decompose_array_autocorr(
         eprintln!("  Autocorrelation: period={}, autocorr={:.4}", period, autocorr_value);
     }
 
-    // Step 2: Find anchor k-mer using the period constraint
-    let anchor_result = anchor_by_period::find_anchor_by_period_with_fallback(seq, period);
+    // Step 2: Regime-routed anchor / constellation selection at `period`.
+    // - Homogeneous route: strict single anchor (k >= 7, >= 50% coverage) succeeds, or period < 25.
+    // - Long-HOR route (period >= 800): if 5..15-mer single anchor fails or has low uniqueness,
+    //   try exact 18..21-mer HOR anchor.
+    // - Heterogeneous route (period < 1200): if strict single anchor (k >= 7) fails (< 50% coverage),
+    //   build a circularly phased k-mer constellation on Z / P Z and verify its cut lattice.
+    let strict_single = if period >= 50 {
+        anchor_by_period::find_anchor_by_period(seq, period, 7, 15)
+    } else {
+        None
+    };
+
+    let anchor_result = if strict_single.is_some() || period < 50 || (autocorr_value >= 0.38 && period < 800) {
+        anchor_by_period::find_anchor_by_period_with_fallback(seq, period)
+    } else if period >= 800 {
+        let fb = anchor_by_period::find_anchor_by_period_with_fallback(seq, period);
+        let fb_good = fb.as_ref().map_or(false, |r| {
+            r.k >= 10 && r.uniqueness >= 0.85 && r.regularity >= 0.65
+        });
+        if fb_good {
+            fb
+        } else if let Some((long_kmer, long_pos, long_score)) =
+            constellation::find_long_hor_anchor(seq, period)
+        {
+            Some(anchor_by_period::AnchorResult {
+                kmer: long_kmer.clone(),
+                k: long_kmer.len(),
+                positions: long_pos,
+                uniqueness: 1.0,
+                regularity: long_score,
+                score: long_score,
+            })
+        } else {
+            fb
+        }
+    } else {
+        // Heterogeneous monomer/sub-HOR regime: no single 7..15-mer covers >= 50% of copies.
+        if let Some(constel) = constellation::PhasedConstellation::build(&[seq], period, false) {
+            let (passed, cov, frac_1x) = constel.verify_cuts_on_ensemble(&[seq]);
+            if passed {
+                let cuts = constel.project_cuts(seq);
+                Some(anchor_by_period::AnchorResult {
+                    kmer: constel.seed_kmer.clone(),
+                    k: constel.k,
+                    positions: cuts,
+                    uniqueness: 1.0,
+                    regularity: frac_1x,
+                    score: cov * frac_1x,
+                })
+            } else {
+                anchor_by_period::find_anchor_by_period_with_fallback(seq, period)
+            }
+        } else {
+            anchor_by_period::find_anchor_by_period_with_fallback(seq, period)
+        }
+    };
 
     let (anchor_kmer, anchor_positions) = match anchor_result {
         Some(result) => {

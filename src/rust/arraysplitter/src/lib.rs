@@ -31,6 +31,7 @@ pub mod autocorrelation;
 pub mod anchor_by_period;
 pub mod multiplet_split;
 pub mod recursive_hor;
+pub mod constellation;
 
 pub use config::{AutocorrParams, PeriodFinder};
 
