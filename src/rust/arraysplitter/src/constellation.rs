@@ -1200,6 +1200,193 @@ impl PhasedConstellation {
         cuts
     }
 
+    /// Optimal all-position Viterbi dynamic-programming cutter on $\mathbb{Z}/P\mathbb{Z}$.
+    /// Guarantees every monomer step lies within $[0.90\,P_{\text{eff}}, 1.10\,P_{\text{eff}}]$,
+    /// eliminating phase-shifted pairs (e.g., 75 bp + 150 bp) and multiplet alignment artifacts.
+    /// When `pin_endpoints` is true (e.g., cutting a HOR unit whose start `0` and end `n` are
+    /// already at the same HOR anchor phase), the path is pinned from `0` to `n` so that the
+    /// HOR copy is partitioned into an exact integer number of full monomers without edge fragments.
+    pub fn cut_sequence_dp(&self, seq: &[u8], pin_endpoints: bool) -> Vec<usize> {
+        let n = seq.len();
+        if n < self.period || n < self.k {
+            return Vec::new();
+        }
+
+        let kmask = (1u32 << (2 * self.k)) - 1;
+        let min_same_kmer_dist = (self.period * 2) / 3;
+        let mut last_pos_for_code: HashMap<u32, usize> = HashMap::new();
+        let mut raw_votes = vec![0.0f64; n];
+
+        let mut code = 0u32;
+        let mut valid_len = 0usize;
+        for (i, &b) in seq.iter().enumerate() {
+            if let Some(v) = encode_base(b) {
+                code = ((code << 2) | v) & kmask;
+                valid_len += 1;
+                if valid_len >= self.k {
+                    if let Some((phi, weight)) = self.phased_table[code as usize] {
+                        let pos = i + 1 - self.k;
+                        if let Some(&prev_pos) = last_pos_for_code.get(&code) {
+                            if pos - prev_pos < min_same_kmer_dist {
+                                last_pos_for_code.insert(code, pos);
+                                continue;
+                            }
+                        }
+                        last_pos_for_code.insert(code, pos);
+                        if pos >= phi {
+                            let v_idx = pos - phi;
+                            if v_idx < n {
+                                raw_votes[v_idx] += weight;
+                            }
+                        } else {
+                            let v1 = pos + self.period - phi;
+                            if v1 < n {
+                                raw_votes[v1] += weight * 0.75;
+                            }
+                        }
+                    }
+                }
+            } else {
+                code = 0;
+                valid_len = 0;
+            }
+        }
+
+        let mut smoothed = vec![0.0f64; n];
+        for i in 0..n {
+            if raw_votes[i] > 0.0 {
+                let w0 = raw_votes[i];
+                smoothed[i] += w0;
+                if i >= 1 { smoothed[i - 1] += 0.60 * w0; }
+                if i + 1 < n { smoothed[i + 1] += 0.60 * w0; }
+                if i >= 2 { smoothed[i - 2] += 0.25 * w0; }
+                if i + 2 < n { smoothed[i + 2] += 0.25 * w0; }
+            }
+        }
+
+        // Normalize smoothed votes by the mean local window maximum so spring penalty
+        // is scale-invariant across different constellation sizes and k-mer densities.
+        let win = self.period.max(10);
+        let mut win_max_sum = 0.0f64;
+        let mut win_count = 0usize;
+        let mut w_start = 0usize;
+        while w_start + win <= n {
+            let w_max = smoothed[w_start..w_start + win]
+                .iter()
+                .copied()
+                .fold(0.0f64, f64::max);
+            if w_max > 0.0 {
+                win_max_sum += w_max;
+                win_count += 1;
+            }
+            w_start += win;
+        }
+        let peak_scale = if win_count > 0 {
+            (win_max_sum / win_count as f64).max(0.5)
+        } else {
+            1.0
+        };
+
+        let m_est = ((n as f64) / (self.period as f64)).round().max(2.0) as usize;
+        let p_ratio = (n as f64) / (m_est as f64);
+        let use_pinned = pin_endpoints
+            && (p_ratio - (self.period as f64)).abs() <= 0.08 * (self.period as f64);
+        let p_eff = if use_pinned { p_ratio } else { self.period as f64 };
+
+        let d_min = ((p_eff * 0.94).round() as usize).max(5);
+        let d_max = ((p_eff * 1.06).round() as usize).max(d_min + 2);
+
+        if use_pinned {
+            let mut dp = vec![f64::NEG_INFINITY; n + 1];
+            let mut prev = vec![0usize; n + 1];
+            dp[0] = 0.0;
+
+            for i in d_min..=n {
+                let v = if i < n {
+                    (smoothed[i] / peak_scale).min(1.35) - 0.50
+                } else {
+                    0.0
+                };
+                let hi_d = d_max.min(i);
+                for d in d_min..=hi_d {
+                    let p_idx = i - d;
+                    let prev_score = dp[p_idx];
+                    if prev_score == f64::NEG_INFINITY {
+                        continue;
+                    }
+                    let dev = (d as f64 - p_eff) / p_eff;
+                    let cand = prev_score + v - 36.0 * dev * dev;
+                    if cand > dp[i] {
+                        dp[i] = cand;
+                        prev[i] = p_idx;
+                    }
+                }
+            }
+
+            if dp[n] > f64::NEG_INFINITY {
+                let mut cuts = Vec::with_capacity(m_est);
+                let mut cur = n;
+                while cur > 0 {
+                    let p_idx = prev[cur];
+                    cuts.push(p_idx);
+                    cur = p_idx;
+                }
+                cuts.reverse();
+                return cuts;
+            }
+        }
+
+        // Unpinned endpoints (for whole arrays with flanks or when n is not a clean multiple)
+        let mut dp = vec![f64::NEG_INFINITY; n];
+        let mut prev: Vec<Option<usize>> = vec![None; n];
+        let start_lim = d_max.min(n);
+        for i in 0..start_lim {
+            let v0 = (smoothed[i] / peak_scale).min(1.35);
+            dp[i] = v0 - (i as f64 / p_eff) * 0.35;
+        }
+        for i in d_min..n {
+            let v = (smoothed[i] / peak_scale).min(1.35) - 0.35;
+            let hi_d = d_max.min(i);
+            for d in d_min..=hi_d {
+                let p_idx = i - d;
+                let prev_score = dp[p_idx];
+                if prev_score == f64::NEG_INFINITY {
+                    continue;
+                }
+                let dev = (d as f64 - p_eff) / p_eff;
+                let cand = prev_score + v - 36.0 * dev * dev;
+                if cand > dp[i] {
+                    dp[i] = cand;
+                    prev[i] = Some(p_idx);
+                }
+            }
+        }
+
+        let end_start = n.saturating_sub(d_max);
+        let mut best_end = end_start;
+        let mut best_total = f64::NEG_INFINITY;
+        for i in end_start..n {
+            let total = dp[i] - ((n - i) as f64 / p_eff) * 0.35;
+            if total > best_total {
+                best_total = total;
+                best_end = i;
+            }
+        }
+
+        if best_total == f64::NEG_INFINITY {
+            return self.project_cuts(seq);
+        }
+
+        let mut cuts = Vec::with_capacity(m_est);
+        let mut cur = Some(best_end);
+        while let Some(idx) = cur {
+            cuts.push(idx);
+            cur = prev[idx];
+        }
+        cuts.reverse();
+        cuts
+    }
+
     /// Evaluate whether the cuts projected on `seqs` pass the structural verification gate.
     /// Returns `(passed, coverage, frac_1x)`.
     pub fn verify_cuts_on_ensemble(&self, seqs: &[&[u8]]) -> (bool, f64, f64) {

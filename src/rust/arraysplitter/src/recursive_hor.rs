@@ -793,7 +793,7 @@ fn decompose_heterogeneous_leaves_with_constellation(
     next_idx_per_level: &mut Vec<usize>,
     max_depth: &mut usize,
     min_len: usize,
-    params: &AutocorrParams,
+    _params: &AutocorrParams,
 ) {
     if all_base_monomers.is_empty() {
         return;
@@ -863,13 +863,8 @@ fn decompose_heterogeneous_leaves_with_constellation(
             continue;
         }
         let seq_bytes = leaf.sequence.as_bytes();
-        let cuts = constel.project_cuts(seq_bytes);
+        let cuts = constel.cut_sequence_dp(seq_bytes, true);
         if cuts.len() < 2 {
-            new_leaves.push(leaf);
-            continue;
-        }
-        let boundaries = split_multiplets(seq_bytes, &cuts, sub_p, params.multiplet_factor);
-        if boundaries.len() < 2 {
             new_leaves.push(leaf);
             continue;
         }
@@ -894,7 +889,7 @@ fn decompose_heterogeneous_leaves_with_constellation(
                 parent_idx: leaf.deepest_hor_idx,
                 period: sub_p,
                 autocorr: sub_ac,
-                n_children: boundaries.len(),
+                n_children: cuts.len(),
                 length: leaf.sequence.len(),
                 source: "constellation_anchor".to_string(),
                 sequence: leaf.sequence.clone(),
@@ -902,13 +897,17 @@ fn decompose_heterogeneous_leaves_with_constellation(
             (leaf.level, idx)
         };
 
-        for (sub_idx, b) in boundaries.iter().enumerate() {
-            let sub_seq = leaf.sequence[b.start..b.end].to_string();
-            let source = if b.source.contains("flank") {
-                "recursive_flank".to_string()
+        for sub_idx in 0..cuts.len() {
+            let start = cuts[sub_idx];
+            let end = if sub_idx + 1 < cuts.len() {
+                cuts[sub_idx + 1]
             } else {
-                "recursive_anchor".to_string()
+                leaf.sequence.len()
             };
+            if end <= start {
+                continue;
+            }
+            let sub_seq = leaf.sequence[start..end].to_string();
             new_leaves.push(BaseMonomer {
                 sequence: sub_seq,
                 hor_idx: leaf.hor_idx,
@@ -917,7 +916,7 @@ fn decompose_heterogeneous_leaves_with_constellation(
                 level: child_level,
                 period: sub_p,
                 autocorr: sub_ac,
-                source,
+                source: "recursive_anchor".to_string(),
                 ed_tmpl: None,
                 ed_prev: None,
                 ed_next: None,

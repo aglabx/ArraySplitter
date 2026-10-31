@@ -949,7 +949,7 @@ pub fn decompose_array_autocorr(
         if let Some(constel) = constellation::PhasedConstellation::build(&[seq], period, false) {
             let (passed, cov, frac_1x) = constel.verify_cuts_on_ensemble(&[seq]);
             if passed {
-                let cuts = constel.project_cuts(seq);
+                let cuts = constel.cut_sequence_dp(seq, false);
                 Some(anchor_by_period::AnchorResult {
                     kmer: constel.seed_kmer.clone(),
                     k: constel.k,
