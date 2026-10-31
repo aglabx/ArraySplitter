@@ -31,8 +31,8 @@ for h in pat mat; do
   [ -s "$O/$h.fna.fai" ] || samtools faidx "$O/$h.fna"
 done
 
-# one region -> upper case, 50 per line
-cut1() { samtools faidx "$1" "$2" | grep -v '^>' | tr -d '\n' | tr 'acgtn' 'ACGTN' | fold -w 50; echo; }
+# one region -> upper case, 50 per line (fold leaves the last line without a newline; echo adds it)
+cut1() { samtools faidx "$1" "$2" | grep -v '^>' | tr -d '\n' | tr 'a-z' 'A-Z' | fold -w 50; echo; }
 
 : > "$O/cat7.fa"
 while IFS=$'\t' read -r acc s e label; do
@@ -49,7 +49,5 @@ for h in pat mat; do
   done
 done
 
-# fold leaves no empty line, but a sequence whose length is a multiple of 50 would get one from the echo
-for f in cat7 pat mat; do sed -i '/^$/d' "$O/$f.fa"; done
 (cd "$O" && md5sum -c "$H/data/inputs.md5") || { echo "fetch_inputs: built FASTA differs from the paper's inputs" >&2; exit 1; }
 echo "fetch_inputs: cat7.fa pat.fa mat.fa written to $O and match data/inputs.md5"
