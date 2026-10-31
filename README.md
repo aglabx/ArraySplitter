@@ -323,6 +323,14 @@ Options:
   -V, --version            Print version
 ```
 
+## Releases
+
+- **v1.9.0** adds a per-level regime router: at every level of the descent, arrays whose units are
+  homogeneous keep the v1.8.2 single-anchor cut, and arrays whose monomers are too diverged for one exact
+  anchor are cut with a circularly phased 7-mer constellation (`src/rust/arraysplitter/src/constellation.rs`).
+  Benchmark: `scripts/benchmark/cat113/` (domestic cat 113-bp HORs).
+- **v1.8.2** (commit `433722a`) is the single-anchor release and the baseline in that benchmark.
+
 ## Citation
 
 If you use ArraySplitter in your research, please cite:
