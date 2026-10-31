@@ -17,6 +17,9 @@ bash fetch_inputs.sh inputs/
 bash run_cat113.sh work/ inputs/ \
   /path/to/arraysplitter-1.9.0 /path/to/arraysplitter-1.8.2 \
   /path/to/FASTGA /path/to/FasTAN /path/to/centroAnno
+
+# 3. the TRF columns of Table 4 (TRF 4.10.0)
+bash run_trf.sh work/ inputs/ /path/to/trf
 ```
 
 `work/eval_summary.txt` holds Tables 4 and 5, `work/figures/fig_cat113_heterogeneous_hor.pdf` is Figure 2, and
@@ -35,6 +38,7 @@ Python 3 with numpy and matplotlib, and `mafft` on `PATH` (Figure 2 aligns the m
 | `reference/calls_{pat,mat}.bed`, `reference/groups_{pat,mat}.tsv` | the nhmmer monomer calls and the arrays they define. pat1.0 calls are two-pass, mat1.0 calls are first-pass only |
 | `pipeline/` | the scripts that built the profiles, the calls and the fields (`cen113_profile_search.sh` → `cen113_monomer_table.sh` → `cen113_second_pass.sh` (pat) → `cen113_array_coverage.sh` → `cen113_fields_fasta.sh`; `trf_on_arrays.sh` cut the 7-array panel). They read a 2bit of each assembly; their headers give the arguments |
 | `fetch_inputs.sh`, `run_cat113.sh` | inputs and runs |
+| `run_trf.sh`, `trf_period_summary.py` | TRF at satellome's parameters (`2 5 7 80 10 50 2000`) and permissive ones (`2 3 3 75 20 30 2000`), and the per-period coverage summary behind Table 4 |
 | `eval/` | Rust evaluator for Tables 4-5 (`cat113_constellation_eval WORKDIR ONEview`) |
 | `plot_cat113_fields.py` | Figure 2 |
 
