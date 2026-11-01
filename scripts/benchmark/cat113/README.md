@@ -39,8 +39,8 @@ Python 3 with numpy and matplotlib, and `mafft` on `PATH` (Figure 2 aligns the m
 | `pipeline/` | the scripts that built the profiles, the calls and the fields (`cen113_profile_search.sh` → `cen113_monomer_table.sh` → `cen113_second_pass.sh` (pat) → `cen113_array_coverage.sh` → `cen113_fields_fasta.sh`; `trf_on_arrays.sh` cut the 7-array panel). They read a 2bit of each assembly; their headers give the arguments |
 | `fetch_inputs.sh`, `run_cat113.sh` | inputs and runs |
 | `run_trf.sh`, `trf_period_summary.py` | TRF at satellome's parameters (`2 5 7 80 10 50 2000`) and permissive ones (`2 3 3 75 20 30 2000`), and the per-period coverage summary behind Table 4 |
-| `eval/` | Rust evaluator for Tables 4-5 (`cat113_constellation_eval WORKDIR ONEview`) |
-| `plot_cat113_fields.py` | Figure 2 |
+| `eval/` | Rust evaluator for Tables 4-5 (`cat113_constellation_eval WORKDIR ONEview`); writes `table5.tsv` with one definition per column for every tool (longest period >= 300 bp, a 108-116-bp unit, both nested) |
+| `plot_cat113_fields.py` | Figure 2 (`RUN_DIR TABLE5_TSV OUT_DIR`); every number in a panel title is computed, panel D is `table5.tsv` |
 
 The nhmmer reference is an annotation with its own model, not ground truth: Table 5 reports monomer counts as
 a share of it, and a share above 100% means ArraySplitter emits more 108-116-bp units than nhmmer calls.

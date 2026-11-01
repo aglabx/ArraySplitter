@@ -66,6 +66,9 @@ fn parse_fastan_ano(oneview_bin: &str, ano_path: &str) -> HashMap<String, (usize
         .arg(ano_path)
         .output()
         .unwrap_or_else(|e| panic!("Failed to run ONEview on {}: {}", ano_path, e));
+    if !output.status.success() {
+        panic!("ONEview failed on {}: {}", ano_path, String::from_utf8_lossy(&output.stderr));
+    }
     let txt = String::from_utf8_lossy(&output.stdout);
 
     let mut names: Vec<String> = Vec::new();
@@ -152,7 +155,8 @@ fn parse_centroanno_dir(dir: &str) -> HashMap<String, (usize, usize, usize)> {
     let mut mono_lengths: HashMap<String, Vec<usize>> = HashMap::new();
     let mut span_by_aid: HashMap<String, BTreeMap<usize, usize>> = HashMap::new();
 
-    if let Ok(entries) = fs::read_dir(dir) {
+    let entries = fs::read_dir(dir).unwrap_or_else(|e| panic!("centroAnno dir {}: {}", dir, e));
+    {
         for entry in entries.flatten() {
             let path = entry.path();
             let Some(fname) = path.file_name().and_then(|s| s.to_str()) else {
@@ -225,100 +229,114 @@ fn parse_centroanno_dir(dir: &str) -> HashMap<String, (usize, usize, usize)> {
     out
 }
 
-/// Parse /usr/bin/time -v file -> (wall_seconds, max_rss_mb)
+/// Parse /usr/bin/time -v file -> (wall_seconds, max_rss_mib). A missing file or field is an error.
 fn parse_time_file(path: &str) -> (f64, f64) {
-    let Ok(txt) = fs::read_to_string(path) else {
-        return (0.0, 0.0);
-    };
-    let mut wall_s = 0.0f64;
-    let mut rss_kb = 0.0f64;
+    let txt = fs::read_to_string(path).unwrap_or_else(|e| panic!("time file {}: {}", path, e));
+    let mut wall_s: Option<f64> = None;
+    let mut rss_kb: Option<f64> = None;
     for line in txt.lines() {
         let l = line.trim();
         if l.starts_with("Elapsed (wall clock) time") {
-            if let Some(val) = l.split_whitespace().last() {
-                let parts: Vec<&str> = val.split(':').collect();
-                let mut sec = 0.0;
-                for p in parts {
-                    sec = sec * 60.0 + p.parse::<f64>().unwrap_or(0.0);
-                }
-                wall_s = sec;
+            let val = l.split_whitespace().last().unwrap_or_else(|| panic!("{}: empty wall-clock line", path));
+            let mut sec = 0.0;
+            for part in val.split(':') {
+                sec = sec * 60.0 + part.parse::<f64>().unwrap_or_else(|_| panic!("{}: bad wall clock {}", path, val));
             }
+            wall_s = Some(sec);
         } else if l.starts_with("Maximum resident set size") {
-            if let Some(val) = l.split_whitespace().last() {
-                rss_kb = val.parse::<f64>().unwrap_or(0.0);
-            }
+            let val = l.split_whitespace().last().unwrap_or_else(|| panic!("{}: empty RSS line", path));
+            rss_kb = Some(val.parse::<f64>().unwrap_or_else(|_| panic!("{}: bad RSS {}", path, val)));
         }
     }
-    (wall_s, rss_kb / 1024.0)
+    (
+        wall_s.unwrap_or_else(|| panic!("{}: no wall-clock line", path)),
+        rss_kb.unwrap_or_else(|| panic!("{}: no RSS line", path)) / 1024.0,
+    )
 }
 
-/// Sum the `calls` column from `<fields>.fa.tsv`
+/// Sum the `calls` column (6th) of data/fields_<h>.tsv. A missing file or bad number is an error.
 fn sum_nhmmer_from_fields_tsv(tsv_path: &str) -> usize {
+    let f = fs::File::open(tsv_path).unwrap_or_else(|e| panic!("{}: {}", tsv_path, e));
     let mut total = 0usize;
-    if let Ok(f) = fs::File::open(tsv_path) {
-        let reader = BufReader::new(f);
-        for (i, line) in reader.lines().flatten().enumerate() {
-            if i == 0 || line.starts_with('#') || line.trim().is_empty() {
-                continue;
-            }
-            let p: Vec<&str> = line.split('\t').collect();
-            if p.len() >= 6 {
-                total += p[5].trim().parse::<usize>().unwrap_or(0);
-            }
+    for (i, line) in BufReader::new(f).lines().enumerate() {
+        let line = line.unwrap_or_else(|e| panic!("{}: {}", tsv_path, e));
+        if i == 0 || line.trim().is_empty() {
+            continue;
         }
+        let p: Vec<&str> = line.split('\t').collect();
+        let c = p.get(5).unwrap_or_else(|| panic!("{} line {}: fewer than 6 columns", tsv_path, i + 1));
+        total += c.trim().parse::<usize>().unwrap_or_else(|_| panic!("{} line {}: bad calls {}", tsv_path, i + 1, c));
     }
     total
 }
 
-fn summarize_field_run(
-    label: &str,
-    rows: &[AsplitRow],
-    time_path: &str,
-    nhmmer_total: usize,
-) {
-    let n = rows.len();
-    let no_period = rows.iter().filter(|r| r.status == "no_period").count();
-    let hor_detected = rows
-        .iter()
-        .filter(|r| r.status != "no_period" && r.hor_period >= 300 && (r.hor_period as f64) >= 1.5 * (r.mono_period as f64))
-        .count();
-    let mono_113 = rows
-        .iter()
-        .filter(|r| r.status != "no_period" && (108..=116).contains(&r.mono_period))
-        .count();
-    let both_hor_and_113 = rows
-        .iter()
-        .filter(|r| {
-            r.status != "no_period"
-                && r.hor_period >= 300
-                && (r.hor_period as f64) >= 1.5 * (r.mono_period as f64)
-                && (108..=116).contains(&r.mono_period)
+/// One field as seen by one tool, with the same definitions for every tool (Table 5).
+struct FieldCall {
+    max_period: usize, // longest period the tool reports for the field
+    has_113: bool,     // a 108-116-bp unit is reported
+    nested: bool,      // a period >= 300 bp is reported above a 108-116-bp unit (two levels)
+    n113: usize,       // units reported at the 108-116-bp level
+}
+
+fn in113(p: usize) -> bool {
+    (108..=116).contains(&p)
+}
+
+fn asplit_calls(rows: &[AsplitRow]) -> HashMap<String, FieldCall> {
+    rows.iter()
+        .filter(|r| r.status != "no_period")
+        .map(|r| {
+            let has = in113(r.mono_period);
+            (
+                r.array_id.clone(),
+                FieldCall {
+                    max_period: r.hor_period.max(r.mono_period),
+                    has_113: has,
+                    nested: has && r.hor_period >= 300,
+                    n113: if has { r.mono_n } else { 0 },
+                },
+            )
         })
-        .count();
-    let total_113_monomers: usize = rows
-        .iter()
-        .filter(|r| r.status != "no_period" && (108..=116).contains(&r.mono_period))
-        .map(|r| r.mono_n)
-        .sum();
-    let (wall_s, rss_mb) = parse_time_file(time_path);
-    let recall_pct = if nhmmer_total > 0 {
-        100.0 * (total_113_monomers as f64) / (nhmmer_total as f64)
-    } else {
-        0.0
-    };
-    println!(
-        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}%\t{:.2}s\t{:.1}MB",
-        label,
-        n,
-        no_period,
-        hor_detected,
-        mono_113,
-        both_hor_and_113,
-        total_113_monomers,
-        recall_pct,
-        wall_s,
-        rss_mb
+        .collect()
+}
+
+/// FasTAN reports one level per interval; the field's period is the unit covering most of it.
+fn fastan_calls(m: &HashMap<String, (usize, usize, usize)>) -> HashMap<String, FieldCall> {
+    m.iter()
+        .map(|(a, &(p, n, _))| {
+            (a.clone(), FieldCall { max_period: p, has_113: in113(p), nested: false, n113: if in113(p) { n } else { 0 } })
+        })
+        .collect()
+}
+
+/// centroAnno: modal monomer length and the HOR length covering most of the field.
+fn centro_calls(m: &HashMap<String, (usize, usize, usize)>) -> HashMap<String, FieldCall> {
+    m.iter()
+        .map(|(a, &(mono, n, hor))| {
+            let has = in113(mono);
+            (
+                a.clone(),
+                FieldCall { max_period: mono.max(hor), has_113: has, nested: has && hor >= 300, n113: if has { n } else { 0 } },
+            )
+        })
+        .collect()
+}
+
+/// One Table 5 row; `out` collects the TSV rows for table5.tsv.
+fn table5_row(label: &str, ids: &[String], calls: &HashMap<String, FieldCall>, time_path: &str, nhmmer: usize, out: &mut Vec<String>) {
+    let got: Vec<&FieldCall> = ids.iter().filter_map(|id| calls.get(id)).collect();
+    let no_call = ids.len() - got.len();
+    let ge300 = got.iter().filter(|c| c.max_period >= 300).count();
+    let u113 = got.iter().filter(|c| c.has_113).count();
+    let nested = got.iter().filter(|c| c.nested).count();
+    let n113: usize = got.iter().map(|c| c.n113).sum();
+    let (ws, rss) = parse_time_file(time_path);
+    let row = format!(
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{:.2}\t{:.1}",
+        label, ids.len(), no_call, ge300, u113, nested, n113, 100.0 * n113 as f64 / nhmmer as f64, ws, rss
     );
+    println!("{}", row);
+    out.push(row);
 }
 
 fn main() {
@@ -429,98 +447,41 @@ fn main() {
         env!("CARGO_MANIFEST_DIR")
     ));
 
-    println!("\n## GENOME_WIDE_FIELDS_SUMMARY (nhmmer_pat_in_41_fields={}, nhmmer_mat_in_51_fields={})", nhmmer_pat_in_fields, nhmmer_mat_in_fields);
-    println!("run\tfields\tno_period\thor_fields\tmono113_fields\tboth_hor_and_113\ttotal_113_monomers\tnhmmer_ratio\twall_time\trss_mb");
-    summarize_field_run(
-        "cat_pat1.0_v182_D5000",
-        &old_pat_5,
-        &format!("{}/logs/asplit_v182_pat_d5k.time", bench_dir),
-        nhmmer_pat_in_fields,
-    );
-    summarize_field_run(
-        "cat_pat1.0_v182_D32000",
-        &old_pat_32,
-        &format!("{}/logs/asplit_v182_pat_d32k.time", bench_dir),
-        nhmmer_pat_in_fields,
-    );
-    summarize_field_run(
-        "cat_pat1.0_Constel_D5000",
-        &new_pat_5,
-        &format!("{}/logs/asplit_new_pat_d5k.time", bench_dir),
-        nhmmer_pat_in_fields,
-    );
-    summarize_field_run(
-        "cat_pat1.0_Constel_D32000",
-        &new_pat_32,
-        &format!("{}/logs/asplit_new_pat_d32k.time", bench_dir),
-        nhmmer_pat_in_fields,
-    );
-
-    summarize_field_run(
-        "cat_mat1.0_v182_D5000",
-        &old_mat_5,
-        &format!("{}/logs/asplit_v182_mat_d5k.time", bench_dir),
-        nhmmer_mat_in_fields,
-    );
-    summarize_field_run(
-        "cat_mat1.0_v182_D32000",
-        &old_mat_32,
-        &format!("{}/logs/asplit_v182_mat_d32k.time", bench_dir),
-        nhmmer_mat_in_fields,
-    );
-    summarize_field_run(
-        "cat_mat1.0_Constel_D5000",
-        &new_mat_5,
-        &format!("{}/logs/asplit_new_mat_d5k.time", bench_dir),
-        nhmmer_mat_in_fields,
-    );
-    summarize_field_run(
-        "cat_mat1.0_Constel_D32000",
-        &new_mat_32,
-        &format!("{}/logs/asplit_new_mat_d32k.time", bench_dir),
-        nhmmer_mat_in_fields,
-    );
-
-    // 3. Summarize FasTAN and centroAnno on cat_pat1.0 (41 fields) and cat_mat1.0 (51 fields)
+    // 2-3. Table 5: every tool with the same field definitions (struct FieldCall)
     let fastan_pat = parse_fastan_ano(oneview, &format!("{}/fastan/pat.1ano", bench_dir));
     let fastan_mat = parse_fastan_ano(oneview, &format!("{}/fastan/mat.1ano", bench_dir));
     let centro_pat = parse_centroanno_dir(&format!("{}/centroanno/pat", bench_dir));
     let centro_mat = parse_centroanno_dir(&format!("{}/centroanno/mat", bench_dir));
 
-    println!("\n## COMPARATOR_FIELD_SUMMARY");
-    println!("panel_tool\tfields_total\tfields_reported\thor_fields\tmono113_fields\tboth_hor_and_113\ttotal_113_units\twall_time\trss_mb");
-    for (label, ids, ft_map, tpath) in [
-        ("cat_pat1.0_FasTAN", &pat_ids, &fastan_pat, format!("{}/logs/fastan_pat.time", bench_dir)),
-        ("cat_mat1.0_FasTAN", &mat_ids, &fastan_mat, format!("{}/logs/fastan_mat.time", bench_dir)),
+    println!(
+        "\n## TABLE5 (nhmmer calls in fields: pat {}, mat {}; also written to {}/table5.tsv)",
+        nhmmer_pat_in_fields, nhmmer_mat_in_fields, work
+    );
+    let header = "run\tfields\tno_call\tperiod_ge300\tunit_108_116\tnested_ge300_over_108_116\tunits_108_116\tpct_of_nhmmer\twall_s\trss_mib";
+    println!("{}", header);
+    let mut rows: Vec<String> = Vec::new();
+    for (hap, ids, nh, runs) in [
+        ("pat", &pat_ids, nhmmer_pat_in_fields, [(&old_pat_5, "v182_D5000", "asplit_v182_pat_d5k"), (&old_pat_32, "v182_D32000", "asplit_v182_pat_d32k"),
+            (&new_pat_5, "v190_D5000", "asplit_new_pat_d5k"), (&new_pat_32, "v190_D32000", "asplit_new_pat_d32k")]),
+        ("mat", &mat_ids, nhmmer_mat_in_fields, [(&old_mat_5, "v182_D5000", "asplit_v182_mat_d5k"), (&old_mat_32, "v182_D32000", "asplit_v182_mat_d32k"),
+            (&new_mat_5, "v190_D5000", "asplit_new_mat_d5k"), (&new_mat_32, "v190_D32000", "asplit_new_mat_d32k")]),
     ] {
-        let rep = ids.iter().filter(|id| ft_map.contains_key(*id)).count();
-        let hor_f = ids.iter().filter(|id| ft_map.get(*id).map_or(false, |&(p, _, _)| p >= 300)).count();
-        let m113_f = ids.iter().filter(|id| ft_map.get(*id).map_or(false, |&(p, _, _)| (108..=116).contains(&p))).count();
-        let u113: usize = ids
-            .iter()
-            .filter_map(|id| ft_map.get(id))
-            .filter(|&&(p, _, _)| (108..=116).contains(&p))
-            .map(|&(_, n, _)| n)
-            .sum();
-        let (ws, rss) = parse_time_file(&tpath);
-        println!("{}\t{}\t{}\t{}\t{}\t0\t{}\t{:.2}s\t{:.1}MB", label, ids.len(), rep, hor_f, m113_f, u113, ws, rss);
+        for (r, tag, tf) in runs {
+            table5_row(&format!("{}_ArraySplitter_{}", hap, tag), ids, &asplit_calls(r), &format!("{}/logs/{}.time", bench_dir, tf), nh, &mut rows);
+        }
+        let (fm, cm) = if hap == "pat" { (&fastan_pat, &centro_pat) } else { (&fastan_mat, &centro_mat) };
+        table5_row(&format!("{}_FasTAN", hap), ids, &fastan_calls(fm), &format!("{}/logs/fastan_{}.time", bench_dir, hap), nh, &mut rows);
+        table5_row(&format!("{}_centroAnno", hap), ids, &centro_calls(cm), &format!("{}/logs/centro_{}.time", bench_dir, hap), nh, &mut rows);
+        let c113: Vec<String> = ids.iter().filter(|id| centro_calls(cm).get(*id).map_or(false, |c| c.has_113))
+            .map(|id| id.split('|').next().unwrap_or(id).to_string()).collect();
+        println!("# {} centroAnno fields with a 108-116-bp unit: {}", hap, c113.join(", "));
     }
-
-    for (label, ids, ca_map, tpath) in [
-        ("cat_pat1.0_centroAnno", &pat_ids, &centro_pat, format!("{}/logs/centro_pat.time", bench_dir)),
-        ("cat_mat1.0_centroAnno", &mat_ids, &centro_mat, format!("{}/logs/centro_mat.time", bench_dir)),
-    ] {
-        let rep = ids.iter().filter(|id| ca_map.contains_key(*id)).count();
-        let hor_f = ids.iter().filter(|id| ca_map.get(*id).map_or(false, |&(m, _, h)| h >= 300 || m >= 300)).count();
-        let m113_f = ids.iter().filter(|id| ca_map.get(*id).map_or(false, |&(m, _, _)| (108..=116).contains(&m))).count();
-        let both_f = ids.iter().filter(|id| ca_map.get(*id).map_or(false, |&(m, _, h)| (108..=116).contains(&m) && h >= 300)).count();
-        let u113: usize = ids
-            .iter()
-            .filter_map(|id| ca_map.get(id))
-            .filter(|&&(m, _, _)| (108..=116).contains(&m))
-            .map(|&(_, n, _)| n)
-            .sum();
-        let (ws, rss) = parse_time_file(&tpath);
-        println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}s\t{:.1}MB", label, ids.len(), rep, hor_f, m113_f, both_f, u113, ws, rss);
+    let mut body = String::from(header);
+    body.push('\n');
+    for r in &rows {
+        body.push_str(r);
+        body.push('\n');
     }
+    fs::write(format!("{}/table5.tsv", work), body).unwrap_or_else(|e| panic!("write table5.tsv: {}", e));
 }
+

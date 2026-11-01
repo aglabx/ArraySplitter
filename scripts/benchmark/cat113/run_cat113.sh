@@ -15,7 +15,8 @@
 #   asplit_v182/cat7_d32k_rt0.3             ASPLIT_V182 --max-period 32000 --recursion-termination 0.3
 #   fastan/{cat7,pat,mat}.1ano              FasTAN -ampv -T4
 #   centroanno/{cat7,pat,mat}               centroAnno -x anno-asm
-# Then the evaluator (eval/, Tables 4-5 -> eval_summary.txt) and the Figure 2 script (figures/).
+# Then the evaluator (eval/: Tables 4-5 -> eval_summary.txt, Table 5 -> table5.tsv) and the Figure 2 script
+# (figures/; panel D is drawn from table5.tsv, panels A-C from asplit_new/cat7_d32k.*).
 # WORKDIR/binaries.md5 records every binary; WORKDIR/MANIFEST.md5 pins every deterministic output.
 # Any failed lane stops the run.
 set -euo pipefail
@@ -57,8 +58,8 @@ done
 (cd "$H/eval" && cargo build --release --quiet)
 md5sum "$H/eval/target/release/cat113_constellation_eval" >> "$W/binaries.md5"
 "$H/eval/target/release/cat113_constellation_eval" "$W" "$FG/ONEview" > "$W/eval_summary.txt"
-python3 "$H/plot_cat113_fields.py" "$W/asplit_new" "$W/figures" > "$W/logs/figures.log" 2>&1 \
+python3 "$H/plot_cat113_fields.py" "$W/asplit_new" "$W/table5.tsv" "$W/figures" > "$W/logs/figures.log" 2>&1 \
   || { echo "run_cat113: figure script failed (logs/figures.log)" >&2; exit 1; }
 
-(cd "$W" && find asplit_new asplit_v182 centroanno -type f | sort | xargs md5sum; md5sum fastan/*.1ano eval_summary.txt) > "$W/MANIFEST.md5"
+(cd "$W" && find asplit_new asplit_v182 centroanno -type f | sort | xargs md5sum; md5sum fastan/*.1ano eval_summary.txt table5.tsv) > "$W/MANIFEST.md5"
 echo "run_cat113: done, $(wc -l < "$W/MANIFEST.md5") files in $W/MANIFEST.md5"
