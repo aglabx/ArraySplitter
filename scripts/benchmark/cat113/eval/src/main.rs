@@ -461,10 +461,10 @@ fn main() {
     println!("{}", header);
     let mut rows: Vec<String> = Vec::new();
     for (hap, ids, nh, runs) in [
-        ("pat", &pat_ids, nhmmer_pat_in_fields, [(&old_pat_5, "v182_D5000", "asplit_v182_pat_d5k"), (&old_pat_32, "v182_D32000", "asplit_v182_pat_d32k"),
-            (&new_pat_5, "v190_D5000", "asplit_new_pat_d5k"), (&new_pat_32, "v190_D32000", "asplit_new_pat_d32k")]),
-        ("mat", &mat_ids, nhmmer_mat_in_fields, [(&old_mat_5, "v182_D5000", "asplit_v182_mat_d5k"), (&old_mat_32, "v182_D32000", "asplit_v182_mat_d32k"),
-            (&new_mat_5, "v190_D5000", "asplit_new_mat_d5k"), (&new_mat_32, "v190_D32000", "asplit_new_mat_d32k")]),
+        ("pat", &pat_ids, nhmmer_pat_in_fields, [(&old_pat_5, "v182_single_anchor_D5000", "asplit_v182_pat_d5k"), (&old_pat_32, "v182_single_anchor_D32000", "asplit_v182_pat_d32k"),
+            (&new_pat_5, "constellation_D5000", "asplit_new_pat_d5k"), (&new_pat_32, "constellation_D32000", "asplit_new_pat_d32k")]),
+        ("mat", &mat_ids, nhmmer_mat_in_fields, [(&old_mat_5, "v182_single_anchor_D5000", "asplit_v182_mat_d5k"), (&old_mat_32, "v182_single_anchor_D32000", "asplit_v182_mat_d32k"),
+            (&new_mat_5, "constellation_D5000", "asplit_new_mat_d5k"), (&new_mat_32, "constellation_D32000", "asplit_new_mat_d32k")]),
     ] {
         for (r, tag, tf) in runs {
             table5_row(&format!("{}_ArraySplitter_{}", hap, tag), ids, &asplit_calls(r), &format!("{}/logs/{}.time", bench_dir, tf), nh, &mut rows);

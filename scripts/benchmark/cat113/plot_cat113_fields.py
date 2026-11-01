@@ -405,8 +405,8 @@ def make_paper_figure(monomers, pat_summary, mat_summary):
     # Panel D: Multi-Tool Benchmark Comparison across all 92 Fields (cat_pat1.0 + cat_mat1.0)
     ax_d = fig.add_subplot(gs[1, 1])
     t5 = {r["run"]: r for r in load_tsv(TABLE5)}
-    lanes = [("ArraySplitter\nv1.9.0 (D = 32k)", "ArraySplitter_v190_D32000"),
-             ("ArraySplitter\nv1.8.2 (D = 32k)", "ArraySplitter_v182_D32000"),
+    lanes = [("ArraySplitter\nconstellation (D = 32k)", "ArraySplitter_constellation_D32000"),
+             ("ArraySplitter v1.8.2\nsingle anchor (D = 32k)", "ArraySplitter_v182_single_anchor_D32000"),
              ("FasTAN", "FasTAN"), ("centroAnno", "centroAnno")]
     tools = [lab for lab, _ in lanes]
     def both(key, col):
