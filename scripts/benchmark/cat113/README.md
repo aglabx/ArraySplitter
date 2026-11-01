@@ -40,6 +40,7 @@ Python 3 with numpy and matplotlib, and `mafft` on `PATH` (Figure 2 aligns the m
 | `fetch_inputs.sh`, `run_cat113.sh` | inputs and runs |
 | `run_trf.sh`, `trf_period_summary.py` | TRF at satellome's parameters (`2 5 7 80 10 50 2000`) and permissive ones (`2 3 3 75 20 30 2000`), and the per-period coverage summary behind Table 4 |
 | `eval/` | Rust evaluator for Tables 4-5 (`cat113_constellation_eval WORKDIR ONEview`); writes `table5.tsv` with one definition per column for every tool (longest period >= 300 bp, a 108-116-bp unit, both nested) |
+| `cat113_boundaries.py` | monomer boundaries against the `nhmmer` call ends, raw and after one offset per field, with random-phase and random-position nulls (`python3 -I cat113_boundaries.py work/ inputs/ reference/`) |
 | `plot_cat113_fields.py` | Figure 2 (`RUN_DIR TABLE5_TSV OUT_DIR`); every number in a panel title is computed, panel D is `table5.tsv` |
 
 The nhmmer reference is an annotation with its own model, not ground truth: Table 5 reports monomer counts as
