@@ -38,5 +38,5 @@ for set in satellome permissive; do
   python3 -I "$H/trf_period_summary.py" "$W/trf_$set.tsv" "$H/data/cat7_arrays.bed" 100-126,200-252,440-530 > "$W/trf_summary_$set.tsv"
 done
 echo "run_trf: $W/trf_summary_satellome.tsv and $W/trf_summary_permissive.tsv"
-nf=$(cat "$W"/trf_*/FAILED.tsv | grep -vc '^label')
+nf=$(awk 'FNR > 1' "$W"/trf_*/FAILED.tsv | wc -l)
 [ "$nf" -eq 0 ] || { echo "run_trf: $nf array/parameter pair(s) without TRF output, named in $W/trf_*/FAILED.tsv" >&2; exit 3; }
