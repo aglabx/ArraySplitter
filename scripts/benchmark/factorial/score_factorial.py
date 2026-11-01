@@ -55,13 +55,34 @@ def _near(b, arr):
     if i > 0: best = min(best, abs(arr[i-1]-b))
     return best
 
+def _matched_one_to_one(rs, ts, tol):
+    """Number of reported/true boundary pairs within tol, each boundary used at most once
+    (closest pairs first). Nearest-neighbour scoring let several cuts around one true boundary
+    all count as correct."""
+    pairs = []
+    j0 = 0
+    for i, r in enumerate(rs):
+        while j0 < len(ts) and ts[j0] < r - tol:
+            j0 += 1
+        j = j0
+        while j < len(ts) and ts[j] <= r + tol:
+            pairs.append((abs(r - ts[j]), i, j))
+            j += 1
+    pairs.sort()
+    used_r, used_t, m = set(), set(), 0
+    for _, i, j in pairs:
+        if i not in used_r and j not in used_t:
+            used_r.add(i); used_t.add(j); m += 1
+    return m
+
 def boundary_prf(reported, true, tol):
     if not true and not reported: return 1.0, 1.0, 1.0
     if not true: return 0.0, float('nan'), 0.0
     if not reported: return float('nan'), 0.0, 0.0
     rs, ts = sorted(reported), sorted(true)
-    prec = sum(_near(b, ts) <= tol for b in rs) / len(rs)
-    rec = sum(_near(b, rs) <= tol for b in ts) / len(ts)
+    m = _matched_one_to_one(rs, ts, tol)
+    prec = m / len(rs)
+    rec = m / len(ts)
     f1 = 2*prec*rec/(prec+rec) if (prec+rec) > 0 else 0.0
     return prec, rec, f1
 
