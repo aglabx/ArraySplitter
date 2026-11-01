@@ -17,7 +17,8 @@
 #   centroanno/{cat7,pat,mat}               centroAnno -x anno-asm
 # Then the evaluator (eval/: Tables 4-5 -> eval_summary.txt, Table 5 -> table5.tsv) and the Figure 2 script
 # (figures/; panel D is drawn from table5.tsv, panels A-C from asplit_new/cat7_d32k.*).
-# WORKDIR/binaries.md5 records every binary; WORKDIR/MANIFEST.md5 pins every deterministic output.
+# tiling.txt: do the children of each split unit tile it (check_tiling.py)? WORKDIR/binaries.md5 records each binary;
+# WORKDIR/MANIFEST.md5 pins the deterministic outputs.
 # Any failed lane stops the run.
 set -euo pipefail
 W=${1:?workdir}; IN=${2:?inputs dir}; NEW=${3:?arraysplitter}; OLD=${4:?arraysplitter v1.8.2}
@@ -61,5 +62,7 @@ md5sum "$H/eval/target/release/cat113_constellation_eval" >> "$W/binaries.md5"
 python3 "$H/plot_cat113_fields.py" "$W/asplit_new" "$W/table5.tsv" "$W/figures" > "$W/logs/figures.log" 2>&1 \
   || { echo "run_cat113: figure script failed (logs/figures.log)" >&2; exit 1; }
 
-(cd "$W" && find asplit_new asplit_v182 centroanno -type f | sort | xargs md5sum; md5sum fastan/*.1ano eval_summary.txt table5.tsv) > "$W/MANIFEST.md5"
+python3 -I "$H/../check_tiling.py" "$W"/asplit_new/{cat7,pat,mat}_{d5k,d32k} > "$W/tiling.txt" \
+  || { echo "run_cat113: tiling check failed to run" >&2; exit 1; }
+(cd "$W" && find asplit_new asplit_v182 centroanno -type f | sort | xargs md5sum; md5sum fastan/*.1ano eval_summary.txt table5.tsv tiling.txt) > "$W/MANIFEST.md5"
 echo "run_cat113: done, $(wc -l < "$W/MANIFEST.md5") files in $W/MANIFEST.md5"

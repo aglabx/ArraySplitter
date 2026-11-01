@@ -325,6 +325,10 @@ Options:
 
 ## Releases
 
+- **v1.9.1** keeps the piece before the first constellation cut as a flank child (v1.9.0 dropped it, so a few HOR
+  copies were not tiled by their monomers), and adds `scripts/benchmark/check_tiling.py`, one-to-one boundary matching
+  in the sweep-set scorer, and the corrected cat benchmark scripts (Table 5 / Figure 2 from one table, boundary check
+  against `nhmmer`).
 - **v1.9.0** adds a per-level regime router: at every level of the descent, arrays whose units are
   homogeneous keep the v1.8.2 single-anchor cut, and arrays whose monomers are too diverged for one exact
   anchor are cut with a circularly phased 7-mer constellation (`src/rust/arraysplitter/src/constellation.rs`).

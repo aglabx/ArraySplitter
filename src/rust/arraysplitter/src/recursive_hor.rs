@@ -868,6 +868,9 @@ fn decompose_heterogeneous_leaves_with_constellation(
             new_leaves.push(leaf);
             continue;
         }
+        // A free-ended cut can start after 0; the piece before it is kept as a flank child so that the
+        // children always tile the leaf (v1.9.0 dropped it).
+        let (bounds, leading_flank) = leaf_piece_bounds(&cuts);
 
         let sub_ac = autocorrelation(seq_bytes, sub_p);
         let child_level = leaf.level + 1;
@@ -889,7 +892,7 @@ fn decompose_heterogeneous_leaves_with_constellation(
                 parent_idx: leaf.deepest_hor_idx,
                 period: sub_p,
                 autocorr: sub_ac,
-                n_children: cuts.len(),
+                n_children: bounds.len(),
                 length: leaf.sequence.len(),
                 source: "constellation_anchor".to_string(),
                 sequence: leaf.sequence.clone(),
@@ -897,10 +900,10 @@ fn decompose_heterogeneous_leaves_with_constellation(
             (leaf.level, idx)
         };
 
-        for sub_idx in 0..cuts.len() {
-            let start = cuts[sub_idx];
-            let end = if sub_idx + 1 < cuts.len() {
-                cuts[sub_idx + 1]
+        for sub_idx in 0..bounds.len() {
+            let start = bounds[sub_idx];
+            let end = if sub_idx + 1 < bounds.len() {
+                bounds[sub_idx + 1]
             } else {
                 leaf.sequence.len()
             };
@@ -916,7 +919,11 @@ fn decompose_heterogeneous_leaves_with_constellation(
                 level: child_level,
                 period: sub_p,
                 autocorr: sub_ac,
-                source: "recursive_anchor".to_string(),
+                source: if leading_flank && sub_idx == 0 {
+                    "recursive_flank".to_string()
+                } else {
+                    "recursive_anchor".to_string()
+                },
                 ed_tmpl: None,
                 ed_prev: None,
                 ed_next: None,
@@ -931,8 +938,30 @@ fn decompose_heterogeneous_leaves_with_constellation(
     *all_base_monomers = new_leaves;
 }
 
+/// Piece start positions for a leaf cut at `cuts`: 0 is prepended when the first cut is after the leaf start,
+/// and the flag says that the first piece is that leading flank.
+fn leaf_piece_bounds(cuts: &[usize]) -> (Vec<usize>, bool) {
+    let leading = cuts.first().map_or(false, |&c| c > 0);
+    let mut bounds = Vec::with_capacity(cuts.len() + 1);
+    if leading {
+        bounds.push(0);
+    }
+    bounds.extend_from_slice(cuts);
+    (bounds, leading)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn leaf_piece_bounds_keeps_the_leading_piece() {
+        let (b, lead) = super::leaf_piece_bounds(&[228, 341, 454]);
+        assert_eq!(b, vec![0, 228, 341, 454]);
+        assert!(lead);
+        let (b, lead) = super::leaf_piece_bounds(&[0, 113, 226]);
+        assert_eq!(b, vec![0, 113, 226]);
+        assert!(!lead);
+    }
+
     use super::*;
 
     #[test]
